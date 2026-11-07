@@ -144,19 +144,135 @@ const Sound = (() => {
 
   /* ---------- 楽器の一覧（カテゴリーごと） ---------- */
   const CATS = [
-    { id: 'key', name: '鍵盤', icon: '🎹', list: [['piano', 'ピアノ', 0], ['epiano', 'エレクトリックピアノ1', 4], ['epiano2', 'エレクトリックピアノ2', 5], ['clavinet', 'クラビネット', 7], ['harpsichord', 'チェンバロ', 6], ['organ', 'オルガン', 16], ['pipeorgan', 'パイプオルガン', 19], ['accordion', 'アコーディオン', 21], ['kenhamo', '鍵盤ハーモニカ', 22]] },
-    { id: 'orch', name: 'オーケストラ', icon: '🎻', list: [['strings', 'ストリングス', 48], ['pizz', 'ピチカート', 45], ['acbass', 'アコースティックベース', 32], ['brassens', 'ブラスアンサンブル', 61], ['trumpet', 'トランペット', 56], ['trombone', 'トロンボーン', 57], ['horn', 'ホルン', 60], ['tuba', 'チューバ', 58], ['sax', 'サクソフォーン', 65], ['clarinet', 'クラリネット', 71], ['oboe', 'オーボエ', 68], ['bassoon', 'ファゴット', 70], ['flute', 'フルート', 73], ['recorder', 'リコーダー', 74], ['xylophone', '木琴', 13], ['glocken', '鉄琴', 9], ['harp', 'ハープ', 46], ['tubularbell', 'チューブラーベル', 14], ['timpani', 'ティンパニ', 47]] },
-    { id: 'wa', name: '和楽器', icon: '🎎', list: [['koto', '琴', 107], ['shamisen', '三味線', 106], ['sanshin', '三線', 106], ['shakuhachi', '尺八', 77]] },
-    { id: 'band', name: 'ギター・ベース', icon: '🎸', list: [['guitar', 'アコースティックギター', 24], ['eguitar', 'エレクトリックギター', 27], ['rockguitar', 'ロックギター', 30], ['ukulele', 'ウクレレ', 24], ['ebass', 'エレクトリックベース', 33]] },
+    { id: 'key', name: '鍵盤', icon: '🎹', list: [['piano', 'ピアノ', 0], ['epiano', 'エレクトリックピアノ1', 4], ['epiano2', 'エレクトリックピアノ2', 5], ['clavinet', 'クラビネット', 7], ['harpsichord', 'チェンバロ', 6], ['organ', 'オルガン', 16], ['pipeorgan', 'パイプオルガン', 19], ['accordion', 'アコーディオン', 21], ['kenhamo', '鍵盤ハーモニカ', 22], ['celesta', 'チェレスタ', 8]] },
+    { id: 'orch', name: 'オーケストラ', icon: '🎻', list: [['strings', 'ストリングス', 48], ['violin', 'バイオリン', 40], ['cello', 'チェロ', 42], ['contrabass', 'コントラバス', 43], ['pizz', 'ピチカート', 45], ['acbass', 'アコースティックベース', 32], ['brassens', 'ブラスアンサンブル', 61], ['trumpet', 'トランペット', 56], ['trombone', 'トロンボーン', 57], ['horn', 'ホルン', 60], ['tuba', 'チューバ', 58], ['sax', 'サクソフォーン', 65], ['clarinet', 'クラリネット', 71], ['oboe', 'オーボエ', 68], ['bassoon', 'ファゴット', 70], ['piccolo', 'ピッコロ', 72], ['flute', 'フルート', 73], ['recorder', 'リコーダー', 74], ['ocarina', 'オカリナ', 79], ['xylophone', '木琴', 13], ['marimba', 'マリンバ', 12], ['vibraphone', 'ビブラフォン', 11], ['glocken', '鉄琴', 9], ['harp', 'ハープ', 46], ['tubularbell', 'チューブラーベル', 14], ['timpani', 'ティンパニ', 47]] },
+    { id: 'wa', name: '和楽器', icon: '🎎', list: [['koto', '琴', 107], ['shamisen', '三味線', 106], ['sanshin', '三線', 106], ['shakuhachi', '尺八', 77], ['taikodrum', '太鼓（音程つき）', 116]] },
+    { id: 'band', name: 'ギター・ベース', icon: '🎸', list: [['guitar', 'クラシックギター', 24], ['steelguitar', 'フォークギター', 25], ['eguitar', 'エレクトリックギター', 27], ['rockguitar', 'ロックギター', 30], ['ukulele', 'ウクレレ', 24], ['ebass', 'エレクトリックベース', 33]] },
     { id: 'synth', name: 'シンセサイザー', icon: '🎛', list: [['synth1', 'シンセ（やわらか）', 89], ['synth2', 'シンセ（四角い音）', 80], ['synth3', 'シンセ（ふんわり）', 88], ['synthbell', 'シンセベル', 98], ['lead1', 'シンセリード1', 81], ['lead2', 'シンセリード2', 80], ['lead3', 'シンセリード3', 87], ['chip', 'ピコピコ（8bit）', 80], ['chip2', 'ピコピコ（やわらか）', 80], ['sbass1', 'シンセベース1', 38], ['sbass2', 'シンセベース2', 39], ['sbass3', 'シンセベース3', 38]] },
-    { id: 'other', name: 'その他', icon: '✨', list: [['steeldrum', 'スチールドラム', 114], ['musicbox', 'オルゴール', 10], ['choir', 'コーラス（あー）', 52], ['bagpipe', 'バグパイプ', 109]] },
+    { id: 'other', name: 'その他', icon: '✨', list: [['steeldrum', 'スチールドラム', 114], ['kalimba', 'カリンバ', 108], ['musicbox', 'オルゴール', 10], ['choir', 'コーラス（あー）', 52], ['bagpipe', 'バグパイプ', 109]] },
   ];
+
+  /* ============================================================
+     本物の楽器の録音（FluidR3 GM サウンドフォント／CC BY 3.0）
+     samples/<楽器>.js を必要になったときだけ読み込みます。
+     3半音ごとの録音を使い、そのあいだの音は高さを少しずらして鳴らします。
+     ============================================================ */
+  // 楽器ごとの音量の補正（検証スクリプトで測った値から計算。どの楽器でも同じくらいの大きさに聞こえるように）
+  const GAIN_SYN = {"acbass": 0.73, "accordion": 1.45, "bagpipe": 1.75, "bassoon": 1.3, "brassens": 1.39, "celesta": 0.61, "cello": 1.63, "chip": 0.74, "chip2": 0.6, "choir": 1.98, "clarinet": 0.66, "clavinet": 1.25, "contrabass": 0.73, "ebass": 0.86, "eguitar": 0.44, "epiano": 0.46, "epiano2": 0.67, "flute": 0.38, "glocken": 0.53, "guitar": 0.78, "harp": 0.66, "harpsichord": 0.93, "horn": 0.75, "kalimba": 0.61, "kenhamo": 0.88, "koto": 0.75, "lead1": 1.27, "lead2": 0.73, "lead3": 1.7, "musicbox": 0.61, "oboe": 3.63, "ocarina": 0.36, "organ": 0.44, "piano": 0.63, "piccolo": 0.38, "pipeorgan": 0.49, "pizz": 1.45, "recorder": 0.36, "rockguitar": 0.34, "sanshin": 0.93, "sax": 0.88, "sbass1": 1.14, "sbass2": 0.83, "sbass3": 0.33, "shakuhachi": 0.48, "steeldrum": 0.64, "steelguitar": 0.78, "strings": 1.63, "synth1": 1.71, "synth2": 0.84, "synth3": 0.79, "synthbell": 0.62, "taikodrum": 0.37, "timpani": 0.38, "trombone": 1.1, "trumpet": 1.13, "tuba": 0.53, "tubularbell": 0.51, "ukulele": 1.1, "vibraphone": 0.53, "violin": 1.63};
+  const GAIN_REAL = {"acbass": 2.69, "accordion": 3.59, "bagpipe": 3.2, "bassoon": 3.09, "brassens": 3.74, "celesta": 2.48, "cello": 7.37, "choir": 5.62, "clarinet": 2.34, "clavinet": 2.68, "contrabass": 7.94, "ebass": 2.33, "eguitar": 4.17, "epiano": 2.08, "epiano2": 3.39, "flute": 3.05, "glocken": 3.13, "guitar": 3.11, "harp": 2.16, "harpsichord": 2.57, "horn": 2.44, "kalimba": 5.07, "kenhamo": 3.63, "koto": 4.27, "marimba": 2.63, "musicbox": 3.51, "oboe": 3.37, "ocarina": 2.13, "organ": 3.31, "piano": 4.22, "piccolo": 3.04, "pipeorgan": 3.2, "pizz": 2.53, "recorder": 2.24, "rockguitar": 1.92, "sanshin": 6.46, "sax": 2.32, "shakuhachi": 1.47, "shamisen": 6.46, "steeldrum": 3.22, "steelguitar": 2.65, "strings": 4.12, "taikodrum": 2.65, "timpani": 7.94, "trombone": 1.67, "trumpet": 3.57, "tuba": 1.4, "tubularbell": 2.6, "vibraphone": 3.96, "violin": 3.72, "xylophone": 7.94};
+  const SAMPLE_IDS = ['piano', 'epiano', 'epiano2', 'clavinet', 'harpsichord', 'organ', 'pipeorgan', 'accordion', 'kenhamo', 'celesta', 'glocken', 'musicbox', 'vibraphone', 'marimba', 'xylophone', 'tubularbell', 'strings', 'violin', 'cello', 'contrabass', 'pizz', 'harp', 'timpani', 'choir', 'trumpet', 'trombone', 'horn', 'tuba', 'brassens', 'sax', 'oboe', 'clarinet', 'bassoon', 'flute', 'piccolo', 'recorder', 'ocarina', 'acbass', 'guitar', 'steelguitar', 'eguitar', 'rockguitar', 'ebass', 'koto', 'shamisen', 'shakuhachi', 'steeldrum', 'kalimba', 'bagpipe', 'taikodrum'];
+  const SAMPLE_FILE = { sanshin: 'shamisen' };
+  // 録音しかない楽器を電子音で代わりに鳴らすときの楽器
+  const SYNTH_FALLBACK = { celesta: 'musicbox', vibraphone: 'glocken', marimba: 'xylophone', violin: 'strings', cello: 'strings', contrabass: 'acbass', piccolo: 'flute', ocarina: 'recorder', steelguitar: 'guitar', kalimba: 'musicbox', taikodrum: 'timpani' };
+  // のばす楽器（録音が終わってもくりかえして鳴らす）
+  const SUSTAIN = new Set(['organ', 'pipeorgan', 'accordion', 'kenhamo', 'strings', 'violin', 'cello', 'contrabass', 'choir', 'trumpet', 'trombone', 'horn', 'tuba', 'brassens', 'sax', 'oboe', 'clarinet', 'bassoon', 'flute', 'piccolo', 'recorder', 'ocarina', 'shakuhachi', 'bagpipe']);
+  const DRUM_SAMPLES = ['kick', 'snare', 'hihat', 'ohat', 'tomL', 'tomH', 'ride', 'crash', 'odaiko', 'kodaiko', 'awase', 'tamb', 'triangle', 'triMute', 'woodL', 'woodH', 'bongoL', 'bongoH', 'congaL', 'congaH', 'congaM', 'cowbell', 'maracas', 'clave', 'guiro', 'agogoL', 'agogoH', 'clap', 'fuchi', 'hyoshigi', 'kane', 'gong', 'roll', 'whistle'];
+
+  const raw = {};
+  const sets = {}; // 楽器 → { notes: [...], buf: {midi: AudioBuffer} }
+  const waiting = {};
+  let drumRaw = null;
+  let drumBufs = null;
+  let base = 'samples/';
+  const b64 = (s) => { const bin = atob(s); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; };
+  const decode = (ctx, data) => new Promise((res, rej) => { const p = ctx.decodeAudioData(data, res, rej); if (p && p.catch) p.catch(rej); });
+  function loadScript(name) {
+    if (waiting[name]) return waiting[name];
+    waiting[name] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = base + name + '.js';
+      s.onload = res;
+      s.onerror = () => { delete waiting[name]; rej(new Error('録音を読み込めませんでした: ' + name)); };
+      document.head.appendChild(s);
+    });
+    return waiting[name];
+  }
+  const Samples = {
+    add(id, map) { raw[id] = map; },
+    addDrums(map) { drumRaw = map; },
+    has: (id) => SAMPLE_IDS.includes(SAMPLE_FILE[id] || id),
+    ready: (id) => !!sets[SAMPLE_FILE[id] || id],
+    drumsReady: () => !!drumBufs,
+    hasDrum: (id) => DRUM_SAMPLES.includes(id),
+    async load(id, ctx) {
+      const f = SAMPLE_FILE[id] || id;
+      if (sets[f]) return sets[f];
+      if (!SAMPLE_IDS.includes(f)) return null;
+      if (!sets['_p' + f]) {
+        sets['_p' + f] = (async () => {
+          await loadScript(f);
+          const map = raw[f];
+          const buf = {};
+          await Promise.all(Object.keys(map).map(async (m) => {
+            const b = await decode(ctx, b64(map[m]));
+            // 音域の外で無音になっている録音は使わない
+            const d = b.getChannelData(0);
+            let peak = 0;
+            for (let i = 0; i < d.length; i += 16) peak = Math.max(peak, Math.abs(d[i]));
+            if (peak > 0.003) buf[m] = b;
+          }));
+          const notes = Object.keys(buf).map(Number).sort((a, b) => a - b);
+          delete raw[f];
+          sets[f] = { notes, buf };
+          return sets[f];
+        })();
+      }
+      try { return await sets['_p' + f]; } catch (e) { delete sets['_p' + f]; throw e; }
+    },
+    async loadDrums(ctx) {
+      if (drumBufs) return drumBufs;
+      if (!Samples._pd) {
+        Samples._pd = (async () => {
+          await loadScript('drums');
+          const out = {};
+          await Promise.all(Object.keys(drumRaw).map(async (k) => { out[k] = await decode(ctx, b64(drumRaw[k])); }));
+          drumRaw = null;
+          drumBufs = out;
+          return out;
+        })();
+      }
+      try { return await Samples._pd; } catch (e) { Samples._pd = null; throw e; }
+    },
+    setBase(b) { base = b; },
+  };
+
+  function playSample(ctx, out, inst, midi, t, dur, vel) {
+    const set = sets[SAMPLE_FILE[inst] || inst];
+    let best = set.notes[0];
+    for (const n of set.notes) if (Math.abs(n - midi) < Math.abs(best - midi)) best = n;
+    const buf = set.buf[best];
+    const rate = Math.pow(2, (midi - best) / 12);
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.playbackRate.value = rate;
+    const len = buf.duration / rate;
+    const sustain = SUSTAIN.has(inst);
+    if (sustain && dur > len * 0.85 && buf.duration > 0.6) {
+      s.loop = true;
+      s.loopStart = buf.duration * 0.45;
+      s.loopEnd = buf.duration * 0.85;
+    }
+    const g = ctx.createGain();
+    const peak = vel * 0.9 * (GAIN_REAL[inst] || 1);
+    g.gain.setValueAtTime(peak, t);
+    const end = t + Math.max(dur, 0.04);
+    const rel = sustain ? 0.06 : 0.25;
+    g.gain.setTargetAtTime(0, end, rel);
+    s.connect(g);
+    g.connect(out);
+    s.start(t);
+    s.stop(s.loop ? end + rel * 6 : Math.min(t + len, end + rel * 6));
+  }
+
   const INSTRUMENTS = {};
   const GM = {};
   const INST_CAT = {};
   for (const c of CATS) for (const [id, name, gm] of c.list) { INSTRUMENTS[id] = name; GM[id] = gm; INST_CAT[id] = c.id; }
 
-  function playNote(ctx, out, inst, midi, t, dur, vel = 0.8) {
+  function playNote(ctx, out, inst, midi, t, dur, vel = 0.8, real = false) {
+    if (real && sets[SAMPLE_FILE[inst] || inst]) return playSample(ctx, out, inst, midi, t, dur, vel);
+    vel *= GAIN_SYN[inst] || 1;
+    inst = SYNTH_FALLBACK[inst] || inst;
     if (KS[inst]) return playPluck(ctx, out, inst, midi, t, dur, vel);
     const c = OSC[inst] || OSC.piano;
     const f = mtof(midi);
@@ -415,7 +531,16 @@ const Sound = (() => {
     { id: 'fx', name: '効果音', icon: '💥', list: ['jump', 'whistle', 'pop', 'beam', 'roll', 'airhorn', 'orch2', 'orch1'] },
   ];
 
-  function playDrum(ctx, out, id, t, vel = 0.8) {
+  function playDrum(ctx, out, id, t, vel = 0.8, real = false) {
+    if (real && drumBufs && drumBufs[id]) {
+      const s = ctx.createBufferSource();
+      s.buffer = drumBufs[id];
+      const g = ctx.createGain();
+      g.gain.value = vel * 0.9;
+      s.connect(g); g.connect(out);
+      s.start(t);
+      return;
+    }
     const d = DRUMS[id];
     if (d) d.play(ctx, out, t, vel);
   }
@@ -428,17 +553,24 @@ const Sound = (() => {
   }
 
   /* ---------- ホールの響き（リバーブ） ---------- */
+  const revCache = new WeakMap();
   function makeReverb(ctx, seconds = 2.0) {
+    // 響きのデータは一度だけ作って使い回す（再生開始を速くするため）
+    let m = revCache.get(ctx);
+    if (!m) { m = {}; revCache.set(ctx, m); }
+    if (m[seconds]) { const cv = ctx.createConvolver(); cv.buffer = m[seconds]; return cv; }
     const len = Math.floor(ctx.sampleRate * seconds);
     const buf = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch);
       for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
     }
+    m[seconds] = buf;
     const cv = ctx.createConvolver();
     cv.buffer = buf;
     return cv;
   }
 
-  return { mtof, playNote, playDrum, click, makeReverb, driveCurve, INSTRUMENTS, INST_CAT, CATS, DRUMS, KITS, GM, METRO_SOUNDS };
+  return { Samples, mtof, playNote, playDrum, click, makeReverb, driveCurve, INSTRUMENTS, INST_CAT, CATS, DRUMS, KITS, GM, METRO_SOUNDS };
 })();
+window.Samples = Sound.Samples;

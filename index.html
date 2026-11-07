@@ -9,94 +9,87 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="mini-display" title="ミニディスプレイ">
+    <div class="mini-display" title="ミニディスプレイ（おすとルールを変えられます）">
       <input id="title" class="title" maxlength="40" aria-label="曲の名前">
-      <div class="mini-info"><span id="miniTitle" hidden></span><b id="miniPos"></b><span id="miniKey"></span><span id="miniMeter"></span><span id="miniBpm"></span></div>
+      <button class="mini-info" id="miniInfo" title="ルール（調・拍子など）を変える"><span id="miniTitle" hidden></span><b id="miniPos"></b><span id="miniKey"></span><span id="miniMeter"></span><span id="miniBpm"></span></button>
       <div id="miniNote" class="mini-note"></div>
     </div>
+    <details class="pop" id="popRules" data-pop="rules">
+      <summary class="tbtn" title="調・音階・拍子・小節の数・スウィング">⚙ ルール</summary>
+      <div class="popbody">
+        <fieldset id="rules" class="rules">
+          <label>調 <select id="key"></select></label>
+          <label>音階 <select id="scale"></select></label>
+          <label>拍子 <span><select id="meterN"></select> / <select id="meterD"></select></span></label>
+          <label>小節の数 <input id="bars" type="number" min="1" max="128"></label>
+          <label title="8分音符や16分音符のうら拍を少しおくらせて、はねたリズムにします">スウィング <span><input id="swing" type="range" min="0" max="1" step="0.05"> <select id="swingUnit"></select></span></label>
+          <label>テンポをはかる <button id="btnTap" class="tbtn" type="button" title="リズムに合わせて4回おすと、その速さになります">👆 タップ</button></label>
+        </fieldset>
+        <p class="muted">曲の途中でテンポを変えるときは、キャンバスのいちばん下の「R テンポ変化」の行をおします。</p>
+      </div>
+    </details>
     <div class="transport">
       <button id="btnPlay" class="play" title="再生／一時停止（スペースキー）">▶</button>
-      <button id="btnStop" class="tbtn" title="停止（もう一度おすと曲の最初へ）">■</button>
-      <button id="btnLoop" class="tbtn toggle" title="ループ再生（くりかえす範囲は小節番号の上の帯で決めます）">🔁 ループ</button>
-      <button id="btnMetro" class="tbtn toggle" title="メトロノーム">⏱ メトロノーム</button>
-      <label class="tempo">テンポ
+      <button id="btnStop" class="tbtn icon" title="停止（もう一度おすと曲の最初へ）">■</button>
+      <button id="btnLoop" class="tbtn icon toggle" title="ループ再生（くりかえす範囲は小節番号の上の帯で決めます）">🔁</button>
+      <button id="btnMetro" class="tbtn icon toggle" title="メトロノーム">⏱</button>
+      <label class="tempo" title="テンポ（1分間の拍の数）">♩=
         <input id="bpm" type="range" min="30" max="240">
         <input id="bpmNum" type="number" min="30" max="240">
-        <button id="btnTap" class="tbtn small" title="リズムに合わせて4回おすと、その速さになります">タップ</button>
       </label>
     </div>
     <div class="menu">
-      <button id="btnUndo" class="tbtn" title="元に戻す（Ctrl+Z）">↶ 戻す</button>
-      <button id="btnRedo" class="tbtn" title="やり直す（Ctrl+Y）">↷ 進む</button>
-      <button id="btnHist" class="tbtn" title="これまでの操作の一覧">🕘 履歴</button>
-      <details class="dropdown">
-        <summary class="tbtn">📁 ファイル</summary>
+      <button id="btnUndo" class="tbtn icon" title="元に戻す（Ctrl+Z）">↶</button>
+      <button id="btnRedo" class="tbtn icon" title="やり直す（Ctrl+Y）">↷</button>
+      <button id="btnScore" class="tbtn" title="楽譜を見る・印刷する">🎼 楽譜</button>
+      <button id="btnPal" class="tbtn" title="ミキサー・イコライザー・エフェクト">🎨 パレット</button>
+      <button id="btnShare" class="tbtn" title="URLで曲を共有">🔗 共有</button>
+      <details class="dropdown pop" data-pop="menu">
+        <summary class="tbtn" title="ファイル・履歴・先生用・使い方">☰ メニュー</summary>
         <div class="dd">
           <button id="btnNew">🆕 新しい曲をつくる</button>
           <button id="btnSample">🎼 サンプル曲を開く</button>
           <hr>
           <button id="btnSave">💾 このブラウザに保存</button>
           <button id="btnOpen">📂 ブラウザに保存した曲を開く</button>
-          <hr>
           <button id="btnExportJson">⬇ 曲ファイルを書き出す（配布・提出用）</button>
           <button id="btnImportJson">⬆ 曲ファイル／MIDIファイルを開く</button>
           <hr>
           <button id="btnWav">🔊 音声ファイル（WAV）を書き出す</button>
           <button id="btnScoreMenu">🎼 楽譜を見る・印刷する（PDF）</button>
           <button id="btnMidi">🎹 MIDIファイルを書き出す</button>
+          <hr>
+          <button id="btnHist">🕘 履歴（これまでの操作）</button>
+          <button id="btnTeach">👩‍🏫 先生用設定（機能の制限）</button>
+          <button id="btnHelp">❓ 使い方</button>
         </div>
       </details>
-      <button id="btnPal" class="tbtn" title="ミキサー・イコライザー・エフェクト">🎨 パレット</button>
-      <button id="btnScore" class="tbtn" title="楽譜を見る・印刷する">🎼 楽譜</button>
-      <button id="btnShare" class="tbtn">🔗 共有</button>
-      <button id="btnTeach" class="tbtn" title="先生用：機能の制限・トラックのロック">👩‍🏫 先生用</button>
-      <button id="btnHelp" class="tbtn">❓ 使い方</button>
-      <input id="fileIn" type="file" accept=".json,.ktk2,.mid,.midi,application/json,audio/midi" hidden>
+      <input id="fileIn" type="file" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
     </div>
   </header>
 
-  <section class="settings">
-    <fieldset id="rules" class="rules">
-      <legend>ルール</legend>
-      <label>調 <select id="key"></select></label>
-      <label>音階 <select id="scale"></select></label>
-      <label>拍子 <select id="meterN"></select>/<select id="meterD"></select></label>
-      <label>小節の数 <input id="bars" type="number" min="1" max="128"></label>
-      <label title="8分音符や16分音符のうら拍を少しおくらせて、はねたリズムにします">スウィング <input id="swing" type="range" min="0" max="1" step="0.05"><select id="swingUnit"></select></label>
-    </fieldset>
-    <fieldset class="rules view">
-      <legend>表示</legend>
-      <label>音名 <select id="names"></select></label>
-      <button id="btnFlat" class="mini" title="♯と♭の表記を切りかえます（音は変わりません）">♯で表示</button>
-      <label>横 <input id="zoom" type="range" min="12" max="240" value="56"></label>
-      <label>たて <input id="rowZoom" type="range" min="14" max="40" value="22"></label>
-    </fieldset>
-    <fieldset class="rules view">
-      <legend>入力</legend>
-      <button id="btnStepRec" class="mini" title="パソコンのキーボード（A〜K）やMIDI鍵盤で、1音ずつ打ちこめます">⌨ 鍵盤で入力</button>
-      <button id="btnMidiIn" class="mini" title="USBなどでつないだMIDI鍵盤で演奏・入力します">🎹 MIDI鍵盤をつなぐ</button>
-      <button id="btnScorePanel" class="mini" title="オトグラフの下に、いまのメロディの楽譜を出します">🎼 楽譜をいっしょに表示</button>
-    </fieldset>
-  </section>
-
   <main class="main">
     <aside class="tracks">
-      <h2>トラック（パート）</h2>
-      <div id="trackList"></div>
-      <div id="addRow" class="addrow">
-        <button id="addMelody" class="mini">＋ メロディ</button>
-        <button id="addChord" class="mini">＋ コード伴奏</button>
-        <button id="addDrum" class="mini">＋ リズム</button>
+      <div class="tracks-head"><h2>トラック</h2>
+        <details class="pop" id="addRow" data-pop="add">
+          <summary class="tbtn small">＋ 追加</summary>
+          <div class="popbody menu-list">
+            <button id="addMelody">🎵 メロディ</button>
+            <button id="addChord">🎹 コード伴奏</button>
+            <button id="addDrum">🥁 リズム（打楽器）</button>
+          </div>
+        </details>
       </div>
+      <div id="trackList"></div>
     </aside>
     <section class="editor">
       <div class="canvas-area">
         <div class="ovtools">
           <b>キャンバス</b>
-          <span class="hint">マスをクリック＝その小節へ／Shift+クリック＝はんいを選ぶ／ドラッグ＝ほかの小節へコピー／🗑へドラッグ＝消す</span>
+          <span class="hint">ドラッグ＝コピー／🗑へ＝消す／Shift＝はんい</span>
           <span class="grp">
             <button id="btnIns" class="mini" title="選んでいる小節の前に、同じ数の空の小節を入れます">＋ 小節を入れる</button>
-            <button id="btnDelBars" class="mini" title="選んでいる小節を、すべてのトラックから取りのぞきます">－ 小節を消して詰める</button>
+            <button id="btnDelBars" class="mini" title="選んでいる小節を、すべてのトラックから取りのぞきます">－ 小節を詰める</button>
             <button id="btnAddFour" class="mini" title="曲の最後に4小節ふやします">＋4小節</button>
           </span>
         </div>
@@ -106,7 +99,26 @@
           <div id="ovTrash" class="ovtrash">🗑 ここに落とすと消す</div>
         </div>
       </div>
-      <div id="editorTools" class="tools"></div>
+      <div class="toolbar">
+        <div id="editorTools" class="tools"></div>
+        <div class="tools static">
+          <button id="btnStepRec" class="mini" title="パソコンのキーボード（A〜K）やMIDI鍵盤で、1音ずつ打ちこめます">⌨ 鍵盤入力</button>
+          <details class="pop right" data-pop="view">
+            <summary class="mini" title="音名・大きさ・楽譜の表示">👁 表示</summary>
+            <div class="popbody">
+              <label>音名 <select id="names"></select></label>
+              <label>♯／♭ <button id="btnFlat" class="mini" type="button" title="♯と♭の表記を切りかえます（音は変わりません）">♯で表示</button></label>
+              <label>横の大きさ <input id="zoom" type="range" min="12" max="240" value="56"></label>
+              <label>たての大きさ <input id="rowZoom" type="range" min="14" max="40" value="22"></label>
+              <label><input type="checkbox" id="ghost" checked> ほかのパートを点線で表示</label>
+              <label><input type="checkbox" id="btnScorePanel"> オトグラフの下に楽譜を表示</label>
+              <label>指でなぞったとき <select id="touchMode"><option value="edit">✏️ 音を置く・のばす</option><option value="scroll">✋ 画面をスクロール</option></select></label>
+              <label>音のドラッグ <select id="dragMode"><option value="auto">自動（右はし＝のばす）</option><option value="stretch">のばすだけ</option><option value="move">動かすだけ</option></select></label>
+              <button id="btnMidiIn" class="mini" type="button" title="USBなどでつないだMIDI鍵盤で演奏・入力します">🎹 MIDI鍵盤をつなぐ</button>
+            </div>
+          </details>
+        </div>
+      </div>
       <div id="editorWrap" class="editorwrap">
         <canvas id="cv"></canvas>
         <div id="scroller" class="scroller"><div id="spacer"></div></div>
@@ -128,13 +140,17 @@
     <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
   </dialog>
 
-  <dialog id="dlgScore" class="wide">
-    <h3>🎼 楽譜</h3>
-    <div id="scoreParts" class="scoreparts"></div>
-    <div id="scoreView" class="scoreview"></div>
+  <dialog id="dlgScore" class="wide score">
+    <h3>🎼 楽譜をつくる</h3>
+    <div class="scorelayout">
+      <div id="scoreSide" class="scoreside"></div>
+      <div id="scoreView" class="scoreview"></div>
+    </div>
     <div class="dlgfoot">
-      <button id="btnSvgScore" class="tbtn">画像（SVG）で保存</button>
-      <button id="btnPrintScore" class="tbtn primary">🖨 印刷／PDFで保存</button>
+      <button id="btnXmlScore" class="tbtn" title="MuseScore・Finale・Sibelius などの楽譜ソフトで開けるファイル">📄 MusicXML</button>
+      <button id="btnPngScore" class="tbtn">🖼 画像（PNG）</button>
+      <button id="btnSvgScore" class="tbtn">SVG</button>
+      <button id="btnPrintScore" class="tbtn primary">🖨 印刷／PDF</button>
       <button class="close tbtn">閉じる</button>
     </div>
   </dialog>
@@ -189,7 +205,7 @@
     </ul>
     <h4>トラックの種類</h4>
     <ul>
-      <li>🎵 <b>メロディ</b>：鍵盤・オーケストラ・和楽器・ギター・シンセなど約50種類。</li>
+      <li>🎵 <b>メロディ</b>：鍵盤・オーケストラ・和楽器・ギター・シンセなど64種類。楽器えらびで「🎙 本物の録音」と「🎛 電子音」を切りかえられます。</li>
       <li>🎹 <b>コード伴奏</b>：小節ごとにコードをえらぶだけで伴奏になります。</li>
       <li>🥁 <b>リズム</b>：ドラム・音楽室・和太鼓・ラテン・EDM・効果音の7キット。おすたびに「ふつう→強く→なし」。お手本リズムもあります。</li>
     </ul>
@@ -201,12 +217,13 @@
       <li><b>音階</b>をえらぶと、その音階の音だけがならびます（日本の音階・沖縄の音階も）。</li>
       <li><b>🎲 おまかせ作曲</b>／<b>輪唱づくり</b>／<b>音の移動</b>（キャンバスで選んだ小節だけでも動かせます）。</li>
       <li><b>🎨 パレット</b>：ミキサー、イコライザー、メトロノームの音、押している間だけかかる<b>エフェクトパッド</b>。</li>
-      <li><b>🎼 楽譜</b>：打ちこんだ音を五線譜にします。印刷やPDF保存もできます。</li>
+      <li><b>🎼 楽譜</b>：打ちこんだ音を五線譜にします。歌詞・ドレミ・作詞作曲者も入れられます。印刷・PDF・画像のほか、MusicXML（MuseScoreなどの楽譜ソフト用）でも保存できます。</li>
       <li><b>🕘 履歴</b>：これまでの操作の一覧から、好きな所までもどれます。</li>
       <li><b>🔗 共有</b>：URLを送るだけで曲を見せられます。</li>
       <li><b>👩‍🏫 先生用</b>：トラックのロックや機能の制限をして、課題ファイルを配れます。暗証番号もかけられます。</li>
     </ul>
-    <p class="muted">作った曲はこのブラウザに自動で一時保存されます。大事な曲は「ファイル」から書き出してください。</p>
+    <p class="muted">作った曲はこのブラウザに自動で一時保存されます。大事な曲は「☰ メニュー」から書き出してください。</p>
+    <p class="muted">楽器の録音：FluidR3 GM サウンドフォント（Frank Wen 作／CC BY 3.0）</p>
     <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
   </dialog>
 

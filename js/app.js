@@ -51,7 +51,7 @@ const MAX_TRACKS = 8;
 
 /* ---------- 曲データ ---------- */
 function newTrack(type, opts = {}) {
-  const base = { id: uid(), type, vol: 0.8, mute: false, solo: false, locked: false };
+  const base = { id: uid(), type, vol: 0.8, mute: false, solo: false, locked: false, real: true };
   if (type === 'melody') return { ...base, name: 'メロディ', inst: 'recorder', range: 'soprano', notes: [], ...opts };
   if (type === 'chord') return { ...base, name: 'コード伴奏', inst: 'piano', vol: 0.55, pattern: 'beat', bassOn: true, chords: [], ...opts };
   return { ...base, name: 'リズム', kit: 'drums', grid: {}, ...opts };
@@ -264,6 +264,7 @@ function ensureAudio() {
     previewOut.gain.value = 0.8;
     previewOut.connect(comp);
     actx._comp = comp;
+    setTimeout(() => { Sound.makeReverb(actx, 2.2); Sound.makeReverb(actx, 3.5); }, 0);
   }
   if (actx.state === 'suspended') actx.resume();
   return actx;
@@ -277,51 +278,63 @@ function crushCurve(bits) {
   return c;
 }
 function buildGraph(ctx, dest, live) {
-  const out = ctx.createGain();
-  out.gain.value = song.master;
-  out.connect(dest);
-  const pre = ctx.createGain();
-  const eqL = ctx.createBiquadFilter(); eqL.type = 'lowshelf'; eqL.frequency.value = 250; eqL.gain.value = song.eq.low;
-  const eqM = ctx.createBiquadFilter(); eqM.type = 'peaking'; eqM.frequency.value = 1000; eqM.Q.value = 0.8; eqM.gain.value = song.eq.mid;
-  const eqH = ctx.createBiquadFilter(); eqH.type = 'highshelf'; eqH.frequency.value = 4000; eqH.gain.value = song.eq.high;
-  pre.connect(eqL); eqL.connect(eqM); eqM.connect(eqH);
-  const g = { out, pre, eqL, eqM, eqH, outs: {} };
-  if (live) {
-    // エフェクトパッド用の部品
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 22000; lp.Q.value = 1;
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 10; hp.Q.value = 1;
-    const crush = ctx.createWaveShaper(); crush.curve = identityCurve;
-    const dry = ctx.createGain();
-    eqH.connect(lp); lp.connect(hp); hp.connect(crush); crush.connect(dry); dry.connect(out);
-    const dIn = ctx.createGain(); dIn.gain.value = 0;
-    const dl = ctx.createDelay(2); dl.delayTime.value = 0.3;
-    const dFb = ctx.createGain(); dFb.gain.value = 0.4;
-    crush.connect(dIn); dIn.connect(dl); dl.connect(dFb); dFb.connect(dl); dl.connect(out);
-    const stIn = ctx.createGain(); stIn.gain.value = 1;
-    const st = ctx.createDelay(2); st.delayTime.value = 0.2;
-    const stFb = ctx.createGain(); stFb.gain.value = 0;
-    const stOut = ctx.createGain(); stOut.gain.value = 0;
-    crush.connect(stIn); stIn.connect(st); st.connect(stFb); stFb.connect(st); st.connect(stOut); stOut.connect(out);
-    const fxRev = Sound.makeReverb(ctx, 3.5);
-    const fxRevIn = ctx.createGain(); fxRevIn.gain.value = 0;
-    crush.connect(fxRevIn); fxRevIn.connect(fxRev); fxRev.connect(out);
-    Object.assign(g, { lp, hp, crush, dry, dIn, dl, dFb, stIn, st, stFb, stOut, fxRevIn });
-  } else eqH.connect(out);
-  const rev = Sound.makeReverb(ctx, 2.2);
-  const wet = ctx.createGain();
-  wet.gain.value = song.reverb * 0.6;
-  rev.connect(wet); wet.connect(pre);
-  g.wet = wet;
+  // 響き・イコライザー・エフェクトの部品は一度だけ作って使い回す（再生ボタンを速くするため）
+  let g = live ? ctx._live : null;
+  if (!g) {
+    const out = ctx.createGain();
+    out.connect(dest);
+    const pre = ctx.createGain();
+    const eqL = ctx.createBiquadFilter(); eqL.type = 'lowshelf'; eqL.frequency.value = 250;
+    const eqM = ctx.createBiquadFilter(); eqM.type = 'peaking'; eqM.frequency.value = 1000; eqM.Q.value = 0.8;
+    const eqH = ctx.createBiquadFilter(); eqH.type = 'highshelf'; eqH.frequency.value = 4000;
+    pre.connect(eqL); eqL.connect(eqM); eqM.connect(eqH);
+    g = { out, pre, eqL, eqM, eqH };
+    if (live) {
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 22000; lp.Q.value = 1;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 10; hp.Q.value = 1;
+      const crush = ctx.createWaveShaper(); crush.curve = identityCurve;
+      const dry = ctx.createGain();
+      eqH.connect(lp); lp.connect(hp); hp.connect(crush); crush.connect(dry); dry.connect(out);
+      const dIn = ctx.createGain(); dIn.gain.value = 0;
+      const dl = ctx.createDelay(2); dl.delayTime.value = 0.3;
+      const dFb = ctx.createGain(); dFb.gain.value = 0.4;
+      crush.connect(dIn); dIn.connect(dl); dl.connect(dFb); dFb.connect(dl); dl.connect(out);
+      const stIn = ctx.createGain(); stIn.gain.value = 1;
+      const st = ctx.createDelay(2); st.delayTime.value = 0.2;
+      const stFb = ctx.createGain(); stFb.gain.value = 0;
+      const stOut = ctx.createGain(); stOut.gain.value = 0;
+      crush.connect(stIn); stIn.connect(st); st.connect(stFb); stFb.connect(st); st.connect(stOut); stOut.connect(out);
+      const fxRev = Sound.makeReverb(ctx, 3.5);
+      const fxRevIn = ctx.createGain(); fxRevIn.gain.value = 0;
+      crush.connect(fxRevIn); fxRevIn.connect(fxRev); fxRev.connect(out);
+      Object.assign(g, { lp, hp, crush, dry, dIn, dl, dFb, stIn, st, stFb, stOut, fxRevIn });
+      ctx._live = g;
+    } else eqH.connect(out);
+    const rev = Sound.makeReverb(ctx, 2.2);
+    const wet = ctx.createGain();
+    rev.connect(wet); wet.connect(pre);
+    g.rev = rev;
+    g.wet = wet;
+  }
+  g.out.gain.value = song.master;
+  g.eqL.gain.value = song.eq.low; g.eqM.gain.value = song.eq.mid; g.eqH.gain.value = song.eq.high;
+  g.wet.gain.value = song.reverb * 0.6;
+  // 再生1回ぶんの入り口（止めるときはここだけ消す）
+  const session = ctx.createGain();
+  session.connect(g.pre);
+  const send = ctx.createGain();
+  session.connect(send); send.connect(g.rev);
+  const outs = {};
   for (const tr of song.tracks) {
     const tg = ctx.createGain();
     tg.gain.value = tr.vol;
-    tg.connect(pre); tg.connect(rev);
-    g.outs[tr.id] = tg;
+    tg.connect(session);
+    outs[tr.id] = tg;
   }
-  g.metro = ctx.createGain();
-  g.metro.gain.value = song.metro.vol;
-  g.metro.connect(out);
-  return g;
+  const metro = ctx.createGain();
+  metro.gain.value = song.metro.vol;
+  metro.connect(g.out);
+  return Object.assign(Object.create(g), { session, send, outs, metro, base: g });
 }
 
 function chordEvents(tr) {
@@ -390,8 +403,8 @@ function scheduleEvent(ctx, graph, e, when, withMetro) {
   const out = graph.outs[e.tr.id];
   if (!out) return;
   const t = when + swingSec(e.t);
-  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, (absSec(e.t + e.l) - absSec(e.t)) * 0.96, e.v);
-  else Sound.playDrum(ctx, out, e.id, t, e.v);
+  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, (absSec(e.t + e.l) - absSec(e.t)) * 0.96, e.v, e.tr.real !== false);
+  else Sound.playDrum(ctx, out, e.id, t, e.v, e.tr.real !== false);
 }
 
 const player = { on: false, timer: null, graph: null, idx: 0, seg: null, segs: [], stopping: false, stopAt: 0, lastT: -1, ver: -1 };
@@ -409,7 +422,7 @@ function play() {
   player.on = true;
   player.stopping = false;
   const start = ui.startTick >= ls && ui.startTick < le ? ui.startTick : ls;
-  player.seg = { tick: start, time: ctx.currentTime + 0.08 };
+  player.seg = { tick: start, time: ctx.currentTime + 0.05 };
   player.segs = [player.seg];
   player.idx = firstIdx(eventList(), start);
   player.lastT = start - 1;
@@ -458,9 +471,11 @@ function stop(silent = false) {
   if (player.timer) clearInterval(player.timer);
   player.timer = null;
   if (player.graph && actx) {
-    player.graph.out.gain.setTargetAtTime(0, actx.currentTime, 0.03);
-    const old = player.graph.out;
-    setTimeout(() => old.disconnect(), 400);
+    const gph = player.graph;
+    const now = actx.currentTime;
+    for (const n of [gph.session, gph.metro]) n.gain.setTargetAtTime(0, now, 0.02);
+    fxApply(null, 0, 0, false, gph);
+    setTimeout(() => { gph.session.disconnect(); gph.send.disconnect(); gph.metro.disconnect(); }, 300);
   }
   player.graph = null;
   player.on = false;
@@ -500,9 +515,31 @@ function liveVolume(tr) {
 }
 function preview(tr, p, dur = 0.35) {
   const ctx = ensureAudio();
-  if (tr.type === 'drum') Sound.playDrum(ctx, previewOut, p, ctx.currentTime + 0.01, 0.8);
-  else Sound.playNote(ctx, previewOut, tr.inst, p, ctx.currentTime + 0.01, dur, 0.8 * tr.vol + 0.2);
+  const real = tr.real !== false;
+  if (tr.type === 'drum') Sound.playDrum(ctx, previewOut, p, ctx.currentTime, 0.8, real);
+  else Sound.playNote(ctx, previewOut, tr.inst, p, ctx.currentTime, dur, 0.8 * tr.vol + 0.2, real);
 }
+// 本物の楽器の録音を前もって読み込む（読み込み中は電子音で鳴ります）
+function audioCtx() {
+  if (!actx) ensureAudio();
+  return actx;
+}
+const loadingNow = new Set();
+function preloadSamples() {
+  const ctx = audioCtx();
+  const jobs = [];
+  for (const tr of song.tracks) {
+    if (tr.real === false) continue;
+    if (tr.type === 'drum') { if (!Sound.Samples.drumsReady()) jobs.push(['drums', () => Sound.Samples.loadDrums(ctx)]); }
+    else if (Sound.Samples.has(tr.inst) && !Sound.Samples.ready(tr.inst)) jobs.push([tr.inst, () => Sound.Samples.load(tr.inst, ctx)]);
+  }
+  for (const [key, fn] of jobs) {
+    if (loadingNow.has(key)) continue;
+    loadingNow.add(key);
+    loadQueue = loadQueue.then(fn).then(() => { loadingNow.delete(key); renderTracks(); }).catch(() => { loadingNow.delete(key); toast('録音の読み込みに失敗したので、電子音で鳴らします'); });
+  }
+}
+let loadQueue = Promise.resolve();
 
 /* ============================================================
    エディタ（オトグラフ）の描画
@@ -1559,7 +1596,10 @@ function renderSettings() {
   opt($('#key'), KEY_LABELS.map((l, i) => [i, l]), song.key);
   opt($('#scale'), Object.entries(SCALES).map(([k, v]) => [k, v.name]), song.scale);
   opt($('#names'), [['doremi', 'ドレミ'], ['movable', 'ドレミ（移動ド）'], ['cde', 'CDE（英語）'], ['haniho', 'ハニホ（日本語）']], ui.names);
-  $('#btnFlat').textContent = ui.flat ? '♭で表示' : '♯で表示';
+  $('#btnFlat').textContent = ui.flat ? '♭で表示中' : '♯で表示中';
+  $('#ghost').checked = ui.ghost;
+  $('#dragMode').value = ui.dragMode;
+  $('#touchMode').value = ui.touchEdit ? 'edit' : 'scroll';
   $('#swing').value = song.swing;
   opt($('#swingUnit'), [[24, '8分音符'], [12, '16分音符']], song.swingUnit);
   $('#zoom').value = ui.zoom;
@@ -1568,6 +1608,7 @@ function renderSettings() {
   $('#rules').disabled = !!song.locks.rules;
   $('#bpm').disabled = $('#bpmNum').disabled = $('#btnTap').disabled = !!song.locks.rules;
   $('#addRow').hidden = !!song.locks.tracks;
+  $('#popRules').classList.toggle('locked', !!song.locks.rules);
   $('#btnIns').disabled = $('#btnDelBars').disabled = $('#btnAddFour').disabled = !!song.locks.rules;
   updateMini();
 }
@@ -1581,40 +1622,44 @@ function renderTracks() {
     d.style.setProperty('--tc', TRACK_COLORS[i % TRACK_COLORS.length]);
     const icon = tr.type === 'melody' ? '🎵' : tr.type === 'chord' ? '🎹' : '🥁';
     const instLabel = tr.type === 'drum' ? (Sound.KITS.find((k) => k.id === tr.kit) || Sound.KITS[0]).name : Sound.INSTRUMENTS[tr.inst] || tr.inst;
+    const realOk = tr.real !== false && (tr.type === 'drum' || Sound.Samples.has(tr.inst));
+    const loading = realOk && !(tr.type === 'drum' ? Sound.Samples.drumsReady() : Sound.Samples.ready(tr.inst));
+    const badge = realOk ? (loading ? '<span class="badge wait" title="録音を読み込み中">⏳</span>' : '<span class="badge" title="本物の楽器の録音">🎙</span>') : '<span class="badge syn" title="電子音">🎛</span>';
     const lockMute = song.locks.mute;
     d.innerHTML = `
-      <div class="trow"><span class="tnum">${i + 1}</span><span class="ticon">${icon}</span><input class="tname" value="${escapeHtml(tr.name)}" maxlength="20" ${tr.locked ? 'disabled' : ''}>
-        ${tr.locked ? '<span title="ロック中">🔒</span>' : ''}
-        <button class="mini mute ${tr.mute ? 'on' : ''}" title="ミュート（消音）" ${lockMute ? 'disabled' : ''}>消</button>
-        <button class="mini solo ${tr.solo ? 'on' : ''}" title="ソロ（これだけ鳴らす）" ${lockMute ? 'disabled' : ''}>ソロ</button></div>
-      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${escapeHtml(instLabel)} ▾</button>
-        <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>
-      <div class="trow tsub">
-        <button class="mini up" title="上へ">▲</button><button class="mini down" title="下へ">▼</button>
-        ${song.locks.tracks ? '' : '<button class="mini dup" title="複製">複製</button><button class="mini del" title="削除">削除</button>'}
-      </div>`;
-    d.addEventListener('pointerdown', () => { if (cur !== i) selectTrack(i); });
-    d.querySelector('.tname').onchange = (ev) => edit(() => { tr.name = ev.target.value || tr.name; }, 'トラック名');
+      <div class="trow"><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? '<span title="ロック中">🔒</span>' : ''}
+        <button class="mini mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>消</button>
+        <button class="mini solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>ソロ</button>
+        <details class="pop right tmenu" data-pop="t${i}"><summary class="mini" title="名前・並べかえ・複製・削除">⋯</summary><div class="popbody menu-list">
+          <button data-a="rename" ${tr.locked ? 'disabled' : ''}>✏️ 名前を変える</button>
+          <button data-a="up" ${i === 0 ? 'disabled' : ''}>▲ 上へ</button>
+          <button data-a="down" ${i === song.tracks.length - 1 ? 'disabled' : ''}>▼ 下へ</button>
+          ${song.locks.tracks ? '' : '<button data-a="dup">⧉ 複製する</button><button data-a="del" class="danger">🗑 削除する</button>'}
+        </div></details></div>
+      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${badge}${escapeHtml(instLabel)} ▾</button>
+        <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
+    d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details')) selectTrack(i); });
     d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); };
     d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); };
     d.querySelector('.instbtn').onclick = (ev) => { ev.stopPropagation(); openInstPicker(i); };
-    d.querySelector('.up').onclick = (ev) => { ev.stopPropagation(); moveTrack(i, -1); };
-    d.querySelector('.down').onclick = (ev) => { ev.stopPropagation(); moveTrack(i, 1); };
-    const dup = d.querySelector('.dup');
-    if (dup) dup.onclick = (ev) => {
+    d.querySelectorAll('.tmenu [data-a]').forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
-      if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
-      edit(() => { song.tracks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(tr)), id: uid(), name: (tr.name + 'のコピー').slice(0, 20), locked: false }); cur = i + 1; }, 'トラックを複製');
-      renderTracks();
-    };
-    const del = d.querySelector('.del');
-    if (del) del.onclick = (ev) => {
-      ev.stopPropagation();
-      if (song.tracks.length <= 1) return alert('トラックは1つ以上必要です');
-      if (!confirm(`「${tr.name}」を削除しますか？`)) return;
-      edit(() => { song.tracks.splice(i, 1); cur = clamp(cur, 0, song.tracks.length - 1); }, 'トラックを削除');
-      renderTracks();
-    };
+      closePops();
+      const a = b.dataset.a;
+      if (a === 'rename') { const n = prompt('トラックの名前', tr.name); if (n) edit(() => { tr.name = n.slice(0, 20); }, 'トラック名'); renderTracks(); }
+      else if (a === 'up') moveTrack(i, -1);
+      else if (a === 'down') moveTrack(i, 1);
+      else if (a === 'dup') {
+        if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
+        edit(() => { song.tracks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(tr)), id: uid(), name: (tr.name + 'のコピー').slice(0, 20), locked: false }); cur = i + 1; }, 'トラックを複製');
+        renderTracks();
+      } else if (a === 'del') {
+        if (song.tracks.length <= 1) return alert('トラックは1つ以上必要です');
+        if (!confirm(`「${tr.name}」を削除しますか？`)) return;
+        edit(() => { song.tracks.splice(i, 1); cur = clamp(cur, 0, song.tracks.length - 1); }, 'トラックを削除');
+        renderTracks();
+      }
+    }));
     const vol = d.querySelector('.vol');
     vol.oninput = (ev) => { tr.vol = +ev.target.value; liveVolume(tr); };
     vol.onchange = () => changed();
@@ -1646,49 +1691,45 @@ function renderEditorTools() {
   const box = $('#editorTools');
   const pal = $('#chordPalette');
   const lk = locked(tr);
+  const wasOpen = box.querySelector('details[open]');
   const multi = ui.sel.t === cur && ui.sel.b1 > ui.sel.b0;
-  const gridUI = tr.type !== 'chord' ? `<span class="grp otama" title="おたまチョップ：置く音の長さ（マス目の大きさ）">${GRIDS.map(([v, t, ic]) => `<button class="mini gbtn ${ui.grid === v ? 'on' : ''}" data-v="${v}" title="${t}"><span class="ic">${ic}</span>${t.replace('音符', '')}</button>`).join('')}</span>` : '';
   pal.innerHTML = '';
   pal.hidden = tr.type !== 'chord';
   let html = '';
-  if (lk) html += '<span class="lockmsg">🔒 このトラックは先生がロックしています（見る・聴くだけ）</span>';
-  html += gridUI;
+  if (lk) html += '<span class="lockmsg" title="先生がロックしています（見る・聴くだけ）">🔒 ロック中</span>';
+  if (tr.type !== 'chord') html += `<span class="grp otama" title="おたまチョップ：置く音の長さ（マス目の大きさ）">${GRIDS.map(([v, t, ic]) => `<button class="mini gbtn ${ui.grid === v ? 'on' : ''}" data-v="${v}" title="${t}"><span class="ic">${ic}</span>${t.replace('音符', '').replace('3連符', '3連')}</button>`).join('')}</span>`;
+  let tools = '';
   let others = [];
   if (tr.type === 'melody') {
     others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    html += `
-      <span class="grp">音域 <select id="range">${Object.entries(RANGES).map(([k, v]) => `<option value="${k}" ${k === tr.range ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></span>
-      <span class="grp" title="キャンバスで2小節以上えらぶと、その範囲だけ動かします">音の移動${multi ? `<small>（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節）</small>` : '<small>（全部）</small>'} <button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button><button class="mini" id="tDegDn">音階↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tOctDn">オクターブ↓</button></span>
-      ${song.locks.compose ? '' : '<span class="grp"><button class="mini accent" id="btnAuto">🎲 おまかせ作曲</button></span>'}
-      ${others.length ? `<span class="grp">輪唱づくり：<select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></span>` : ''}
-      <label class="grp"><input type="checkbox" id="ghost" ${ui.ghost ? 'checked' : ''}> ほかのパートを点線で表示</label>`;
+    if (!song.locks.compose) html += '<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">🎲 おまかせ作曲</button>';
+    tools = `
+      <label>音域 <select id="range">${Object.entries(RANGES).map(([k, v]) => `<option value="${k}" ${k === tr.range ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+      <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
+      <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
+      <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
+      ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}`;
   } else if (tr.type === 'drum') {
-    html += `
-      <span class="hint">クリックするたびに ●→強●→なし</span>
-      <span class="grp">リズムのお手本 <select id="rPreset"><option value="">えらぶ…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></span>`;
+    html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">🥁 リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
-    html += `
-      <span class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></span>
-      <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> 低い音（ベース）もつける</label>`;
+    html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
     const dia = diatonic();
     pal.innerHTML = `<div class="palhead">${ui.selBar + 1}小節目のコードをえらぶ（えらぶと次の小節へ進みます）</div>
       <div class="palrow">${dia.map((c, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[c.r]}"><b>${chordName(c)}</b><small>${c.deg}</small></button>`).join('')}
-      <button class="chordbtn none" data-i="-1"><b>なし</b><small>休み</small></button></div>
-      <div class="palrow">そのほか：<select id="cRoot">${CHORD_ROOT.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
+      <button class="chordbtn none" data-i="-1"><b>なし</b><small>休み</small></button>
+      <details class="pop" data-pop="chordother"><summary class="mini">そのほかのコード…</summary><div class="popbody"><select id="cRoot">${CHORD_ROOT.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
       <select id="cQ">${Object.entries(CHORD_Q).map(([k, v]) => `<option value="${k}">${v.s || '（長三和音）'}</option>`).join('')}</select>
-      <button class="mini" id="cSet">この小節に入れる</button></div>`;
+      <button class="mini" id="cSet">この小節に入れる</button></div></details></div>`;
     pal.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; setChord(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
     $('#cSet').onclick = () => setChord({ r: +$('#cRoot').value, q: $('#cQ').value });
   }
-  html += `<span class="grp">${tr.type === 'chord' ? '' : `<select id="dragMode" title="音をドラッグしたときの動き"><option value="auto">ドラッグ：自動</option><option value="stretch">ドラッグ：のばすだけ</option><option value="move">ドラッグ：動かすだけ</option></select>`}
-    <button class="mini" id="btnTouch" title="タブレットで指でなぞったときの動き">${ui.touchEdit ? '✏️ 指で編集' : '✋ 指でスクロール'}</button>
-    <button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">▶ 見えている所だけ再生</button>
-    <button class="mini danger" id="btnClear" ${lk ? 'disabled' : ''}>ぜんぶ消す</button></span>`;
+  html += `<details class="pop" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">🛠 道具</summary><div class="popbody">${tools}
+    <div class="sub">再生</div><div class="btnrow"><button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">▶ 見えている所だけくりかえす</button></div>
+    <div class="sub">消す</div><div class="btnrow"><button class="mini danger" id="btnClear" ${lk ? 'disabled' : ''}>このトラックをぜんぶ消す</button></div></div></details>`;
   box.innerHTML = html;
+  if (wasOpen) { const again = box.querySelector(`details[data-pop="${wasOpen.dataset.pop}"]`); if (again) again.open = true; }
   box.querySelectorAll('.gbtn').forEach((b) => (b.onclick = () => setGrid(+b.dataset.v)));
-  const dm = $('#dragMode');
-  if (dm) { dm.value = ui.dragMode; dm.onchange = (e) => { ui.dragMode = e.target.value; }; }
-  $('#btnTouch').onclick = () => { ui.touchEdit = !ui.touchEdit; $('#scroller').classList.toggle('touchedit', ui.touchEdit); renderEditorTools(); };
   $('#btnViewLoop').onclick = () => {
     const sc = $('#scroller');
     const bt = barTicks();
@@ -1698,6 +1739,7 @@ function renderEditorTools() {
     ui.loopOn = true;
     ui.startTick = b0 * bt;
     $('#btnLoop').classList.add('on');
+    closePops();
     play();
   };
   $('#btnClear').onclick = () => { if (confirm(`「${tr.name}」の中身をぜんぶ消しますか？`)) edit(() => clearTrack(tr), 'トラックを全部消す'); };
@@ -1711,8 +1753,7 @@ function renderEditorTools() {
     $('#tOctDn').onclick = guard(() => transpose(tr, -12), 'オクターブ下げる');
     $('#tOctUp').onclick = guard(() => transpose(tr, 12), 'オクターブ上げる');
     const ba = $('#btnAuto');
-    if (ba) ba.onclick = () => { if (lk) return; if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「戻す」で元に戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
-    $('#ghost').onchange = (ev) => { ui.ghost = ev.target.checked; draw(); };
+    if (ba) ba.onclick = () => { if (lk) return toast('🔒 ロックされています'); if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「↶」で元に戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
     if (others.length) $('#btnRound').onclick = () => {
       if (lk) return;
       const src = song.tracks.find((t) => t.id === $('#rSrc').value);
@@ -1730,6 +1771,9 @@ function renderEditorTools() {
     $('#cPat').onchange = (ev) => edit(() => { tr.pattern = ev.target.value; }, '伴奏の形');
     $('#cBass').onchange = (ev) => edit(() => { tr.bassOn = ev.target.checked; }, 'ベースの有無');
   }
+}
+function closePops(except) {
+  $$('details.pop[open]').forEach((d) => { if (d !== except && !d.contains(except)) d.removeAttribute('open'); });
 }
 function setGrid(v) {
   const sc = $('#scroller');
@@ -1764,7 +1808,7 @@ let picker = null;
 function openInstPicker(ti) {
   const tr = song.tracks[ti];
   if (locked(tr)) return toast('🔒 ロックされています');
-  picker = { ti, type: tr.type, val: tr.type === 'drum' ? tr.kit : tr.inst, cat: tr.type === 'drum' ? null : Sound.INST_CAT[tr.inst] || 'key' };
+  picker = { ti, type: tr.type, val: tr.type === 'drum' ? tr.kit : tr.inst, cat: tr.type === 'drum' ? null : Sound.INST_CAT[tr.inst] || 'key', real: tr.real !== false };
   $('#instTitle').textContent = tr.type === 'drum' ? '🥁 打楽器のセットをえらぶ' : '🎹 楽器をえらぶ';
   renderPicker();
   $('#dlgInst').showModal();
@@ -1772,28 +1816,38 @@ function openInstPicker(ti) {
 function renderPicker() {
   const p = picker;
   const box = $('#instBody');
+  const ctx = audioCtx();
+  const toggle = `<div class="realtoggle" title="本物の楽器を録音した音か、コンピューターで作った音か">
+    <button class="${p.real ? 'on' : ''}" data-r="1">🎙 本物の録音</button><button class="${p.real ? '' : 'on'}" data-r="0">🎛 電子音</button></div>`;
   if (p.type === 'drum') {
     const kit = Sound.KITS.find((k) => k.id === p.val) || Sound.KITS[0];
-    box.innerHTML = `<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.icon} ${k.name}</button>`).join('')}</div>
-      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}</button>`).join('')}</div>
-      <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。</p>`;
+    box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.icon} ${k.name}</button>`).join('')}</div>
+      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}${p.real && Sound.Samples.hasDrum(id) ? '<small>🎙</small>' : ''}</button>`).join('')}</div>
+      <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。🎙＝本物の録音があります。</p>`;
+    if (p.real) Sound.Samples.loadDrums(ctx).catch(() => {});
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.val = b.dataset.k; renderPicker(); }));
-    box.querySelectorAll('.pad').forEach((b) => (b.onpointerdown = () => preview({ type: 'drum' }, b.dataset.id)));
+    box.querySelectorAll('.pad').forEach((b) => (b.onpointerdown = () => preview({ type: 'drum', real: p.real }, b.dataset.id)));
   } else {
     const cat = Sound.CATS.find((c) => c.id === p.cat) || Sound.CATS[0];
-    box.innerHTML = `<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>
-      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}</button>`).join('')}</div>
+    box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>
+      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}${p.real ? (Sound.Samples.has(id) ? ' <small>🎙</small>' : ' <small title="録音がないので電子音で鳴ります">🎛</small>') : ''}</button>`).join('')}</div>
       <div class="kbd" id="pickKbd"></div>`;
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.cat = b.dataset.c; renderPicker(); }));
+    const demo = async () => {
+      if (p.real && Sound.Samples.has(p.val) && !Sound.Samples.ready(p.val)) { toast('録音を読み込んでいます…'); try { await Sound.Samples.load(p.val, ctx); } catch (e) { /* 電子音で鳴らす */ } }
+      ensureAudio();
+      const base = ['ebass', 'acbass', 'contrabass', 'cello', 'sbass1', 'sbass2', 'sbass3', 'tuba', 'bassoon', 'trombone', 'timpani', 'taikodrum'].includes(p.val) ? 41 : 60;
+      [0, 4, 7, 12].forEach((iv, i) => Sound.playNote(ctx, previewOut, p.val, base + iv, ctx.currentTime + 0.02 + i * 0.18, 0.35, 0.7, p.real));
+    };
     box.querySelectorAll('.instopt').forEach((b) => (b.onclick = () => {
       p.val = b.dataset.id;
       box.querySelectorAll('.instopt').forEach((x) => x.classList.toggle('on', x === b));
-      const ctx = ensureAudio();
-      const base = ['ebass', 'acbass', 'sbass1', 'sbass2', 'sbass3', 'tuba', 'bassoon', 'trombone', 'timpani'].includes(p.val) ? 36 : 60;
-      [0, 4, 7, 12].forEach((iv, i) => Sound.playNote(ctx, previewOut, p.val, base + iv, ctx.currentTime + 0.02 + i * 0.16, 0.3, 0.7));
+      demo();
     }));
-    renderKeyboard($('#pickKbd'), (m) => { const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, p.val, m, ctx.currentTime + 0.01, 0.5, 0.8); });
+    if (p.real && Sound.Samples.has(p.val)) Sound.Samples.load(p.val, ctx).catch(() => {});
+    renderKeyboard($('#pickKbd'), (m) => { ensureAudio(); Sound.playNote(ctx, previewOut, p.val, m, ctx.currentTime, 0.5, 0.8, p.real); });
   }
+  box.querySelectorAll('.realtoggle button').forEach((b) => (b.onclick = () => { p.real = b.dataset.r === '1'; renderPicker(); }));
 }
 function renderKeyboard(el, onPress) {
   const base = ui.kbOct * 12 + 12;
@@ -1868,8 +1922,8 @@ function openPalette() {
   pad.onpointerup = pad.onpointercancel = () => { if (!active) return; active = false; pad.classList.remove('on'); fxApply(fxKind, 0, 0, false); };
   if (!$('#dlgPal').open) $('#dlgPal').showModal();
 }
-function fxApply(kind, x, y, on) {
-  const g = player.graph;
+function fxApply(kind, x, y, on, gph) {
+  const g = gph || player.graph;
   if (!g) return;
   const now = actx.currentTime;
   const tc = 0.02;
@@ -1965,26 +2019,85 @@ async function openTeacher() {
 /* ============================================================
    楽譜
    ============================================================ */
-function scoreSvg(trackIds) {
-  const parts = song.tracks.filter((t) => t.type === 'melody' && trackIds.includes(t.id)).map((t) => ({ name: t.name, notes: t.notes }));
-  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
-  return Notation.render({
-    parts, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
-    title: song.title, bpm: song.bpm, chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordName(chordTr.chords[b])) : null,
-    width: 780,
-  });
+function scoreSettings() {
+  if (!song.score) song.score = {};
+  return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', drums: false, clefs: {}, ...song.score });
 }
-function openScore() {
-  const mel = song.tracks.filter((t) => t.type === 'melody');
-  if (!mel.length) return alert('楽譜にできるメロディのトラックがありません');
-  $('#scoreParts').innerHTML = mel.map((t) => `<label class="chk"><input type="checkbox" value="${t.id}" ${t.notes.length ? 'checked' : ''}> ${escapeHtml(t.name)}</label>`).join('') + '<span class="muted">（コード伴奏はコードネームとして表示されます）</span>';
-  const upd = () => {
-    const ids = $$('#scoreParts input:checked').map((c) => c.value);
-    $('#scoreView').innerHTML = ids.length ? scoreSvg(ids) : '<p class="muted">パートを選んでください</p>';
+function scoreOpts(trackIds, withDrums) {
+  const S = scoreSettings();
+  const parts = song.tracks.filter((t) => t.type === 'melody' && trackIds.includes(t.id))
+    .map((t) => ({ name: t.name, notes: t.notes, clef: S.clefs[t.id] || 'auto', lyrics: Notation.splitLyrics(t.lyrics || '') }));
+  if (withDrums) for (const t of song.tracks.filter((x) => x.type === 'drum' && trackIds.includes(x.id))) {
+    const hits = new Set();
+    for (const id in t.grid) for (const st in t.grid[id]) hits.add(+st);
+    const ts = [...hits].sort((a, b) => a - b);
+    parts.push({ name: t.name, perc: true, notes: ts.map((st, i) => ({ s: st, p: 60, l: Math.max(1, (i + 1 < ts.length ? ts[i + 1] : st + 48) - st) })) });
+  }
+  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
+  const solfa = S.solfa;
+  const nameOf = solfa === 'none' ? null : (m) => {
+    const pc = m % 12;
+    if (solfa === 'movable') return NAMES.doremi[ui.flat ? 1 : 0][(pc - song.key + 12) % 12];
+    return NAMES[solfa][ui.flat ? 1 : 0][pc];
   };
-  $$('#scoreParts input').forEach((c) => (c.onchange = upd));
+  return {
+    parts, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
+    title: song.title, bpm: song.bpm, meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer },
+    chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordName(chordTr.chords[b])) : null,
+    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => chordTr.chords[b] || null) : null,
+    nameOf, perLine: +S.perLine, scale: +S.scale, width: 780,
+  };
+}
+function scoreSvg(trackIds) { return Notation.render(scoreOpts(trackIds, true)); }
+let scoreSel = null;
+function openScore() {
+  const mel = song.tracks.filter((t) => t.type === 'melody' || t.type === 'drum');
+  if (!mel.some((t) => t.type === 'melody')) return alert('楽譜にできるメロディのトラックがありません');
+  const S = scoreSettings();
+  if (!scoreSel) scoreSel = new Set(song.tracks.filter((t) => t.type === 'melody' && t.notes.length).map((t) => t.id));
+  const side = $('#scoreSide');
+  side.innerHTML = `
+    <h4>曲の情報</h4>
+    <label>曲名 <input data-k="title" value="${escapeHtml(song.title)}"></label>
+    <label>サブタイトル <input data-s="subtitle" value="${escapeHtml(S.subtitle)}" placeholder="（なくてもよい）"></label>
+    <label>作詞 <input data-s="lyricist" value="${escapeHtml(S.lyricist)}"></label>
+    <label>作曲 <input data-s="composer" value="${escapeHtml(S.composer)}"></label>
+    <h4>見た目</h4>
+    <label>音符の下に <select data-s="solfa"><option value="none">何も書かない</option><option value="doremi">ドレミ（音名）</option><option value="movable">ドレミ（階名・移動ド）</option><option value="cde">CDE</option><option value="haniho">ハニホ</option></select></label>
+    <label>1段の小節数 <select data-s="perLine"><option value="0">自動</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}小節</option>`).join('')}</select></label>
+    <label>大きさ <select data-s="scale"><option value="0.8">小さい</option><option value="1">ふつう</option><option value="1.25">大きい</option><option value="1.5">とても大きい</option></select></label>
+    <h4>パート</h4>
+    ${mel.map((t) => `<div class="scorepart">
+      <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${t.type === 'drum' ? '🥁' : '🎵'} ${escapeHtml(t.name)}</label>
+      ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option></select></label>
+      <label class="col">歌詞 <small>1音に1文字ずつ入ります（「きゃ」「っ」は前の字といっしょ）。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）でかこむ。英語は単語ごと。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || '')}</textarea></label>` : ''}
+    </div>`).join('')}
+    <p class="muted">コード伴奏は、楽譜の上にコードネームとして書かれます。</p>`;
+  side.querySelectorAll('[data-s]').forEach((el) => { el.value = String(S[el.dataset.s]); });
+  side.querySelectorAll('.sclef').forEach((el) => { el.value = S.clefs[el.dataset.id] || 'auto'; });
+  const upd = () => {
+    const ids = [...scoreSel];
+    $('#scoreView').innerHTML = ids.length ? scoreSvg(ids) : '<p class="muted" style="padding:12px">パートを選んでください</p>';
+  };
+  side.querySelectorAll('[data-s]').forEach((el) => {
+    el.oninput = () => { S[el.dataset.s] = el.value; upd(); };
+    el.onchange = () => { autosaveSoon(); if (ui.showScore) renderScorePanel(); };
+  });
+  side.querySelector('[data-k="title"]').onchange = (e) => { edit(() => { song.title = e.target.value || song.title; }, '曲名'); renderSettings(); upd(); };
+  side.querySelectorAll('.spart').forEach((c) => (c.onchange = () => { c.checked ? scoreSel.add(c.value) : scoreSel.delete(c.value); upd(); }));
+  side.querySelectorAll('.sclef').forEach((el) => (el.onchange = () => { S.clefs[el.dataset.id] = el.value; upd(); autosaveSoon(); }));
+  side.querySelectorAll('.slyr').forEach((el) => {
+    const tr = song.tracks.find((t) => t.id === el.dataset.id);
+    el.oninput = () => { tr.lyrics = el.value; upd(); };
+    el.onfocus = () => { el._snap = snapshot(); };
+    el.onchange = () => { if (el._snap && snapshot() !== el._snap) pushUndo(el._snap, '歌詞'); autosaveSoon(); };
+  });
   upd();
-  $('#dlgScore').showModal();
+  if (!$('#dlgScore').open) $('#dlgScore').showModal();
+}
+function autosaveSoon() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } }, 400);
 }
 function printScore() {
   const svg = $('#scoreView').innerHTML;
@@ -1993,12 +2106,35 @@ function printScore() {
   w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}svg{width:100%;height:auto}</style>${svg}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
   w.document.close();
 }
+function exportPng() {
+  const svgEl = $('#scoreView svg');
+  if (!svgEl) return;
+  const xml = new XMLSerializer().serializeToString(svgEl);
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas');
+    c.width = svgEl.width.baseVal.value * 2;
+    c.height = svgEl.height.baseVal.value * 2;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(img, 0, 0, c.width, c.height);
+    c.toBlob((b) => { download(b, safeName() + '_楽譜.png'); toast('楽譜の画像を保存しました'); });
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+}
+function exportMusicXML() {
+  const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
+  o.chords = o.chordObjs;
+  download(new Blob([Notation.musicXML(o)], { type: 'application/vnd.recordare.musicxml+xml' }), safeName() + '.musicxml');
+  toast('MusicXMLを書き出しました（MuseScoreなどの楽譜ソフトで開けます）');
+}
 function renderScorePanel() {
   const tr = track();
   const el = $('#scorePanel');
   if (!ui.showScore) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = tr.type === 'melody' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディのトラックを選ぶと、ここに楽譜が出ます</p>';
+  el.innerHTML = tr.type === 'melody' || tr.type === 'drum' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディかリズムのトラックを選ぶと、ここに楽譜が出ます</p>';
 }
 
 /* ============================================================
@@ -2023,6 +2159,7 @@ function loadSong(s) {
   changed(true);
   scrollToNotes();
   draw();
+  preloadSamples();
 }
 function savedList() { try { return JSON.parse(localStorage.getItem('otsumiki-songs') || '{}'); } catch (e) { return {}; } }
 function saveToBrowser() {
@@ -2103,6 +2240,8 @@ async function shareDialog() {
 async function exportWav() {
   stop();
   toast('音声ファイルを作っています…');
+  const c0 = audioCtx();
+  await Promise.all(song.tracks.filter((t) => t.real !== false).map((t) => (t.type === 'drum' ? Sound.Samples.loadDrums(c0) : Sound.Samples.has(t.inst) ? Sound.Samples.load(t.inst, c0) : null)).map((p) => p && p.catch(() => null)));
   const sr = 44100;
   const len = Math.ceil((absSec(totalTicks()) + 3) * sr);
   const ctx = new OfflineAudioContext(2, len, sr);
@@ -2380,8 +2519,17 @@ function init() {
   $('#btnScore').onclick = openScore;
   $('#btnScoreMenu').onclick = openScore;
   $('#btnPrintScore').onclick = printScore;
+  $('#btnPngScore').onclick = exportPng;
+  $('#btnXmlScore').onclick = exportMusicXML;
   $('#btnSvgScore').onclick = () => download(new Blob([$('#scoreView').innerHTML], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
-  $('#btnScorePanel').onclick = () => { ui.showScore = !ui.showScore; $('#btnScorePanel').classList.toggle('on', ui.showScore); renderScorePanel(); };
+  $('#btnScorePanel').onchange = (e) => { ui.showScore = e.target.checked; renderScorePanel(); };
+  $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };
+  $('#dragMode').onchange = (e) => { ui.dragMode = e.target.value; };
+  $('#touchMode').onchange = (e) => { ui.touchEdit = e.target.value === 'edit'; $('#scroller').classList.toggle('touchedit', ui.touchEdit); };
+  $('#miniInfo').onclick = () => { const d = $('#popRules'); d.open = !d.open; };
+  // ポップアップ（ルール・メニュー・道具・表示）は外をおすと閉じる
+  document.addEventListener('pointerdown', (e) => { if (e.target.closest('#miniInfo')) return; closePops(e.target.closest('details.pop')); });
+  document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pop') && e.target.open) closePops(e.target); }, true);
   $('#btnPal').onclick = openPalette;
   $('#btnTeach').onclick = openTeacher;
   $('#btnShare').onclick = () => shareDialog().catch((err) => alert('URLを作れませんでした：' + err.message));
@@ -2396,13 +2544,14 @@ function init() {
   };
   $('#instOk').onclick = () => {
     const tr = song.tracks[picker.ti];
-    edit(() => { if (picker.type === 'drum') tr.kit = picker.val; else tr.inst = picker.val; }, '楽器を変更');
+    edit(() => { if (picker.type === 'drum') tr.kit = picker.val; else tr.inst = picker.val; tr.real = picker.real; }, '楽器を変更');
     renderTracks();
+    preloadSamples();
     $('#dlgInst').close();
   };
   $('#dlgPal').addEventListener('close', () => { renderTracks(); changed(); });
   document.querySelectorAll('dialog .close').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
-  document.querySelectorAll('.dropdown .dd button').forEach((b) => b.addEventListener('click', () => b.closest('details').removeAttribute('open')));
+  document.querySelectorAll('.dropdown .dd button, #addRow button').forEach((b) => b.addEventListener('click', () => b.closest('details').removeAttribute('open')));
   $('#addMelody').onclick = () => addTrack('melody');
   $('#addChord').onclick = () => addTrack('chord');
   $('#addDrum').onclick = () => addTrack('drum');
@@ -2412,6 +2561,7 @@ function init() {
 
   const sc = $('#scroller');
   sc.classList.toggle('touchedit', ui.touchEdit);
+  renderSettings();
   sc.addEventListener('pointerdown', onDown);
   sc.addEventListener('pointermove', onMove);
   sc.addEventListener('pointerup', onUp);
@@ -2459,8 +2609,8 @@ function init() {
       const midi = ui.kbOct * 12 + 12 + KEYMAP[k];
       const drumIdx = 'asdfghjk'.indexOf(k);
       if (inPicker) {
-        if (picker.type === 'drum') { const kit = Sound.KITS.find((x) => x.id === picker.val) || Sound.KITS[0]; const id = [...kit.list].reverse()[drumIdx]; if (id) preview({ type: 'drum' }, id); }
-        else { const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, picker.val, midi, ctx.currentTime + 0.01, 0.5, 0.8); }
+        if (picker.type === 'drum') { const kit = Sound.KITS.find((x) => x.id === picker.val) || Sound.KITS[0]; const id = [...kit.list].reverse()[drumIdx]; if (id) preview({ type: 'drum', real: picker.real }, id); }
+        else { const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, picker.val, midi, ctx.currentTime, 0.5, 0.8, picker.real); }
         return;
       }
       if (track().type === 'drum' && drumIdx < 0) return;
