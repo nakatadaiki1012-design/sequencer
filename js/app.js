@@ -1,24 +1,28 @@
 'use strict';
 /* ============================================================
    おとつみき — アプリ本体
+   時間の単位：4分音符 = 48 ティック（3連符や32分音符も表せます）
    ============================================================ */
 const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => Math.random().toString(36).slice(2, 9);
+const TPQ = 48;
 
 /* ---------- 音楽の基本データ ---------- */
 const PC_COLORS = ['#ff5a5f', '#ff7e47', '#ff9f2e', '#ffc02e', '#f5dd2a', '#8fd93a', '#3ccf7a', '#2ec4b6', '#36a6ff', '#5b7bff', '#9b5bff', '#e05bd6'];
 const NAMES = {
-  doremi: ['ド', 'ド#', 'レ', 'レ#', 'ミ', 'ファ', 'ファ#', 'ソ', 'ソ#', 'ラ', 'ラ#', 'シ'],
-  cde: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-  haniho: ['ハ', '嬰ハ', 'ニ', '嬰ニ', 'ホ', 'ヘ', '嬰ヘ', 'ト', '嬰ト', 'イ', '嬰イ', 'ロ'],
+  doremi: [['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ', 'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'], ['ド', 'レ♭', 'レ', 'ミ♭', 'ミ', 'ファ', 'ソ♭', 'ソ', 'ラ♭', 'ラ', 'シ♭', 'シ']],
+  cde: [['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'], ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']],
+  haniho: [['ハ', '嬰ハ', 'ニ', '嬰ニ', 'ホ', 'ヘ', '嬰ヘ', 'ト', '嬰ト', 'イ', '嬰イ', 'ロ'], ['ハ', '変ニ', 'ニ', '変ホ', 'ホ', 'ヘ', '変ト', 'ト', '変イ', 'イ', '変ロ', 'ロ']],
 };
-const KEY_LABELS = ['C (ハ)', 'C# (嬰ハ)', 'D (ニ)', 'E♭ (変ホ)', 'E (ホ)', 'F (ヘ)', 'F# (嬰ヘ)', 'G (ト)', 'A♭ (変イ)', 'A (イ)', 'B♭ (変ロ)', 'B (ロ)'];
-const CHORD_ROOT = ['C', 'C#', 'D', 'E♭', 'E', 'F', 'F#', 'G', 'A♭', 'A', 'B♭', 'B'];
+const KEY_LABELS = ['C（ハ）', 'C♯/D♭（嬰ハ/変ニ）', 'D（ニ）', 'E♭（変ホ）', 'E（ホ）', 'F（ヘ）', 'F♯（嬰ヘ）', 'G（ト）', 'A♭（変イ）', 'A（イ）', 'B♭（変ロ）', 'B（ロ）'];
+const CHORD_ROOT = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 const SCALES = {
-  major: { name: '長音階（ドレミ）', steps: [0, 2, 4, 5, 7, 9, 11] },
-  minor: { name: '短音階', steps: [0, 2, 3, 5, 7, 8, 10] },
-  penta: { name: 'ヨナ抜き音階（ペンタトニック）', steps: [0, 2, 4, 7, 9] },
+  major: { name: '長調（長音階）', steps: [0, 2, 4, 5, 7, 9, 11] },
+  minor: { name: '短調（短音階）', steps: [0, 2, 3, 5, 7, 8, 10] },
+  hminor: { name: '和声的短音階', steps: [0, 2, 3, 5, 7, 8, 11] },
+  penta: { name: 'ヨナ抜き音階', steps: [0, 2, 4, 7, 9] },
   minyo: { name: '民謡音階', steps: [0, 3, 5, 7, 10] },
   miyako: { name: '都節音階', steps: [0, 1, 5, 7, 8] },
   ritsu: { name: '律音階', steps: [0, 2, 5, 7, 9] },
@@ -27,32 +31,37 @@ const SCALES = {
   whole: { name: '全音音階', steps: [0, 2, 4, 6, 8, 10] },
   chromatic: { name: 'すべての音（半音もぜんぶ）', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
 };
+const MINORISH = ['minor', 'hminor', 'minyo', 'miyako', 'blues'];
 const CHORD_Q = {
   M: { iv: [0, 4, 7], s: '' }, m: { iv: [0, 3, 7], s: 'm' }, 7: { iv: [0, 4, 7, 10], s: '7' },
   M7: { iv: [0, 4, 7, 11], s: 'M7' }, m7: { iv: [0, 3, 7, 10], s: 'm7' }, sus4: { iv: [0, 5, 7], s: 'sus4' },
   dim: { iv: [0, 3, 6], s: 'dim' }, aug: { iv: [0, 4, 8], s: 'aug' },
 };
 const CHORD_PATTERNS = {
-  whole: 'じゃーん（のばす）',
-  beat: 'ジャン・ジャン（拍ごと）',
-  arp: 'ポロロン（分散和音）',
-  waltz: 'ズン・チャッ・チャッ（ワルツ風）',
-  march: 'ズン・チャッ（マーチ風）',
+  whole: 'じゃーん（のばす）', beat: 'ジャン・ジャン（拍ごと）', arp: 'ポロロン（分散和音）',
+  waltz: 'ズン・チャッ・チャッ（ワルツ風）', march: 'ズン・チャッ（マーチ風）', alberti: 'ドソミソ（アルベルティ）',
 };
-const RANGES = { soprano: ['ソプラノ（ド4〜ド6）', 60], alto: ['アルト（ソ3〜ソ5）', 55], tenor: ['テノール（ド3〜ド5）', 48], bass: ['ベース（ド2〜ド4）', 36] };
+const RANGES = {
+  soprano: ['ソプラノ（ド4〜ド6）', 60, 84], alto: ['アルト（ソ3〜ソ5）', 55, 79], tenor: ['テノール（ド3〜ド5）', 48, 72],
+  bass: ['ベース（ド2〜ド4）', 36, 60], wide: ['広い（ド2〜ド7）', 36, 96], all: ['ピアノ全部（88鍵）', 21, 108],
+};
+const GRIDS = [[192, '全音符', '𝅝'], [96, '2分音符', '𝅗𝅥'], [48, '4分音符', '♩'], [24, '8分音符', '♪'], [12, '16分音符', '𝅘𝅥𝅯'], [6, '32分音符', '𝅘𝅥𝅰'], [16, '8分3連符', '♪³'], [8, '16分3連符', '𝅘𝅥𝅯³']];
 const TRACK_COLORS = ['#ff6b6b', '#4dabf7', '#51cf66', '#fcc419', '#cc5de8', '#ff922b', '#20c997', '#748ffc'];
+const MAX_TRACKS = 8;
 
 /* ---------- 曲データ ---------- */
 function newTrack(type, opts = {}) {
-  const base = { id: uid(), type, vol: 0.8, mute: false, solo: false };
+  const base = { id: uid(), type, vol: 0.8, mute: false, solo: false, locked: false };
   if (type === 'melody') return { ...base, name: 'メロディ', inst: 'recorder', range: 'soprano', notes: [], ...opts };
   if (type === 'chord') return { ...base, name: 'コード伴奏', inst: 'piano', vol: 0.55, pattern: 'beat', bassOn: true, chords: [], ...opts };
-  return { ...base, name: 'リズム', grid: {}, ...opts };
+  return { ...base, name: 'リズム', kit: 'drums', grid: {}, ...opts };
 }
 function newSong() {
   return {
-    v: 1, title: 'あたらしい曲', bpm: 100, meter: [4, 4], res: 8, bars: 8, key: 0, scale: 'major',
-    swing: 0, reverb: 0.25,
+    v: 2, title: 'あたらしい曲', bpm: 100, meter: [4, 4], bars: 8, key: 0, scale: 'major',
+    swing: 0, swingUnit: 24, reverb: 0.25, master: 0.9, eq: { low: 0, mid: 0, high: 0 },
+    metro: { vol: 0.7, kind: 'click' }, tempos: {},
+    locks: { pin: '', rules: false, tracks: false, compose: false, mute: false },
     tracks: [
       newTrack('melody', { name: 'メロディ1', inst: 'recorder' }),
       newTrack('melody', { name: 'メロディ2', inst: 'kenhamo', range: 'alto' }),
@@ -64,92 +73,181 @@ function newSong() {
 function sampleSong() {
   const s = newSong();
   s.title = 'サンプル「はじめの一歩」';
-  const mel = [[64, 2], [67, 2], [69, 2], [67, 2], [64, 2], [62, 2], [60, 4], [62, 2], [64, 2], [67, 2], [64, 2], [62, 6], [0, 2],
-    [64, 2], [67, 2], [69, 2], [72, 2], [74, 2], [72, 2], [69, 4], [67, 2], [64, 2], [62, 2], [64, 2], [60, 8]];
+  const E = 24;
+  const mel = [[64, 2], [67, 2], [69, 2], [67, 2], [64, 2], [62, 1], [64, 1], [60, 4], [62, 2], [64, 2], [67, 2], [64, 2], [62, 6], [0, 2],
+    [64, 2], [67, 2], [69, 2], [72, 2], [74, 2], [72, 2], [69, 4], [67, 3], [64, 1], [62, 2], [64, 2], [60, 8]];
   let st = 0;
-  for (const [p, l] of mel) { if (p) s.tracks[0].notes.push({ s: st, p, l }); st += l; }
-  const low = [[60, 8], [57, 8], [59, 8], [55, 8], [57, 8], [60, 8], [59, 8], [55, 8]];
+  for (const [p, l] of mel) { if (p) s.tracks[0].notes.push({ s: st * E, p, l: l * E }); st += l; }
+  const low = [[55, 8], [57, 8], [59, 8], [55, 8], [57, 8], [60, 8], [59, 8], [55, 8]];
   st = 0;
-  for (const [p, l] of low) { s.tracks[1].notes.push({ s: st, p, l }); st += l; }
-  s.tracks[1].vol = 0.5;
+  for (const [p, l] of low) { s.tracks[1].notes.push({ s: st * E, p, l: l * E }); st += l; }
+  s.tracks[1].vol = 0.45;
   s.tracks[2].chords = [{ r: 0, q: 'M' }, { r: 9, q: 'm' }, { r: 7, q: 'M' }, { r: 7, q: '7' }, { r: 9, q: 'm' }, { r: 5, q: 'M' }, { r: 7, q: 'M' }, { r: 0, q: 'M' }];
   const g = s.tracks[3].grid;
   g.kick = {}; g.snare = {}; g.hihat = {};
   for (let b = 0; b < 8; b++) {
-    const o = b * 8;
-    g.kick[o] = 2; g.kick[o + 4] = 1; g.snare[o + 2] = 1; g.snare[o + 6] = 1;
-    for (let i = 0; i < 8; i++) g.hihat[o + i] = i % 2 ? 1 : 2;
+    const o = b * 192;
+    g.kick[o] = 2; g.kick[o + 96] = 1; g.snare[o + 48] = 1; g.snare[o + 144] = 1;
+    for (let i = 0; i < 8; i++) g.hihat[o + i * 24] = i % 2 ? 1 : 2;
   }
-  g.cymbal = { 0: 2, 56: 2 };
+  g.crash = { 0: 2, 1344: 2 };
+  s.tempos = { 7: 88 };
+  return s;
+}
+// 古い形式（v1：マス目単位）の曲を新しい形式に変換
+function migrate(s) {
+  if (s.v >= 2) return s;
+  const f = 192 / (s.res || 8);
+  for (const t of s.tracks) {
+    if (t.type === 'melody') t.notes = (t.notes || []).map((n) => ({ s: n.s * f, p: n.p, l: n.l * f }));
+    if (t.type === 'drum') {
+      const ng = {};
+      const rename = { cymbal: 'crash', tom: 'tomL', taiko: 'chodaiko', clave: 'hyoshigi' };
+      for (const id in t.grid) { const nid = rename[id] || id; ng[nid] = {}; for (const st in t.grid[id]) ng[nid][st * f] = t.grid[id][st]; }
+      t.grid = ng;
+      t.kit = 'drums';
+    }
+    if (t.inst === 'brass') t.inst = 'trumpet';
+    if (t.inst === 'synth') t.inst = 'synth2';
+    if (t.inst === 'bass') t.inst = 'ebass';
+  }
+  s.v = 2;
+  delete s.res;
   return s;
 }
 
 /* ---------- 状態 ---------- */
 let song = newSong();
-let cur = 0; // 選択中のトラック
-const ui = { cw: 28, rh: 22, names: 'doremi', defLen: 2, startStep: 0, loopOn: true, metro: false, loopRange: null, selBar: 0, follow: true };
+let cur = 0;
+const ui = {
+  zoom: 56, rh: 22, names: 'doremi', flat: false, grid: 24, startTick: 0, loopOn: false, metro: false,
+  loopRange: null, sel: { t: 0, b0: 0, b1: 0 }, selBar: 0, follow: true, ghost: true, touchEdit: true, dragMode: 'auto',
+  stepRec: false, inputTick: 0, kbOct: 4, showScore: false,
+};
 let version = 0;
-const undoStack = [];
+const undoStack = []; // {snap, label}
 const redoStack = [];
 
-const stepsPerBar = () => song.meter[0] * (song.res / song.meter[1]);
-const beatSteps = () => Math.max(1, song.res / song.meter[1]) * (song.meter[1] === 8 && song.meter[0] % 3 === 0 ? 3 : 1);
-const totalSteps = () => stepsPerBar() * song.bars;
-const stepDur = () => (60 / song.bpm) * (4 / song.res);
+const barTicks = () => (song.meter[0] * 192) / song.meter[1];
+const totalTicks = () => barTicks() * song.bars;
+const beatTicks = () => (song.meter[1] === 8 && song.meter[0] % 3 === 0 && song.meter[0] > 3 ? 72 : 192 / song.meter[1]);
 const track = () => song.tracks[cur];
 const scalePcs = () => new Set(SCALES[song.scale].steps.map((x) => (x + song.key) % 12));
+const ppt = () => Math.max(ui.zoom / TPQ, 18 / ui.grid);
+const isMinor = () => MINORISH.includes(song.scale);
+const locked = (tr) => !!(tr && tr.locked);
 
 function noteName(m, withOct = false) {
   const pc = ((m % 12) + 12) % 12;
-  let n;
-  if (ui.names === 'movable') n = NAMES.doremi[(pc - song.key + 12) % 12];
-  else n = NAMES[ui.names][pc];
+  const fl = ui.flat ? 1 : 0;
+  const n = ui.names === 'movable' ? NAMES.doremi[fl][(pc - song.key + 12) % 12] : NAMES[ui.names][fl][pc];
   return withOct ? n + (Math.floor(m / 12) - 1) : n;
 }
+const sciName = (m) => NAMES.cde[ui.flat ? 1 : 0][m % 12] + (Math.floor(m / 12) - 1);
 function chordName(c) { return c ? CHORD_ROOT[c.r] + CHORD_Q[c.q].s : ''; }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-/* ---------- 元に戻す ---------- */
+// マス目（おたまチョップ）の区切り：小節の頭からかぞえます
+function cellStart(t) {
+  const bt = barTicks();
+  const b = Math.floor(t / bt);
+  return b * bt + Math.floor((t - b * bt) / ui.grid) * ui.grid;
+}
+function cellLen(s) {
+  const bt = barTicks();
+  const be = (Math.floor(s / bt) + 1) * bt;
+  return Math.min(ui.grid, be - s);
+}
+
+/* ---------- テンポ（途中で変えられます） ---------- */
+function bpmAt(bar) {
+  let b = song.bpm;
+  for (let i = 0; i <= bar; i++) if (song.tempos[i]) b = song.tempos[i];
+  return b;
+}
+let timeCache = { v: -1 };
+function timeTable() {
+  if (timeCache.v === version) return timeCache;
+  const n = song.bars;
+  const start = [0];
+  const spt = [];
+  for (let b = 0; b < n; b++) {
+    spt.push(60 / (bpmAt(b) * TPQ));
+    start.push(start[b] + spt[b] * barTicks());
+  }
+  timeCache = { v: version, start, spt };
+  return timeCache;
+}
+function absSec(tick) {
+  const { start, spt } = timeTable();
+  const bt = barTicks();
+  const b = clamp(Math.floor(tick / bt), 0, song.bars - 1);
+  return start[b] + (tick - b * bt) * spt[b];
+}
+function tickAtSec(sec) {
+  const { start, spt } = timeTable();
+  const bt = barTicks();
+  let b = 0;
+  while (b < song.bars - 1 && start[b + 1] <= sec) b++;
+  return b * bt + (sec - start[b]) / spt[b];
+}
+function swingSec(tick) {
+  if (!song.swing) return 0;
+  const u = song.swingUnit;
+  if (tick % (u * 2) !== u) return 0;
+  const { spt } = timeTable();
+  return (song.swing * u / 3) * spt[clamp(Math.floor(tick / barTicks()), 0, song.bars - 1)];
+}
+
+/* ---------- 元に戻す・履歴 ---------- */
 function snapshot() { return JSON.stringify(song); }
-function pushUndo(snap) {
-  undoStack.push(snap);
-  if (undoStack.length > 200) undoStack.shift();
+function pushUndo(snap, label) {
+  undoStack.push({ snap, label });
+  if (undoStack.length > 300) undoStack.shift();
   redoStack.length = 0;
   updateUndoButtons();
 }
-function edit(fn) {
+function edit(fn, label = '編集') {
   const snap = snapshot();
   fn();
-  if (snapshot() !== snap) pushUndo(snap);
+  if (snapshot() !== snap) pushUndo(snap, label);
   changed();
+}
+function restore(json) {
+  song = JSON.parse(json);
+  cur = clamp(cur, 0, song.tracks.length - 1);
+  changed(true);
 }
 function undo() {
   if (!undoStack.length) return;
-  redoStack.push(snapshot());
-  song = JSON.parse(undoStack.pop());
-  cur = clamp(cur, 0, song.tracks.length - 1);
-  changed(true);
+  const e = undoStack.pop();
+  redoStack.push({ snap: snapshot(), label: e.label });
+  restore(e.snap);
 }
 function redo() {
   if (!redoStack.length) return;
-  undoStack.push(snapshot());
-  song = JSON.parse(redoStack.pop());
-  cur = clamp(cur, 0, song.tracks.length - 1);
-  changed(true);
+  const e = redoStack.pop();
+  undoStack.push({ snap: snapshot(), label: e.label });
+  restore(e.snap);
 }
 function updateUndoButtons() {
   $('#btnUndo').disabled = !undoStack.length;
   $('#btnRedo').disabled = !redoStack.length;
 }
 let autosaveTimer = null;
+let scoreTimer = null;
 function changed(full = false) {
   version++;
   if (full) { renderSettings(); renderTracks(); }
   renderEditorTools();
   resizeEditor();
   draw();
+  drawOverview();
   updateUndoButtons();
+  updateMini();
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 保存できなくても続ける */ } }, 500);
+  if (ui.showScore) { clearTimeout(scoreTimer); scoreTimer = setTimeout(renderScorePanel, 250); }
 }
 
 /* ============================================================
@@ -171,214 +269,264 @@ function ensureAudio() {
   return actx;
 }
 
-function buildGraph(ctx, dest) {
-  const master = ctx.createGain();
-  master.gain.value = 0.9;
-  master.connect(dest);
+const identityCurve = (() => { const c = new Float32Array(256); for (let i = 0; i < 256; i++) c[i] = i / 127.5 - 1; return c; })();
+function crushCurve(bits) {
+  const c = new Float32Array(1024);
+  const steps = Math.pow(2, bits);
+  for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; c[i] = Math.round(x * steps) / steps; }
+  return c;
+}
+function buildGraph(ctx, dest, live) {
+  const out = ctx.createGain();
+  out.gain.value = song.master;
+  out.connect(dest);
+  const pre = ctx.createGain();
+  const eqL = ctx.createBiquadFilter(); eqL.type = 'lowshelf'; eqL.frequency.value = 250; eqL.gain.value = song.eq.low;
+  const eqM = ctx.createBiquadFilter(); eqM.type = 'peaking'; eqM.frequency.value = 1000; eqM.Q.value = 0.8; eqM.gain.value = song.eq.mid;
+  const eqH = ctx.createBiquadFilter(); eqH.type = 'highshelf'; eqH.frequency.value = 4000; eqH.gain.value = song.eq.high;
+  pre.connect(eqL); eqL.connect(eqM); eqM.connect(eqH);
+  const g = { out, pre, eqL, eqM, eqH, outs: {} };
+  if (live) {
+    // エフェクトパッド用の部品
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 22000; lp.Q.value = 1;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 10; hp.Q.value = 1;
+    const crush = ctx.createWaveShaper(); crush.curve = identityCurve;
+    const dry = ctx.createGain();
+    eqH.connect(lp); lp.connect(hp); hp.connect(crush); crush.connect(dry); dry.connect(out);
+    const dIn = ctx.createGain(); dIn.gain.value = 0;
+    const dl = ctx.createDelay(2); dl.delayTime.value = 0.3;
+    const dFb = ctx.createGain(); dFb.gain.value = 0.4;
+    crush.connect(dIn); dIn.connect(dl); dl.connect(dFb); dFb.connect(dl); dl.connect(out);
+    const stIn = ctx.createGain(); stIn.gain.value = 1;
+    const st = ctx.createDelay(2); st.delayTime.value = 0.2;
+    const stFb = ctx.createGain(); stFb.gain.value = 0;
+    const stOut = ctx.createGain(); stOut.gain.value = 0;
+    crush.connect(stIn); stIn.connect(st); st.connect(stFb); stFb.connect(st); st.connect(stOut); stOut.connect(out);
+    const fxRev = Sound.makeReverb(ctx, 3.5);
+    const fxRevIn = ctx.createGain(); fxRevIn.gain.value = 0;
+    crush.connect(fxRevIn); fxRevIn.connect(fxRev); fxRev.connect(out);
+    Object.assign(g, { lp, hp, crush, dry, dIn, dl, dFb, stIn, st, stFb, stOut, fxRevIn });
+  } else eqH.connect(out);
   const rev = Sound.makeReverb(ctx, 2.2);
   const wet = ctx.createGain();
   wet.gain.value = song.reverb * 0.6;
-  rev.connect(wet);
-  wet.connect(master);
-  const outs = {};
+  rev.connect(wet); wet.connect(pre);
+  g.wet = wet;
   for (const tr of song.tracks) {
-    const g = ctx.createGain();
-    g.gain.value = tr.vol;
-    g.connect(master);
-    g.connect(rev);
-    outs[tr.id] = g;
+    const tg = ctx.createGain();
+    tg.gain.value = tr.vol;
+    tg.connect(pre); tg.connect(rev);
+    g.outs[tr.id] = tg;
   }
-  const metro = ctx.createGain();
-  metro.connect(master);
-  return { master, outs, metro, wet };
+  g.metro = ctx.createGain();
+  g.metro.gain.value = song.metro.vol;
+  g.metro.connect(out);
+  return g;
 }
 
-// 1ステップごとに鳴らすものを前もって整理
-let evCache = { v: -1, map: null };
 function chordEvents(tr) {
-  const spb = stepsPerBar();
-  const bs = beatSteps();
+  const bt = barTicks();
+  const bs = beatTicks();
   const ev = [];
   for (let b = 0; b < song.bars; b++) {
     const c = tr.chords[b];
     if (!c) continue;
-    let root = 48 + ((c.r - 48) % 12 + 12) % 12; // C3〜B3
+    let root = 48 + ((c.r % 12) + 12) % 12;
     if (root > 54) root -= 12;
     const tones = CHORD_Q[c.q].iv.map((x) => root + 12 + x);
     const bass = root - 12 + (root < 43 ? 12 : 0);
-    const o = b * spb;
+    const o = b * bt;
     const push = (s, p, l, v = 0.7) => ev.push({ s: o + s, p, l, v });
     const pat = tr.pattern;
     if (pat === 'whole') {
-      tones.forEach((p) => push(0, p, spb, 0.6));
-      if (tr.bassOn) push(0, bass, spb, 0.8);
+      tones.forEach((p) => push(0, p, bt, 0.6));
+      if (tr.bassOn) push(0, bass, bt, 0.8);
     } else if (pat === 'beat') {
-      for (let s = 0; s < spb; s += bs) {
-        tones.forEach((p) => push(s, p, Math.max(1, bs - 0.3), s === 0 ? 0.65 : 0.5));
-        if (tr.bassOn) push(s, bass, Math.max(1, bs - 0.3), 0.75);
+      for (let s = 0; s < bt; s += bs) {
+        tones.forEach((p) => push(s, p, bs * 0.9, s === 0 ? 0.65 : 0.5));
+        if (tr.bassOn) push(s, bass, bs * 0.9, 0.75);
       }
-    } else if (pat === 'arp') {
-      const seq = [tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1]];
-      const unit = Math.max(1, song.res / 8);
+    } else if (pat === 'arp' || pat === 'alberti') {
+      const seq = pat === 'arp' ? [tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1]] : [tones[0], tones[2], tones[1], tones[2]];
       let i = 0;
-      for (let s = 0; s < spb; s += unit) push(s, seq[i++ % seq.length], unit * 1.6, 0.55);
-      if (tr.bassOn) push(0, bass, spb, 0.7);
+      for (let s = 0; s < bt; s += 24) push(s, seq[i++ % seq.length], pat === 'arp' ? 40 : 22, 0.55);
+      if (tr.bassOn) push(0, bass, bt, 0.7);
     } else if (pat === 'waltz' || pat === 'march') {
-      for (let s = 0, k = 0; s < spb; s += bs, k++) {
+      for (let s = 0, k = 0; s < bt; s += bs, k++) {
         const first = pat === 'waltz' ? k % 3 === 0 : k % 2 === 0;
-        if (first) { if (tr.bassOn) push(s, bass, bs * 0.9, 0.85); else push(s, tones[0], bs * 0.9, 0.6); }
-        else tones.forEach((p) => push(s, p, bs * 0.6, 0.45));
+        if (first) { if (tr.bassOn) push(s, bass, bs * 0.9, 0.85); else push(s, tones[0], bs * 0.9, 0.6); } else tones.forEach((p) => push(s, p, bs * 0.6, 0.45));
       }
     }
   }
   return ev;
 }
-function eventMap() {
-  if (evCache.v === version) return evCache.map;
-  const map = new Map();
-  const add = (s, e) => { if (!map.has(s)) map.set(s, []); map.get(s).push(e); };
+
+// 再生する出来事（ノート・打楽器・メトロノーム）を時間順に並べる
+let evCache = { v: -1, list: [] };
+function eventList() {
+  if (evCache.v === version) return evCache.list;
+  const list = [];
+  const total = totalTicks();
   for (const tr of song.tracks) {
-    if (tr.type === 'melody') for (const n of tr.notes) add(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: 0.8 });
-    else if (tr.type === 'chord') for (const n of chordEvents(tr)) add(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
-    else for (const id in tr.grid) for (const s in tr.grid[id]) add(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
+    if (tr.type === 'melody') for (const n of tr.notes) { if (n.s < total) list.push({ t: n.s, tr, kind: 'note', p: n.p, l: Math.min(n.l, total - n.s), v: 0.8 }); }
+    else if (tr.type === 'chord') for (const n of chordEvents(tr)) list.push({ t: n.s, tr, kind: 'note', p: n.p, l: n.l, v: n.v });
+    else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) list.push({ t: +s, tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
   }
-  evCache = { v: version, map };
-  return map;
+  const bt = barTicks();
+  const bs = beatTicks();
+  for (let t = 0; t < total; t += bs) list.push({ t, kind: 'metro', acc: t % bt === 0 });
+  list.sort((a, b) => a.t - b.t);
+  evCache = { v: version, list };
+  return list;
 }
 function audible(tr) {
   if (tr.mute) return false;
   const anySolo = song.tracks.some((t) => t.solo);
   return anySolo ? tr.solo : true;
 }
-function stepLen(step) {
-  const d = stepDur();
-  if (!song.swing) return d;
-  const sw = song.swing * 0.33;
-  return step % 2 === 0 ? d * (1 + sw) : d * (1 - sw);
-}
-function scheduleStep(ctx, graph, step, t, withMetro) {
-  const evs = eventMap().get(step);
-  if (evs) {
-    for (const e of evs) {
-      if (!audible(e.tr)) continue;
-      const out = graph.outs[e.tr.id];
-      if (!out) continue;
-      if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, e.l * stepDur() * 0.96, e.v);
-      else Sound.playDrum(ctx, out, e.id, t, e.v);
-    }
-  }
-  if (withMetro && step % beatSteps() === 0) Sound.click(ctx, graph.metro, t, step % stepsPerBar() === 0);
+function scheduleEvent(ctx, graph, e, when, withMetro) {
+  if (e.kind === 'metro') { if (withMetro) Sound.click(ctx, graph.metro, when, e.acc, song.metro.kind); return; }
+  if (!audible(e.tr)) return;
+  const out = graph.outs[e.tr.id];
+  if (!out) return;
+  const t = when + swingSec(e.t);
+  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, (absSec(e.t + e.l) - absSec(e.t)) * 0.96, e.v);
+  else Sound.playDrum(ctx, out, e.id, t, e.v);
 }
 
-const player = { on: false, timer: null, graph: null, step: 0, next: 0, queue: [], end: 0, loopStart: 0, stopping: false };
+const player = { on: false, timer: null, graph: null, idx: 0, seg: null, segs: [], stopping: false, stopAt: 0, lastT: -1, ver: -1 };
 function loopBounds() {
-  const spb = stepsPerBar();
-  if (ui.loopRange) return [ui.loopRange[0] * spb, Math.min(ui.loopRange[1] * spb, totalSteps())];
-  return [0, totalSteps()];
+  const bt = barTicks();
+  if (ui.loopOn && ui.loopRange) return [ui.loopRange[0] * bt, Math.min(ui.loopRange[1] * bt, totalTicks())];
+  return [0, totalTicks()];
 }
+function firstIdx(list, t) { let i = 0; while (i < list.length && list[i].t < t) i++; return i; }
 function play() {
   const ctx = ensureAudio();
   stop(true);
   const [ls, le] = loopBounds();
-  player.graph = buildGraph(ctx, ctx._comp);
+  player.graph = buildGraph(ctx, ctx._comp, true);
   player.on = true;
   player.stopping = false;
-  player.loopStart = ls;
-  player.end = le;
-  player.step = ui.startStep >= ls && ui.startStep < le ? ui.startStep : ls;
-  player.next = ctx.currentTime + 0.08;
-  player.queue = [];
+  const start = ui.startTick >= ls && ui.startTick < le ? ui.startTick : ls;
+  player.seg = { tick: start, time: ctx.currentTime + 0.08 };
+  player.segs = [player.seg];
+  player.idx = firstIdx(eventList(), start);
+  player.lastT = start - 1;
+  player.ver = version;
   player.timer = setInterval(tick, 25);
   tick();
   $('#btnPlay').classList.add('on');
   $('#btnPlay').textContent = '⏸';
   requestAnimationFrame(anim);
 }
+const timeOf = (t) => player.seg.time + absSec(t) - absSec(player.seg.tick);
 function tick() {
   const ctx = actx;
-  while (player.on && !player.stopping && player.next < ctx.currentTime + 0.12) {
+  if (!player.on) return;
+  if (player.stopping) { if (ctx.currentTime > player.stopAt) stop(); return; }
+  const list = eventList();
+  if (player.ver !== version) { player.ver = version; player.idx = firstIdx(list, player.lastT + 1); }
+  const horizon = ctx.currentTime + 0.15;
+  for (let guard = 0; guard < 8; guard++) {
     const [ls, le] = loopBounds();
-    player.loopStart = ls;
-    player.end = le;
-    if (player.step >= le || player.step < ls && ui.loopRange) {
-      if (ui.loopOn) player.step = ls;
-      else { player.stopping = true; player.stopAt = player.next; break; }
+    while (player.idx < list.length && list[player.idx].t < le) {
+      const e = list[player.idx];
+      if (e.t < player.seg.tick) { player.idx++; continue; }
+      const tm = timeOf(e.t);
+      if (tm >= horizon) return;
+      scheduleEvent(ctx, player.graph, e, tm, ui.metro);
+      player.lastT = e.t;
+      player.idx++;
     }
-    scheduleStep(ctx, player.graph, player.step, player.next, ui.metro);
-    player.queue.push({ step: player.step, t: player.next, d: stepLen(player.step) });
-    player.next += stepLen(player.step);
-    player.step++;
+    const endT = timeOf(le);
+    if (endT >= horizon) return;
+    if (ui.loopOn) {
+      player.seg = { tick: ls, time: endT };
+      player.segs.push(player.seg);
+      if (player.segs.length > 4) player.segs.shift();
+      player.idx = firstIdx(list, ls);
+      player.lastT = ls - 1;
+    } else {
+      player.stopping = true;
+      player.stopAt = endT + 0.05;
+      return;
+    }
   }
-  if (player.stopping && ctx.currentTime > player.stopAt + 0.05) stop();
 }
 function stop(silent = false) {
   if (player.timer) clearInterval(player.timer);
   player.timer = null;
   if (player.graph && actx) {
-    const g = player.graph.master.gain;
-    g.setTargetAtTime(0, actx.currentTime, 0.03);
-    const old = player.graph.master;
+    player.graph.out.gain.setTargetAtTime(0, actx.currentTime, 0.03);
+    const old = player.graph.out;
     setTimeout(() => old.disconnect(), 400);
   }
   player.graph = null;
   player.on = false;
-  player.queue = [];
+  player.segs = [];
   if (!silent) {
     $('#btnPlay').classList.remove('on');
     $('#btnPlay').textContent = '▶';
     draw();
+    drawOverview();
+    updateMini();
   }
 }
-function playheadPos() {
+function playheadTick() {
   if (!player.on || !actx) return null;
   const now = actx.currentTime;
-  const q = player.queue;
-  while (q.length > 1 && q[1].t <= now) q.shift();
-  if (!q.length || q[0].t > now) return null;
-  return q[0].step + Math.min(1, (now - q[0].t) / q[0].d);
+  let seg = null;
+  for (const s of player.segs) if (s.time <= now) seg = s;
+  if (!seg) return null;
+  const t = tickAtSec(absSec(seg.tick) + now - seg.time);
+  return Math.min(t, totalTicks());
 }
 function anim() {
   if (!player.on) return;
-  const pos = playheadPos();
+  const pos = playheadTick();
   if (pos != null && ui.follow) {
     const sc = $('#scroller');
-    const x = LW + pos * ui.cw;
-    const viewW = sc.clientWidth - LW;
-    if (x - sc.scrollLeft > sc.clientWidth - 40 || x - sc.scrollLeft < LW) sc.scrollLeft = Math.max(0, x - LW - viewW * 0.1);
+    const x = LW + pos * ppt();
+    if (x - sc.scrollLeft > sc.clientWidth - 40 || x - sc.scrollLeft < LW) sc.scrollLeft = Math.max(0, x - LW - 20);
   }
   draw(pos);
+  drawOverview(pos);
+  updateMini(pos);
   requestAnimationFrame(anim);
 }
 function liveVolume(tr) {
   if (player.graph && player.graph.outs[tr.id]) player.graph.outs[tr.id].gain.setTargetAtTime(tr.vol, actx.currentTime, 0.02);
 }
-function preview(tr, p) {
+function preview(tr, p, dur = 0.35) {
   const ctx = ensureAudio();
   if (tr.type === 'drum') Sound.playDrum(ctx, previewOut, p, ctx.currentTime + 0.01, 0.8);
-  else Sound.playNote(ctx, previewOut, tr.inst, p, ctx.currentTime + 0.01, 0.35, 0.8 * tr.vol + 0.2);
+  else Sound.playNote(ctx, previewOut, tr.inst, p, ctx.currentTime + 0.01, dur, 0.8 * tr.vol + 0.2);
 }
 
 /* ============================================================
-   エディタ（マス目）の描画
+   エディタ（オトグラフ）の描画
    ============================================================ */
-const LW = 78; // 左の音名の幅
-const RH = 28; // 上の小節番号の高さ
+const LW = 82;
+const RH = 30;
 const cv = $('#cv');
 const g2 = cv.getContext('2d');
 
+function kitRows(tr) {
+  const kit = Sound.KITS.find((k) => k.id === tr.kit) || Sound.KITS[0];
+  const ids = [...kit.list];
+  for (const id in tr.grid) if (!ids.includes(id) && Sound.DRUMS[id]) ids.unshift(id);
+  return ids;
+}
 function rowsFor(tr) {
-  if (tr.type === 'drum') return Sound.DRUM_ORDER.map((id) => ({ id, label: Sound.DRUMS[id].name }));
+  if (tr.type === 'drum') return kitRows(tr).map((id) => ({ id, label: Sound.DRUMS[id].name }));
   if (tr.type === 'chord') return [{ id: 'chord', label: 'コード' }];
-  const lo = RANGES[tr.range][1];
-  const hi = lo + 24;
+  const [, lo, hi] = RANGES[tr.range] || RANGES.soprano;
   const pcs = scalePcs();
   const used = new Set(tr.notes.map((n) => n.p));
   const rows = [];
-  for (let m = hi; m >= lo; m--) {
-    const pc = m % 12;
-    if (pcs.has(pc) || used.has(m)) rows.push({ id: m, p: m, inScale: pcs.has(pc) });
-  }
-  for (const n of tr.notes) if (n.p > hi || n.p < lo) { if (!rows.some((r) => r.p === n.p)) rows.push({ id: n.p, p: n.p, inScale: pcs.has(n.p % 12) }); }
+  for (let m = hi; m >= lo; m--) if (pcs.has(m % 12) || used.has(m)) rows.push({ id: m, p: m, inScale: pcs.has(m % 12) });
+  for (const p of used) if ((p > hi || p < lo) && !rows.some((r) => r.p === p)) rows.push({ id: p, p, inScale: pcs.has(p % 12) });
   rows.sort((a, b) => b.p - a.p);
   return rows;
 }
@@ -389,31 +537,40 @@ function resizeEditor() {
   const tr = track();
   const rows = rowsFor(tr);
   const spacer = $('#spacer');
-  spacer.style.width = LW + totalSteps() * ui.cw + 60 + 'px';
+  spacer.style.width = LW + totalTicks() * ppt() + 60 + 'px';
   spacer.style.height = RH + rows.length * rowH(tr) + 4 + 'px';
+  fitCanvas(cv, wrap);
+}
+function fitCanvas(c, wrap) {
   const dpr = window.devicePixelRatio || 1;
   const w = wrap.clientWidth;
   const h = wrap.clientHeight;
-  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(h * dpr);
-    cv.style.width = w + 'px';
-    cv.style.height = h + 'px';
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    c.style.width = w + 'px';
+    c.style.height = h + 'px';
   }
 }
-
-function roundRect(x, y, w, h, r) {
-  g2.beginPath();
-  g2.moveTo(x + r, y);
-  g2.arcTo(x + w, y, x + w, y + h, r);
-  g2.arcTo(x + w, y + h, x, y + h, r);
-  g2.arcTo(x, y + h, x, y, r);
-  g2.arcTo(x, y, x + w, y, r);
-  g2.closePath();
+function roundRect(g, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
 }
+let cssCache = null;
+function C(n) {
+  if (!cssCache) cssCache = getComputedStyle(document.documentElement);
+  return cssCache.getPropertyValue(n).trim();
+}
+let highlightRow = null;
 
 function draw(playPos) {
-  if (playPos === undefined) playPos = playheadPos();
+  if (playPos === undefined) playPos = playheadTick();
   const tr = track();
   if (!tr) return;
   const sc = $('#scroller');
@@ -422,30 +579,24 @@ function draw(playPos) {
   const H = cv.height / dpr;
   const sx = sc.scrollLeft;
   const sy = sc.scrollTop;
-  const cw = ui.cw;
+  const k = ppt();
   const rh = rowH(tr);
   const rows = rowsFor(tr);
-  const total = totalSteps();
-  const spb = stepsPerBar();
-  const bs = beatSteps();
-  const css = getComputedStyle(document.documentElement);
-  const C = (n) => css.getPropertyValue(n).trim();
+  const total = totalTicks();
+  const bt = barTicks();
+  const bs = beatTicks();
+  const X = (t) => LW + t * k - sx;
 
   g2.setTransform(dpr, 0, 0, dpr, 0, 0);
   g2.fillStyle = C('--grid-bg');
   g2.fillRect(0, 0, W, H);
-
-  const s0 = Math.max(0, Math.floor((sx) / cw));
-  const s1 = Math.min(total, Math.ceil((sx + W - LW) / cw) + 1);
+  const t0 = Math.max(0, Math.floor(sx / k));
+  const t1 = Math.min(total, Math.ceil((sx + W - LW) / k) + 1);
   const r0 = Math.max(0, Math.floor(sy / rh));
   const r1 = Math.min(rows.length, Math.ceil((sy + H - RH) / rh) + 1);
 
   g2.save();
-  g2.beginPath();
-  g2.rect(LW, RH, W - LW, H - RH);
-  g2.clip();
-
-  // 行の背景
+  g2.beginPath(); g2.rect(LW, RH, W - LW, H - RH); g2.clip();
   for (let r = r0; r < r1; r++) {
     const y = RH + r * rh - sy;
     const row = rows[r];
@@ -454,51 +605,59 @@ function draw(playPos) {
       if (row.p % 12 === song.key) bg = C('--row-tonic');
       if (!row.inScale) bg = C('--row-out');
     }
+    if (highlightRow != null && row.id === highlightRow) bg = C('--row-hl');
     g2.fillStyle = bg;
     g2.fillRect(LW, y, W - LW, rh);
   }
-  // 小節ごとの色分け
-  for (let b = Math.floor(s0 / spb); b * spb < s1; b++) {
-    if (b % 2) {
-      g2.fillStyle = C('--bar-shade');
-      g2.fillRect(LW + b * spb * cw - sx, RH, spb * cw, H);
+  for (let b = Math.floor(t0 / bt); b * bt < t1; b++) {
+    if (b % 2) { g2.fillStyle = C('--bar-shade'); g2.fillRect(X(b * bt), RH, bt * k, H); }
+  }
+  if (ui.sel.t === cur) {
+    g2.fillStyle = C('--sel');
+    g2.fillRect(X(ui.sel.b0 * bt), RH, (ui.sel.b1 - ui.sel.b0 + 1) * bt * k, 4);
+  }
+  if (X(total) < W) { g2.fillStyle = C('--outside'); g2.fillRect(X(total), RH, W - X(total), H); }
+  for (let b = Math.floor(t0 / bt); b * bt <= t1 && b <= song.bars; b++) {
+    const bx = b * bt;
+    if (ui.grid * k >= 6 && b < song.bars) {
+      g2.strokeStyle = C('--line-step');
+      g2.lineWidth = 1;
+      g2.beginPath();
+      for (let s = ui.grid; s < bt; s += ui.grid) { const x = Math.round(X(bx + s)) + 0.5; g2.moveTo(x, RH); g2.lineTo(x, H); }
+      g2.stroke();
     }
+    if (b < song.bars) {
+      g2.strokeStyle = C('--line-beat');
+      g2.lineWidth = 1;
+      g2.beginPath();
+      for (let s = bs; s < bt; s += bs) { const x = Math.round(X(bx + s)) + 0.5; g2.moveTo(x, RH); g2.lineTo(x, H); }
+      g2.stroke();
+    }
+    g2.strokeStyle = C('--line-bar');
+    g2.lineWidth = 2;
+    g2.beginPath(); g2.moveTo(Math.round(X(bx)) + 0.5, RH); g2.lineTo(Math.round(X(bx)) + 0.5, H); g2.stroke();
   }
-  // 曲の終わり以降
-  const endX = LW + total * cw - sx;
-  if (endX < W) { g2.fillStyle = C('--outside'); g2.fillRect(endX, RH, W - endX, H); }
-  // 縦線
-  for (let s = s0; s <= s1; s++) {
-    const x = LW + s * cw - sx + 0.5;
-    g2.strokeStyle = s % spb === 0 ? C('--line-bar') : s % bs === 0 ? C('--line-beat') : C('--line-step');
-    g2.lineWidth = s % spb === 0 ? 2 : 1;
-    g2.beginPath(); g2.moveTo(x, RH); g2.lineTo(x, H); g2.stroke();
-  }
-  // 横線
   g2.strokeStyle = C('--line-step');
   g2.lineWidth = 1;
-  for (let r = r0; r <= r1; r++) {
-    const y = RH + r * rh - sy + 0.5;
-    g2.beginPath(); g2.moveTo(LW, y); g2.lineTo(W, y); g2.stroke();
-  }
+  g2.beginPath();
+  for (let r = r0; r <= r1; r++) { const y = RH + r * rh - sy + 0.5; g2.moveTo(LW, y); g2.lineTo(W, y); }
+  g2.stroke();
 
   const rowIndex = new Map(rows.map((r, i) => [r.id, i]));
-  const playing = playPos != null ? Math.floor(playPos) : -1;
+  const playing = playPos != null ? playPos : -1;
 
   if (tr.type === 'melody') {
-    // ほかのメロディトラックをうすく表示（ハモリや輪唱づくりに便利）
-    song.tracks.forEach((o, oi) => {
-      if (o === tr || o.type !== 'melody' || !ui.ghost) return;
+    if (ui.ghost) song.tracks.forEach((o, oi) => {
+      if (o === tr || o.type !== 'melody') return;
       g2.strokeStyle = TRACK_COLORS[oi % TRACK_COLORS.length];
       g2.setLineDash([4, 3]);
       g2.lineWidth = 1.5;
       for (const n of o.notes) {
         const ri = rowIndex.get(n.p);
         if (ri == null) continue;
-        const x = LW + n.s * cw - sx;
-        const y = RH + ri * rh - sy;
-        if (x > W || x + n.l * cw < LW) continue;
-        roundRect(x + 2, y + 3, n.l * cw - 4, rh - 6, 5);
+        const x = X(n.s);
+        if (x > W || x + n.l * k < LW) continue;
+        roundRect(g2, x + 2, RH + ri * rh - sy + 3, n.l * k - 4, rh - 6, 5);
         g2.stroke();
       }
       g2.setLineDash([]);
@@ -508,25 +667,20 @@ function draw(playPos) {
     for (const n of tr.notes) {
       const ri = rowIndex.get(n.p);
       if (ri == null) continue;
-      const x = LW + n.s * cw - sx;
+      const x = X(n.s);
       const y = RH + ri * rh - sy;
-      const w = n.l * cw;
+      const w = n.l * k;
       if (x > W || x + w < LW || y > H || y + rh < RH) continue;
       const on = playing >= n.s && playing < n.s + n.l;
       g2.fillStyle = PC_COLORS[n.p % 12];
-      roundRect(x + 1.5, y + 1.5, w - 3, rh - 3, 5);
+      roundRect(g2, x + 1.5, y + 1.5, w - 3, rh - 3, 5);
       g2.fill();
       g2.lineWidth = on ? 3 : 1;
       g2.strokeStyle = on ? '#fff' : 'rgba(0,0,0,.35)';
       g2.stroke();
       if (n.s + n.l > total) { g2.fillStyle = 'rgba(0,0,0,.3)'; g2.fill(); }
-      if (w > 22) {
-        g2.fillStyle = '#1b1b1b';
-        g2.fillText(noteName(n.p), x + 6, y + rh / 2 + 1, w - 10);
-      }
-      // 長さを変えるつまみ
-      g2.fillStyle = 'rgba(0,0,0,.25)';
-      g2.fillRect(x + w - 6, y + 5, 3, rh - 10);
+      if (w > 24) { g2.fillStyle = '#1b1b1b'; g2.fillText(noteName(n.p), x + 6, y + rh / 2 + 1, w - 12); }
+      if (w > 12) { g2.fillStyle = 'rgba(0,0,0,.25)'; g2.fillRect(x + w - 6, y + 5, 3, rh - 10); }
     }
   } else if (tr.type === 'drum') {
     for (const id in tr.grid) {
@@ -535,96 +689,92 @@ function draw(playPos) {
       const y = RH + ri * rh - sy;
       for (const s in tr.grid[id]) {
         const st = +s;
-        if (st < s0 - 1 || st > s1) continue;
+        if (st < t0 - 192 || st > t1) continue;
         const v = tr.grid[id][s];
-        const x = LW + st * cw - sx;
-        const on = playing === st;
+        const x = X(st);
+        const w = Math.max(8, cellLen(cellStart(st)) * k);
         g2.fillStyle = TRACK_COLORS[(ri + 2) % TRACK_COLORS.length];
         g2.globalAlpha = v === 2 ? 1 : 0.6;
         const pad = v === 2 ? 2 : 4;
-        roundRect(x + pad, y + pad, cw - pad * 2, rh - pad * 2, 4);
+        roundRect(g2, x + pad, y + pad, w - pad * 2, rh - pad * 2, 4);
         g2.fill();
         g2.globalAlpha = 1;
-        if (on) { g2.strokeStyle = '#fff'; g2.lineWidth = 3; g2.stroke(); }
-        if (v === 2 && cw > 18) { g2.fillStyle = '#222'; g2.font = 'bold 11px sans-serif'; g2.textAlign = 'center'; g2.fillText('強', x + cw / 2, y + rh / 2 + 1); g2.textAlign = 'left'; }
+        if (playing >= st && playing < st + 12) { g2.strokeStyle = '#fff'; g2.lineWidth = 3; g2.stroke(); }
+        if (v === 2 && w > 18) { g2.fillStyle = '#222'; g2.font = 'bold 11px sans-serif'; g2.textAlign = 'center'; g2.fillText('強', x + w / 2, y + rh / 2 + 1); g2.textAlign = 'left'; }
       }
     }
   } else if (tr.type === 'chord') {
     const y = RH - sy;
-    for (let b = Math.floor(s0 / spb); b < song.bars && b * spb < s1; b++) {
-      const x = LW + b * spb * cw - sx;
-      const w = spb * cw;
+    for (let b = Math.floor(t0 / bt); b < song.bars && b * bt < t1; b++) {
+      const x = X(b * bt);
+      const w = bt * k;
       const c = tr.chords[b];
-      if (b === ui.selBar) {
-        g2.fillStyle = C('--sel');
-        g2.fillRect(x + 2, y + 2, w - 4, rh - 4);
-      }
+      if (b === ui.selBar) { g2.fillStyle = C('--sel'); g2.fillRect(x + 2, y + 2, w - 4, rh - 4); }
+      g2.textAlign = 'center';
+      g2.textBaseline = 'middle';
       if (c) {
         g2.fillStyle = PC_COLORS[c.r];
-        roundRect(x + 6, y + 10, w - 12, rh - 20, 8);
+        roundRect(g2, x + 6, y + 10, w - 12, rh - 20, 8);
         g2.fill();
         g2.fillStyle = '#1b1b1b';
         g2.font = `bold ${Math.min(26, w / 3)}px sans-serif`;
-        g2.textAlign = 'center';
-        g2.textBaseline = 'middle';
         g2.fillText(chordName(c), x + w / 2, y + rh / 2, w - 16);
-        g2.textAlign = 'left';
       } else {
         g2.fillStyle = C('--muted');
         g2.font = '13px sans-serif';
-        g2.textAlign = 'center';
-        g2.textBaseline = 'middle';
         g2.fillText(b === ui.selBar ? '↓下から選ぶ' : '（なし）', x + w / 2, y + rh / 2, w - 8);
-        g2.textAlign = 'left';
       }
+      g2.textAlign = 'left';
     }
   }
-
-  // 再生位置
-  if (playPos != null) {
-    const x = LW + playPos * cw - sx;
-    g2.strokeStyle = C('--playhead');
+  if (ui.stepRec) {
+    const x = X(ui.inputTick);
+    g2.fillStyle = 'rgba(47,179,109,.18)';
+    g2.fillRect(x, RH, cellLen(ui.inputTick) * k, H);
+    g2.strokeStyle = '#2fb36d';
     g2.lineWidth = 2;
     g2.beginPath(); g2.moveTo(x, RH); g2.lineTo(x, H); g2.stroke();
   }
+  if (playPos != null) {
+    g2.strokeStyle = C('--playhead');
+    g2.lineWidth = 2;
+    g2.beginPath(); g2.moveTo(X(playPos), RH); g2.lineTo(X(playPos), H); g2.stroke();
+  }
   g2.restore();
 
-  // 上の小節番号
+  // 上の目盛り（ループバー・小節番号・テンポ）
   g2.fillStyle = C('--ruler');
   g2.fillRect(0, 0, W, RH);
   g2.save();
   g2.beginPath(); g2.rect(LW, 0, W - LW, RH); g2.clip();
+  g2.fillStyle = C('--loopbar');
+  g2.fillRect(LW, 0, W, 9);
   if (ui.loopRange) {
-    const x0 = LW + ui.loopRange[0] * spb * cw - sx;
-    const x1 = LW + ui.loopRange[1] * spb * cw - sx;
-    g2.fillStyle = C('--loop');
-    g2.fillRect(x0, 0, x1 - x0, RH);
+    g2.fillStyle = ui.loopOn ? C('--loop') : C('--loop-off');
+    g2.fillRect(X(ui.loopRange[0] * bt), 0, (ui.loopRange[1] - ui.loopRange[0]) * bt * k, 9);
   }
-  g2.font = 'bold 12px sans-serif';
   g2.textBaseline = 'middle';
-  for (let b = Math.floor(s0 / spb); b < song.bars && b * spb < s1; b++) {
-    const x = LW + b * spb * cw - sx;
+  for (let b = Math.floor(t0 / bt); b < song.bars && b * bt < t1; b++) {
+    const x = X(b * bt);
     g2.fillStyle = C('--text');
-    g2.fillText(String(b + 1), x + 5, RH / 2);
+    g2.font = 'bold 12px sans-serif';
+    g2.fillText(String(b + 1), x + 5, RH / 2 + 4);
+    if (song.tempos[b]) { g2.fillStyle = C('--accent'); g2.font = '11px sans-serif'; g2.fillText('♩=' + song.tempos[b], x + 24, RH / 2 + 4); }
     g2.strokeStyle = C('--line-bar');
-    g2.beginPath(); g2.moveTo(x + 0.5, RH * 0.35); g2.lineTo(x + 0.5, RH); g2.stroke();
-    for (let s = bs; s < spb; s += bs) {
-      const xb = x + s * cw + 0.5;
-      g2.strokeStyle = C('--line-beat');
-      g2.beginPath(); g2.moveTo(xb, RH * 0.7); g2.lineTo(xb, RH); g2.stroke();
-    }
+    g2.lineWidth = 1;
+    g2.beginPath(); g2.moveTo(x + 0.5, 0); g2.lineTo(x + 0.5, RH); g2.stroke();
+    g2.strokeStyle = C('--line-beat');
+    g2.beginPath();
+    for (let s = bs; s < bt; s += bs) { const xb = x + s * k + 0.5; g2.moveTo(xb, RH * 0.72); g2.lineTo(xb, RH); }
+    g2.stroke();
   }
-  // 再生開始位置マーク
-  const sxm = LW + ui.startStep * cw - sx;
   g2.fillStyle = C('--playhead');
-  g2.beginPath(); g2.moveTo(sxm - 6, 0); g2.lineTo(sxm + 6, 0); g2.lineTo(sxm, 9); g2.closePath(); g2.fill();
-  if (playPos != null) {
-    const x = LW + playPos * cw - sx;
-    g2.fillRect(x - 1, 0, 2, RH);
-  }
+  const sxm = X(ui.startTick);
+  g2.beginPath(); g2.moveTo(sxm - 6, RH - 9); g2.lineTo(sxm + 6, RH - 9); g2.lineTo(sxm, RH); g2.closePath(); g2.fill();
+  if (playPos != null) g2.fillRect(X(playPos) - 1, 0, 2, RH);
   g2.restore();
 
-  // 左の音名・楽器名
+  // 左の鍵盤・音名
   g2.fillStyle = C('--label-bg');
   g2.fillRect(0, RH, LW, H - RH);
   g2.save();
@@ -634,32 +784,40 @@ function draw(playPos) {
     const row = rows[r];
     if (tr.type === 'melody') {
       const black = [1, 3, 6, 8, 10].includes(row.p % 12);
-      g2.fillStyle = black ? '#3a3a46' : '#fafafa';
-      g2.fillRect(LW - 22, y + 1, 21, rh - 2);
+      g2.fillStyle = row.id === highlightRow ? '#ffd43b' : black ? '#3a3a46' : '#fafafa';
+      g2.fillRect(LW - 24, y + 1, 23, rh - 2);
+      if (row.p % 12 === 0 && rh >= 16) { g2.fillStyle = '#888'; g2.font = '9px sans-serif'; g2.textBaseline = 'middle'; g2.fillText('C' + (Math.floor(row.p / 12) - 1), LW - 22, y + rh / 2 + 1); }
       g2.fillStyle = PC_COLORS[row.p % 12];
       g2.fillRect(2, y + 2, 6, rh - 4);
       g2.fillStyle = row.inScale ? C('--text') : C('--muted');
       g2.font = `${row.p % 12 === song.key ? 'bold ' : ''}${Math.min(13, rh - 7)}px sans-serif`;
       g2.textBaseline = 'middle';
-      g2.fillText(noteName(row.p) + (row.p % 12 === 0 ? (Math.floor(row.p / 12) - 1) : ''), 12, y + rh / 2 + 1, LW - 38);
+      g2.fillText(noteName(row.p) + (row.p % 12 === 0 ? (Math.floor(row.p / 12) - 1) : ''), 12, y + rh / 2 + 1, LW - 40);
     } else {
+      if (row.id === highlightRow) { g2.fillStyle = '#ffd43b'; g2.fillRect(0, y, LW, rh); }
       g2.fillStyle = C('--text');
       g2.font = `${tr.type === 'chord' ? 14 : Math.min(12, rh - 8)}px sans-serif`;
       g2.textBaseline = 'middle';
       g2.fillText(row.label, 6, y + rh / 2 + 1, LW - 10);
     }
     g2.strokeStyle = C('--line-step');
+    g2.lineWidth = 1;
     g2.beginPath(); g2.moveTo(0, y + rh + 0.5); g2.lineTo(LW, y + rh + 0.5); g2.stroke();
   }
   g2.restore();
   g2.fillStyle = C('--ruler');
   g2.fillRect(0, 0, LW, RH);
   g2.fillStyle = C('--muted');
-  g2.font = '11px sans-serif';
+  g2.font = '10px sans-serif';
   g2.textBaseline = 'middle';
-  g2.fillText('小節 →', 8, RH / 2);
+  g2.fillText('ループ', 6, 5);
+  g2.fillText('小節 →', 6, RH / 2 + 5);
   g2.strokeStyle = C('--line-bar');
   g2.beginPath(); g2.moveTo(LW + 0.5, 0); g2.lineTo(LW + 0.5, H); g2.stroke();
+  if (locked(tr)) {
+    g2.fillStyle = 'rgba(0,0,0,.08)';
+    g2.fillRect(LW, RH, W - LW, H - RH);
+  }
 }
 
 /* ============================================================
@@ -675,14 +833,14 @@ function hitInfo(e) {
   const rh = rowH(tr);
   const rows = rowsFor(tr);
   const cx = px + sc.scrollLeft - LW;
-  const step = Math.floor(cx / ui.cw);
+  const tick = cx / ppt();
   const ri = Math.floor((py + sc.scrollTop - RH) / rh);
-  return { px, py, cx, step, ri, row: rows[ri], area: py < RH ? 'ruler' : px < LW ? 'label' : 'grid' };
+  return { px, py, cx, tick, cell: cellStart(Math.max(0, tick)), ri, row: rows[ri], area: py < RH ? 'ruler' : px < LW ? 'label' : 'grid' };
 }
-function findNote(tr, step, p) {
+function findNote(tr, tick, p) {
   for (let i = tr.notes.length - 1; i >= 0; i--) {
     const n = tr.notes[i];
-    if (n.p === p && step >= n.s && step < n.s + n.l) return n;
+    if (n.p === p && tick >= n.s && tick < n.s + n.l) return n;
   }
   return null;
 }
@@ -690,139 +848,457 @@ function onDown(e) {
   if (e.button > 0) return;
   const h = hitInfo(e);
   const tr = track();
-  const isTouch = e.pointerType === 'touch';
   if (h.area === 'ruler') {
-    const bar = clamp(Math.floor(h.step / stepsPerBar()), 0, song.bars - 1);
-    drag = { kind: 'ruler', b0: bar, b1: bar, moved: false, isTouch };
+    const bar = clamp(Math.floor(h.tick / barTicks()), 0, song.bars - 1);
+    drag = { kind: 'ruler', b0: bar, b1: bar, moved: false, loopBar: h.py < 11 };
+    $('#scroller').setPointerCapture(e.pointerId);
     return;
   }
   if (h.area === 'label') {
-    if (h.row) preview(tr, tr.type === 'drum' ? h.row.id : h.row.p);
+    if (h.row) {
+      preview(tr, tr.type === 'drum' ? h.row.id : h.row.p);
+      if (tr.type === 'melody') showMini(h.row.p);
+      highlightRow = h.row.id;
+      draw();
+      setTimeout(() => { highlightRow = null; draw(); }, 400);
+    }
     return;
   }
-  if (h.step < 0 || h.step >= totalSteps() || !h.row) return;
-  if (isTouch) { drag = { kind: 'tap', h, x: e.clientX, y: e.clientY }; return; }
+  if (h.tick < 0 || h.tick >= totalTicks() || !h.row) return;
+  if (e.pointerType === 'touch' && !ui.touchEdit) return; // スクロールモード
+  if (tr.type !== 'chord' && locked(tr)) { toast('🔒 このトラックはロックされています'); return; }
   e.preventDefault();
   $('#scroller').setPointerCapture(e.pointerId);
   const snap = snapshot();
   if (tr.type === 'melody') {
-    const n = findNote(tr, h.step, h.row.p);
+    const n = findNote(tr, h.tick, h.row.p);
     if (n) {
-      const xEnd = (n.s + n.l) * ui.cw;
-      if (xEnd - h.cx < Math.min(10, n.l * ui.cw * 0.35)) drag = { kind: 'resize', n, snap };
-      else drag = { kind: 'move', n, snap, off: h.step - n.s, ri: h.ri, moved: false, os: n.s, op: n.p };
+      const nearEnd = (n.s + n.l) * ppt() - h.cx < Math.min(12, n.l * ppt() * 0.35);
+      let mode = nearEnd ? 'resize' : 'move';
+      if (ui.dragMode === 'stretch') mode = 'resize';
+      if (ui.dragMode === 'move') mode = 'move';
+      drag = { kind: mode, n, snap, off: h.cell - n.s, moved: false, label: mode === 'resize' ? '音の長さを変更' : '音を移動' };
     } else {
-      const l = Math.min(ui.defLen, totalSteps() - h.step);
-      const nn = { s: h.step, p: h.row.p, l };
+      const nn = { s: h.cell, p: h.row.p, l: cellLen(h.cell) };
       tr.notes.push(nn);
       preview(tr, nn.p);
-      drag = { kind: 'resize', n: nn, snap };
+      showMini(nn.p);
+      drag = { kind: 'resize', n: nn, snap, moved: true, label: '音を置く' };
       version++;
     }
   } else if (tr.type === 'drum') {
     const id = h.row.id;
-    const v = (tr.grid[id] && tr.grid[id][h.step]) || 0;
+    const ex = existingHit(tr, id, h.cell);
+    const v = ex != null ? tr.grid[id][ex] : 0;
     const nv = (v + 1) % 3;
-    setCell(tr, id, h.step, nv);
+    if (ex != null) delete tr.grid[id][ex];
+    setCell(tr, id, ex != null ? ex : h.cell, nv);
     if (nv) preview(tr, id);
-    drag = { kind: 'paint', id, val: nv, snap };
+    drag = { kind: 'paint', id, val: nv, snap, label: 'リズムを入力' };
   } else if (tr.type === 'chord') {
-    ui.selBar = clamp(Math.floor(h.step / stepsPerBar()), 0, song.bars - 1);
+    ui.selBar = clamp(Math.floor(h.tick / barTicks()), 0, song.bars - 1);
+    selectBars(cur, ui.selBar, ui.selBar);
     renderEditorTools();
+    drawOverview();
     const c = tr.chords[ui.selBar];
     if (c) previewChord(tr, c);
   }
   draw();
 }
-function setCell(tr, id, step, v) {
+function existingHit(tr, id, cell) {
+  if (!tr.grid[id]) return null;
+  const end = cell + cellLen(cell);
+  for (const s in tr.grid[id]) if (+s >= cell && +s < end) return +s;
+  return null;
+}
+function setCell(tr, id, t, v) {
   if (!tr.grid[id]) tr.grid[id] = {};
-  if (v) tr.grid[id][step] = v;
-  else delete tr.grid[id][step];
+  if (v) tr.grid[id][t] = v;
+  else delete tr.grid[id][t];
   if (!Object.keys(tr.grid[id]).length) delete tr.grid[id];
   version++;
 }
 function onMove(e) {
-  if (!drag) return;
   const h = hitInfo(e);
   const tr = track();
+  if (!drag) {
+    if (h.area === 'grid' && tr.type === 'melody' && h.row) {
+      const n = findNote(tr, h.tick, h.row.p);
+      const nearEnd = n && (n.s + n.l) * ppt() - h.cx < Math.min(12, n.l * ppt() * 0.35);
+      $('#scroller').style.cursor = n ? (ui.dragMode === 'stretch' || (nearEnd && ui.dragMode !== 'move') ? 'ew-resize' : 'grab') : 'crosshair';
+    } else $('#scroller').style.cursor = h.area === 'ruler' ? 'pointer' : 'crosshair';
+    return;
+  }
   if (drag.kind === 'ruler') {
-    const bar = clamp(Math.floor(h.step / stepsPerBar()), 0, song.bars - 1);
+    const bar = clamp(Math.floor(h.tick / barTicks()), 0, song.bars - 1);
     if (bar !== drag.b1) { drag.b1 = bar; drag.moved = true; }
     if (drag.moved) {
       ui.loopRange = [Math.min(drag.b0, drag.b1), Math.max(drag.b0, drag.b1) + 1];
+      ui.loopOn = true;
+      $('#btnLoop').classList.add('on');
       draw();
     }
     return;
   }
-  if (drag.kind === 'tap') return;
   if (drag.kind === 'resize') {
-    drag.n.l = clamp(h.step - drag.n.s + 1, 1, totalSteps() - drag.n.s);
+    const endCell = cellStart(clamp(h.tick, drag.n.s, totalTicks() - 1));
+    drag.n.l = Math.max(cellLen(drag.n.s), endCell + cellLen(endCell) - drag.n.s);
+    drag.moved = true;
     version++;
   } else if (drag.kind === 'move') {
     const rows = rowsFor(tr);
-    const ns = clamp(h.step - drag.off, 0, totalSteps() - drag.n.l);
+    const ns = clamp(cellStart(Math.max(0, h.tick)) - drag.off, 0, totalTicks() - 1);
     const row = rows[clamp(h.ri, 0, rows.length - 1)];
     if (ns !== drag.n.s || row.p !== drag.n.p) {
-      if (row.p !== drag.n.p) preview(tr, row.p);
+      if (row.p !== drag.n.p) { preview(tr, row.p); showMini(row.p); }
       drag.n.s = ns;
       drag.n.p = row.p;
       drag.moved = true;
       version++;
     }
   } else if (drag.kind === 'paint') {
-    if (h.row && h.step >= 0 && h.step < totalSteps()) {
-      const cur = (tr.grid[h.row.id] && tr.grid[h.row.id][h.step]) || 0;
-      if (cur !== drag.val) { setCell(tr, h.row.id, h.step, drag.val); if (drag.val) preview(tr, h.row.id); }
+    if (h.row && h.tick >= 0 && h.tick < totalTicks()) {
+      const ex = existingHit(tr, h.row.id, h.cell);
+      const curV = ex != null ? tr.grid[h.row.id][ex] : 0;
+      if (curV !== drag.val) {
+        if (ex != null) delete tr.grid[h.row.id][ex];
+        setCell(tr, h.row.id, ex != null ? ex : h.cell, drag.val);
+        if (drag.val) preview(tr, h.row.id);
+      }
     }
   }
   draw();
 }
-function onUp(e) {
+function onUp() {
   if (!drag) return;
   const tr = track();
   const d = drag;
   drag = null;
   if (d.kind === 'ruler') {
     if (!d.moved) {
-      ui.startStep = d.b0 * stepsPerBar();
-      if (ui.loopRange && (d.b0 < ui.loopRange[0] || d.b0 >= ui.loopRange[1])) ui.loopRange = null;
+      if (d.loopBar && ui.loopRange) { ui.loopOn = !ui.loopOn; $('#btnLoop').classList.toggle('on', ui.loopOn); }
+      ui.startTick = d.b0 * barTicks();
+      ui.inputTick = ui.startTick;
+      selectBars(cur, d.b0, d.b0);
+      renderEditorTools();
       if (player.on) play();
     }
-    renderLoopInfo();
     draw();
+    drawOverview();
+    updateMini();
     return;
   }
-  if (d.kind === 'tap') {
-    // タッチ操作：タップで置く／消す
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;
-    const h = d.h;
-    edit(() => {
-      if (tr.type === 'melody') {
-        const n = findNote(tr, h.step, h.row.p);
-        if (n) tr.notes.splice(tr.notes.indexOf(n), 1);
-        else { tr.notes.push({ s: h.step, p: h.row.p, l: Math.min(ui.defLen, totalSteps() - h.step) }); preview(tr, h.row.p); }
-      } else if (tr.type === 'drum') {
-        const v = (tr.grid[h.row.id] && tr.grid[h.row.id][h.step]) || 0;
-        setCell(tr, h.row.id, h.step, (v + 1) % 3);
-        if (v < 2) preview(tr, h.row.id);
-      } else if (tr.type === 'chord') {
-        ui.selBar = clamp(Math.floor(h.step / stepsPerBar()), 0, song.bars - 1);
-        const c = tr.chords[ui.selBar];
-        if (c) previewChord(tr, c);
-      }
-    });
-    return;
-  }
-  if (d.kind === 'move' && !d.moved) {
-    tr.notes.splice(tr.notes.indexOf(d.n), 1);
-  }
+  if (d.kind === 'move' && !d.moved) { tr.notes.splice(tr.notes.indexOf(d.n), 1); d.label = '音を消す'; }
   if (tr.type === 'melody') {
-    // 同じ場所・同じ高さの重なりを整理
     const seen = new Set();
     tr.notes = tr.notes.filter((n) => { const k = n.s + ':' + n.p; if (seen.has(k)) return false; seen.add(k); return true; });
   }
-  if (d.snap && snapshot() !== d.snap) pushUndo(d.snap);
+  if (d.snap && snapshot() !== d.snap) pushUndo(d.snap, d.label);
   changed();
+}
+
+/* ============================================================
+   キャンバス（全体の見取り図：トラック × 小節）
+   ============================================================ */
+const ov = $('#ov');
+const og = ov.getContext('2d');
+const OV_LW = 110;
+const OV_RH = 20;
+const OV_TOP = 16;
+let ovDrag = null;
+function ovBarW() { return Math.max(34, Math.min(90, ($('#ovWrap').clientWidth - OV_LW - 10) / Math.min(song.bars, 16))); }
+function ovRows() { return [...song.tracks.map((t, i) => ({ kind: 'track', i })), { kind: 'rule' }]; }
+function resizeOverview() {
+  const wrap = $('#ovWrap');
+  const h = OV_TOP + ovRows().length * OV_RH + 2;
+  wrap.style.height = h + 14 + 'px';
+  $('#ovSpacer').style.width = OV_LW + song.bars * ovBarW() + 20 + 'px';
+  $('#ovSpacer').style.height = h + 'px';
+  fitCanvas(ov, wrap);
+}
+function barHasContent(tr, b) {
+  const bt = barTicks();
+  if (tr.type === 'melody') return tr.notes.some((n) => n.s >= b * bt && n.s < (b + 1) * bt);
+  if (tr.type === 'drum') return Object.values(tr.grid).some((g) => Object.keys(g).some((s) => +s >= b * bt && +s < (b + 1) * bt));
+  return !!tr.chords[b];
+}
+function drawOverview(playPos) {
+  if (playPos === undefined) playPos = playheadTick();
+  resizeOverview();
+  const dpr = window.devicePixelRatio || 1;
+  const W = ov.width / dpr;
+  const H = ov.height / dpr;
+  const sx = $('#ovScroller').scrollLeft;
+  const bw = ovBarW();
+  const bt = barTicks();
+  og.setTransform(dpr, 0, 0, dpr, 0, 0);
+  og.fillStyle = C('--panel');
+  og.fillRect(0, 0, W, H);
+  const rows = ovRows();
+  og.save();
+  og.beginPath(); og.rect(OV_LW, 0, W - OV_LW, H); og.clip();
+  for (let b = 0; b < song.bars; b++) {
+    const x = OV_LW + b * bw - sx;
+    if (x > W || x + bw < OV_LW) continue;
+    og.fillStyle = C('--muted');
+    og.font = '10px sans-serif';
+    og.textBaseline = 'middle';
+    og.fillText(String(b + 1), x + 3, OV_TOP / 2);
+    rows.forEach((r, ri) => {
+      const y = OV_TOP + ri * OV_RH;
+      if (r.kind === 'rule') {
+        og.fillStyle = C('--row-b');
+        og.fillRect(x + 1, y + 1, bw - 2, OV_RH - 2);
+        if (song.tempos[b]) { og.fillStyle = C('--accent'); og.font = 'bold 10px sans-serif'; og.fillText('♩' + song.tempos[b], x + 3, y + OV_RH / 2); }
+        return;
+      }
+      const tr = song.tracks[r.i];
+      const sel = ui.sel.t === r.i && b >= ui.sel.b0 && b <= ui.sel.b1;
+      const has = barHasContent(tr, b);
+      og.fillStyle = sel ? C('--sel-strong') : has ? TRACK_COLORS[r.i % TRACK_COLORS.length] + '55' : C('--row-b');
+      roundRect(og, x + 1, y + 1, bw - 2, OV_RH - 2, 4);
+      og.fill();
+      if (sel) { og.strokeStyle = C('--accent2'); og.lineWidth = 2; og.stroke(); }
+      og.fillStyle = TRACK_COLORS[r.i % TRACK_COLORS.length];
+      if (tr.type === 'melody') {
+        for (const n of tr.notes) {
+          if (n.s < b * bt || n.s >= (b + 1) * bt) continue;
+          const nx = x + 2 + ((n.s - b * bt) / bt) * (bw - 4);
+          const ny = y + OV_RH - 3 - ((n.p - 36) / 60) * (OV_RH - 6);
+          og.fillRect(nx, clamp(ny, y + 2, y + OV_RH - 4), Math.max(2, (n.l / bt) * (bw - 4) - 1), 2);
+        }
+      } else if (tr.type === 'chord' && tr.chords[b]) {
+        og.fillStyle = C('--text');
+        og.font = 'bold 10px sans-serif';
+        og.fillText(chordName(tr.chords[b]), x + 4, y + OV_RH / 2 + 1, bw - 6);
+      } else if (tr.type === 'drum') {
+        for (const id in tr.grid) for (const s in tr.grid[id]) {
+          if (+s < b * bt || +s >= (b + 1) * bt) continue;
+          og.fillRect(x + 2 + ((+s - b * bt) / bt) * (bw - 4), y + 5, 2, OV_RH - 10);
+        }
+      }
+    });
+    if (b % 4 === 0) { og.strokeStyle = C('--line-bar'); og.lineWidth = 2; og.beginPath(); og.moveTo(x + 0.5, 2); og.lineTo(x + 0.5, H); og.stroke(); }
+  }
+  const sc = $('#scroller');
+  const k = ppt();
+  const vt0 = sc.scrollLeft / k;
+  const vt1 = (sc.scrollLeft + sc.clientWidth - LW) / k;
+  const vy = OV_TOP + cur * OV_RH;
+  og.strokeStyle = C('--playhead');
+  og.lineWidth = 1.5;
+  og.setLineDash([3, 2]);
+  og.strokeRect(OV_LW + (vt0 / bt) * bw - sx, vy, ((vt1 - vt0) / bt) * bw, OV_RH);
+  og.setLineDash([]);
+  if (ovDrag && ovDrag.over) {
+    const { r, b } = ovDrag.over;
+    const n = ovDrag.b1 - ovDrag.b0 + 1;
+    og.fillStyle = 'rgba(76,141,255,.35)';
+    og.fillRect(OV_LW + b * bw - sx, OV_TOP + r * OV_RH, n * bw, OV_RH);
+  }
+  if (playPos != null) {
+    og.fillStyle = C('--playhead');
+    og.fillRect(OV_LW + (playPos / bt) * bw - sx - 1, 0, 2, H);
+  }
+  og.restore();
+  og.fillStyle = C('--label-bg');
+  og.fillRect(0, 0, OV_LW, H);
+  rows.forEach((r, ri) => {
+    const y = OV_TOP + ri * OV_RH;
+    og.textBaseline = 'middle';
+    if (r.kind === 'rule') {
+      og.fillStyle = C('--muted');
+      og.font = '11px sans-serif';
+      og.fillText('R  テンポ変化', 6, y + OV_RH / 2);
+      return;
+    }
+    const tr = song.tracks[r.i];
+    og.fillStyle = TRACK_COLORS[r.i % TRACK_COLORS.length];
+    og.fillRect(0, y + 2, 5, OV_RH - 4);
+    og.fillStyle = r.i === cur ? C('--accent2') : C('--text');
+    og.font = `${r.i === cur ? 'bold ' : ''}11px sans-serif`;
+    og.fillText(`${r.i + 1} ${tr.locked ? '🔒' : ''}${tr.name}`, 9, y + OV_RH / 2, OV_LW - 12);
+  });
+  og.fillStyle = C('--muted');
+  og.font = '10px sans-serif';
+  og.fillText('小節 →', 6, OV_TOP / 2);
+}
+function ovHit(e) {
+  const rect = $('#ovScroller').getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const b = Math.floor((px + $('#ovScroller').scrollLeft - OV_LW) / ovBarW());
+  const r = Math.floor((py - OV_TOP) / OV_RH);
+  const rows = ovRows();
+  return { px, py, b, r, rowKind: rows[r] ? rows[r].kind : null };
+}
+function selectBars(t, b0, b1) {
+  ui.sel = { t, b0: Math.min(b0, b1), b1: Math.max(b0, b1) };
+  ui.selBar = ui.sel.b0;
+}
+function scrollEditorToBar(b) {
+  const sc = $('#scroller');
+  const x = b * barTicks() * ppt();
+  if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - LW - 40) sc.scrollLeft = x;
+}
+function ovDown(e) {
+  const h = ovHit(e);
+  if (h.r < 0 || !h.rowKind) return;
+  if (h.px < OV_LW) { if (h.rowKind === 'track') selectTrack(h.r); return; }
+  if (h.b < 0 || h.b >= song.bars) return;
+  if (h.rowKind === 'rule') { editTempo(h.b); return; }
+  e.preventDefault();
+  const inSel = ui.sel.t === h.r && h.b >= ui.sel.b0 && h.b <= ui.sel.b1;
+  if (e.shiftKey && ui.sel.t === h.r) selectBars(h.r, ui.sel.b0, h.b);
+  else if (!inSel) selectBars(h.r, h.b, h.b);
+  if (cur !== h.r) selectTrack(h.r, false);
+  ui.startTick = ui.sel.b0 * barTicks();
+  ui.inputTick = ui.startTick;
+  scrollEditorToBar(ui.sel.b0);
+  ovDrag = { t: h.r, b0: ui.sel.b0, b1: ui.sel.b1, start: h, over: null, moved: false, x: e.clientX, y: e.clientY, inSel, shift: e.shiftKey };
+  $('#ovScroller').setPointerCapture(e.pointerId);
+  renderEditorTools();
+  draw();
+  drawOverview();
+  updateMini();
+}
+function ovMove(e) {
+  if (!ovDrag) return;
+  if (!ovDrag.moved && Math.hypot(e.clientX - ovDrag.x, e.clientY - ovDrag.y) < 6) return;
+  ovDrag.moved = true;
+  const h = ovHit(e);
+  $('#ovTrash').classList.add('show');
+  const trash = $('#ovTrash').getBoundingClientRect();
+  const overTrash = e.clientX >= trash.left && e.clientX <= trash.right && e.clientY >= trash.top && e.clientY <= trash.bottom;
+  $('#ovTrash').classList.toggle('hot', overTrash);
+  ovDrag.trash = overTrash;
+  ovDrag.over = !overTrash && h.r >= 0 && h.r < song.tracks.length && h.b >= 0 && h.b < song.bars ? { r: h.r, b: h.b } : null;
+  drawOverview();
+}
+function ovUp() {
+  if (!ovDrag) return;
+  const d = ovDrag;
+  ovDrag = null;
+  $('#ovTrash').classList.remove('show', 'hot');
+  if (!d.moved) {
+    if (d.inSel && !d.shift) { selectBars(d.t, d.start.b, d.start.b); ui.startTick = d.start.b * barTicks(); }
+    drawOverview(); draw(); renderEditorTools();
+    return;
+  }
+  const src = song.tracks[d.t];
+  if (d.trash) {
+    if (locked(src)) return toast('🔒 ロックされています');
+    edit(() => clearBars(src, d.b0, d.b1), `${d.b0 + 1}〜${d.b1 + 1}小節を消す`);
+    toast(`「${src.name}」の${d.b0 + 1}〜${d.b1 + 1}小節を消しました`);
+    return;
+  }
+  if (!d.over) { drawOverview(); return; }
+  const dst = song.tracks[d.over.r];
+  if (src.type !== dst.type) { toast('ちがう種類のトラックにはコピーできません'); drawOverview(); return; }
+  if (locked(dst)) { toast('🔒 コピー先はロックされています'); drawOverview(); return; }
+  if (d.over.r === d.t && d.over.b === d.b0) { drawOverview(); return; }
+  edit(() => copyBars(src, d.b0, d.b1, dst, d.over.b), `${d.b0 + 1}〜${d.b1 + 1}小節をコピー`);
+  toast(`${src.name} ${d.b0 + 1}〜${d.b1 + 1}小節 → ${dst.name} ${d.over.b + 1}小節目へコピーしました`);
+}
+function selectTrack(i, redraw = true) {
+  cur = i;
+  if (ui.sel.t !== i) ui.sel = { ...ui.sel, t: i };
+  ui.selBar = ui.sel.b0;
+  renderTracks();
+  renderEditorTools();
+  resizeEditor();
+  if (redraw) scrollToNotes();
+  draw();
+  drawOverview();
+  if (ui.showScore) renderScorePanel();
+}
+function editTempo(b) {
+  if (song.locks.rules) return toast('🔒 ルールの変更はロックされています');
+  const v = prompt(`${b + 1}小節目からのテンポを入れてください（30〜240）\n空にすると、この小節のテンポ変化を消します`, song.tempos[b] || bpmAt(b));
+  if (v === null) return;
+  edit(() => {
+    if (b === 0) { delete song.tempos[0]; if (v.trim()) song.bpm = clamp(Math.round(+v) || song.bpm, 30, 240); }
+    else if (v.trim() === '') delete song.tempos[b];
+    else song.tempos[b] = clamp(Math.round(+v) || bpmAt(b), 30, 240);
+  }, 'テンポ変化');
+  renderSettings();
+}
+
+/* ============================================================
+   小節の操作（コピー・クリア・挿入・削除）
+   ============================================================ */
+function extractBars(tr, b0, b1) {
+  const bt = barTicks();
+  const a = b0 * bt;
+  const z = (b1 + 1) * bt;
+  if (tr.type === 'melody') return tr.notes.filter((n) => n.s >= a && n.s < z).map((n) => ({ ...n, s: n.s - a }));
+  if (tr.type === 'drum') { const o = {}; for (const id in tr.grid) for (const s in tr.grid[id]) if (+s >= a && +s < z) { (o[id] = o[id] || {})[+s - a] = tr.grid[id][s]; } return o; }
+  return tr.chords.slice(b0, b1 + 1).map((c) => (c ? { ...c } : null));
+}
+function clearBars(tr, b0, b1) {
+  const bt = barTicks();
+  const a = b0 * bt;
+  const z = (b1 + 1) * bt;
+  if (tr.type === 'melody') tr.notes = tr.notes.filter((n) => n.s < a || n.s >= z);
+  else if (tr.type === 'drum') { for (const id in tr.grid) { for (const s in tr.grid[id]) if (+s >= a && +s < z) delete tr.grid[id][s]; if (!Object.keys(tr.grid[id]).length) delete tr.grid[id]; } }
+  else for (let b = b0; b <= b1; b++) tr.chords[b] = null;
+}
+function copyBars(src, b0, b1, dst, to) {
+  const n = b1 - b0 + 1;
+  const data = extractBars(src, b0, b1);
+  const last = Math.min(to + n - 1, song.bars - 1);
+  clearBars(dst, to, last);
+  const bt = barTicks();
+  const off = to * bt;
+  const lim = (last + 1) * bt;
+  if (dst.type === 'melody') dst.notes.push(...data.filter((x) => x.s + off < lim).map((x) => ({ ...x, s: x.s + off })));
+  else if (dst.type === 'drum') { for (const id in data) for (const s in data[id]) if (+s + off < lim) (dst.grid[id] = dst.grid[id] || {})[+s + off] = data[id][s]; }
+  else data.forEach((c, i) => { if (to + i <= last) dst.chords[to + i] = c; });
+}
+// fromBar 以降の中身を n 小節ずらす（n<0 で前に詰める。詰めた所の中身は消える）
+function shiftAll(fromBar, n) {
+  const bt = barTicks();
+  const a = fromBar * bt;
+  const d = n * bt;
+  const keep = (t) => t >= a || n > 0 || t < a + d;
+  for (const tr of song.tracks) {
+    if (tr.type === 'melody') tr.notes = tr.notes.filter((x) => keep(x.s)).map((x) => (x.s >= a ? { ...x, s: x.s + d } : x));
+    else if (tr.type === 'drum') {
+      for (const id in tr.grid) {
+        const ng = {};
+        for (const s in tr.grid[id]) { const t = +s; if (!keep(t)) continue; ng[t >= a ? t + d : t] = tr.grid[id][s]; }
+        tr.grid[id] = ng;
+      }
+    } else {
+      while (tr.chords.length < fromBar) tr.chords.push(null);
+      if (n > 0) tr.chords.splice(fromBar, 0, ...Array(n).fill(null));
+      else tr.chords.splice(fromBar + n, -n);
+    }
+  }
+  const nt = {};
+  for (const b in song.tempos) { const bi = +b; if (bi >= fromBar) nt[bi + n] = song.tempos[b]; else if (n > 0 || bi < fromBar + n) nt[bi] = song.tempos[b]; }
+  song.tempos = nt;
+}
+function insertBars() {
+  if (song.locks.rules) return toast('🔒 小節数の変更はロックされています');
+  const at = ui.sel.b0;
+  const n = ui.sel.b1 - ui.sel.b0 + 1;
+  edit(() => { shiftAll(at, n); song.bars = Math.min(128, song.bars + n); }, `${at + 1}小節目の前に${n}小節入れる`);
+  renderSettings();
+  toast(`${at + 1}小節目の前に${n}小節入れました`);
+}
+function deleteBars() {
+  if (song.locks.rules) return toast('🔒 小節数の変更はロックされています');
+  const at = ui.sel.b0;
+  const n = ui.sel.b1 - ui.sel.b0 + 1;
+  if (n >= song.bars) return toast('全部の小節は消せません');
+  if (!confirm(`${at + 1}〜${at + n}小節目を、すべてのトラックから取りのぞいて詰めますか？`)) return;
+  edit(() => {
+    shiftAll(at + n, -n);
+    song.bars -= n;
+    selectBars(cur, Math.min(at, song.bars - 1), Math.min(at, song.bars - 1));
+  }, `${at + 1}〜${at + n}小節を削除`);
+  renderSettings();
 }
 
 /* ============================================================
@@ -830,25 +1306,27 @@ function onUp(e) {
    ============================================================ */
 function diatonic() {
   const k = song.key;
-  const minorish = ['minor', 'minyo', 'miyako', 'blues'].includes(song.scale);
-  const list = minorish
+  const list = isMinor()
     ? [[0, 'm', 'Ⅰm'], [5, 'm', 'Ⅳm'], [7, 'm', 'Ⅴm'], [7, '7', 'Ⅴ7'], [8, 'M', '♭Ⅵ'], [10, 'M', '♭Ⅶ'], [3, 'M', '♭Ⅲ'], [2, 'dim', 'Ⅱdim']]
     : [[0, 'M', 'Ⅰ'], [5, 'M', 'Ⅳ'], [7, 'M', 'Ⅴ'], [7, '7', 'Ⅴ7'], [9, 'm', 'Ⅵm'], [2, 'm', 'Ⅱm'], [4, 'm', 'Ⅲm'], [0, 'M7', 'ⅠM7']];
   return list.map(([iv, q, deg]) => ({ r: (k + iv) % 12, q, deg }));
 }
 function previewChord(tr, c) {
   const ctx = ensureAudio();
-  const root = 48 + ((c.r % 12) + 12) % 12;
-  CHORD_Q[c.q].iv.forEach((x) => Sound.playNote(ctx, previewOut, tr.inst, root + 12 + x - (root > 54 ? 12 : 0), ctx.currentTime + 0.01, 0.6, 0.5));
+  let root = 48 + (c.r % 12);
+  if (root > 54) root -= 12;
+  CHORD_Q[c.q].iv.forEach((x) => Sound.playNote(ctx, previewOut, tr.inst, root + 12 + x, ctx.currentTime + 0.01, 0.6, 0.5));
 }
 function setChord(c) {
   const tr = track();
+  if (locked(tr)) return toast('🔒 このトラックはロックされています');
   edit(() => {
     while (tr.chords.length < song.bars) tr.chords.push(null);
     tr.chords[ui.selBar] = c;
     if (c) previewChord(tr, c);
-    if (ui.selBar < song.bars - 1) ui.selBar++;
-  });
+    const nb = Math.min(ui.selBar + 1, song.bars - 1);
+    selectBars(cur, nb, nb);
+  }, 'コードを入れる');
 }
 
 /* ============================================================
@@ -862,28 +1340,28 @@ function scaleDegreesInRange(lo, hi) {
 }
 // おまかせ作曲：音階とコードに合わせてメロディを自動で作ります
 function autoCompose(tr) {
-  const lo = RANGES[tr.range][1];
+  const [, lo] = RANGES[tr.range] || RANGES.soprano;
   const tones = scaleDegreesInRange(lo + 2, lo + 16);
   const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
-  const spb = stepsPerBar();
-  const e = Math.max(1, song.res / 8); // 8分音符のステップ数
+  const bt = barTicks();
+  const E = 24;
   const notes = [];
   let idx = tones.findIndex((m) => m % 12 === song.key && m >= lo + 5);
   if (idx < 0) idx = Math.floor(tones.length / 2);
   const rhythms = [[2, 2, 2, 2], [2, 1, 1, 2, 2], [4, 2, 2], [1, 1, 2, 2, 2], [2, 2, 4], [3, 1, 2, 2], [2, 2, 1, 1, 2]];
+  const need = Math.max(1, Math.round(bt / E));
   for (let b = 0; b < song.bars; b++) {
     const last = b === song.bars - 1;
     let pattern;
-    if (last) pattern = [spb / e];
+    if (last) pattern = [need];
+    else if (b % 4 === 3) pattern = need > 2 ? [need - 2, 2] : [need];
     else {
       pattern = rhythms[Math.floor(Math.random() * rhythms.length)].slice();
       let sum = pattern.reduce((a, x) => a + x, 0);
-      const need = spb / e;
-      while (sum > need) { sum -= pattern.pop(); }
+      while (sum > need) sum -= pattern.pop();
       if (sum < need) pattern.push(need - sum);
-      if (b % 4 === 3) pattern = [Math.max(1, need - 2), ...(need > 2 ? [2] : [])].slice(0, need > 2 ? 2 : 1);
     }
-    let s = b * spb;
+    let s = b * bt;
     const c = chordTr && chordTr.chords[b];
     const chordPcs = c ? new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12)) : null;
     pattern.forEach((len, k) => {
@@ -893,52 +1371,38 @@ function autoCompose(tr) {
         tones.forEach((m, i) => { if (m % 12 === song.key && Math.abs(i - idx) < bd) { bd = Math.abs(i - idx); best = i; } });
         idx = best;
       } else {
-        let step = [-2, -1, -1, 0, 1, 1, 2, 3, -3][Math.floor(Math.random() * 9)];
-        idx = clamp(idx + step, 0, tones.length - 1);
+        idx = clamp(idx + [-2, -1, -1, 0, 1, 1, 2, 3, -3][Math.floor(Math.random() * 9)], 0, tones.length - 1);
         if (chordPcs && k === 0) {
-          // 小節の頭はコードの音に寄せる
-          for (const d of [0, 1, -1, 2, -2]) {
-            const j = clamp(idx + d, 0, tones.length - 1);
+          for (const dd of [0, 1, -1, 2, -2]) {
+            const j = clamp(idx + dd, 0, tones.length - 1);
             if (chordPcs.has(tones[j] % 12)) { idx = j; break; }
           }
         }
       }
-      if (!(Math.random() < 0.07 && k > 0 && !last)) notes.push({ s, p: tones[idx], l: len * e });
-      s += len * e;
+      if (!(Math.random() < 0.07 && k > 0 && !last)) notes.push({ s, p: tones[idx], l: Math.min(len * E, (b + 1) * bt - s) });
+      s += len * E;
     });
   }
   tr.notes = notes;
 }
 function shiftCopy(src, dst, bars) {
-  const off = bars * stepsPerBar();
-  dst.notes = src.notes.filter((n) => n.s + off < totalSteps()).map((n) => ({ s: n.s + off, p: n.p, l: Math.min(n.l, totalSteps() - n.s - off) }));
+  const off = bars * barTicks();
+  const total = totalTicks();
+  dst.notes = src.notes.filter((n) => n.s + off < total).map((n) => ({ s: n.s + off, p: n.p, l: Math.min(n.l, total - n.s - off) }));
 }
-function transpose(tr, semis) {
-  for (const n of tr.notes) n.p = clamp(n.p + semis, 24, 108);
+function notesInScope(tr) {
+  // 2小節以上えらんでいればその範囲、そうでなければ全部
+  if (ui.sel.t !== cur || ui.sel.b1 === ui.sel.b0) return tr.notes;
+  const bt = barTicks();
+  return tr.notes.filter((n) => n.s >= ui.sel.b0 * bt && n.s < (ui.sel.b1 + 1) * bt);
 }
+function transpose(tr, semis) { for (const n of notesInScope(tr)) n.p = clamp(n.p + semis, 21, 108); }
 function transposeDegree(tr, dir) {
-  const all = scaleDegreesInRange(24, 108);
-  for (const n of tr.notes) {
+  const all = scaleDegreesInRange(21, 108);
+  for (const n of notesInScope(tr)) {
     let i = all.indexOf(n.p);
-    if (i < 0) { i = all.findIndex((m) => m >= n.p); if (dir < 0) i--; }
-    else i += dir;
+    if (i < 0) { i = all.findIndex((m) => m >= n.p); if (dir < 0) i--; } else i += dir;
     n.p = all[clamp(i, 0, all.length - 1)];
-  }
-}
-function copyBar(tr, from, to) {
-  const spb = stepsPerBar();
-  if (tr.type === 'melody') {
-    tr.notes = tr.notes.filter((n) => !(n.s >= to * spb && n.s < (to + 1) * spb));
-    tr.notes.push(...tr.notes.filter((n) => n.s >= from * spb && n.s < (from + 1) * spb).map((n) => ({ ...n, s: n.s - from * spb + to * spb })));
-  } else if (tr.type === 'drum') {
-    for (const id in tr.grid) {
-      for (let i = 0; i < spb; i++) {
-        const v = tr.grid[id][from * spb + i];
-        if (v) tr.grid[id][to * spb + i] = v; else delete tr.grid[id][to * spb + i];
-      }
-    }
-  } else if (tr.type === 'chord') {
-    tr.chords[to] = tr.chords[from] ? { ...tr.chords[from] } : null;
   }
 }
 function clearTrack(tr) {
@@ -946,79 +1410,166 @@ function clearTrack(tr) {
   else if (tr.type === 'drum') tr.grid = {};
   else tr.chords = [];
 }
-const RHYTHM_PRESETS = {
-  basic: { name: '8ビート', f: (b, spb, e) => ({ kick: [0, 4 * e], snare: [2 * e, 6 * e], hihat: range(0, spb, e) }) },
-  march: { name: 'マーチ', f: (b, spb, e) => ({ kick: [0, 2 * e, 4 * e, 6 * e].filter((x) => x < spb), snare: [e, 3 * e, 5 * e, 7 * e].filter((x) => x < spb), cymbal: b % 4 === 0 ? [0] : [] }) },
-  waltz: { name: 'ワルツ', f: (b, spb, e) => ({ kick: [0], hihat: [2 * e, 4 * e].filter((x) => x < spb), snare: [2 * e, 4 * e].filter((x) => x < spb) }) },
-  samba: { name: 'サンバ', f: (b, spb, e) => ({ kick: range(0, spb, 2 * e), shaker: range(0, spb, Math.max(1, e / 2)), tamb: [e, 3 * e, 4 * e, 6 * e].filter((x) => x < spb), cowbell: [0, 3 * e, 6 * e].filter((x) => x < spb) }) },
-  matsuri: { name: 'お祭り（和太鼓）', f: (b, spb, e) => ({ taiko: [0, 2 * e, 3 * e, 4 * e, 6 * e].filter((x) => x < spb), clave: [e, 5 * e].filter((x) => x < spb), suzu: b % 2 ? [] : [0] }) },
-  clap: { name: '手拍子', f: (b, spb, e) => ({ clap: range(0, spb, 2 * e) }) },
-};
 function range(a, b, st) { const r = []; for (let i = a; i < b; i += Math.max(1, st)) r.push(i); return r; }
+const RHYTHM_PRESETS = {
+  basic: { name: '8ビート', kit: 'drums', f: (bt) => ({ kick: [0, 96], snare: [48, 144], hihat: range(0, bt, 24) }) },
+  rock16: { name: '16ビート', kit: 'drums', f: (bt) => ({ kick: [0, 72, 96], snare: [48, 144], hihat: range(0, bt, 12) }) },
+  march: { name: 'マーチ（音楽室）', kit: 'school', f: (bt, b) => ({ odaiko: range(0, bt, 96), kodaiko: range(48, bt, 96), awase: b % 4 === 0 ? [0] : [] }) },
+  waltz: { name: 'ワルツ', kit: 'drums', f: (bt) => ({ kick: [0], hihat: range(48, bt, 48), snare: range(48, bt, 48) }) },
+  samba: { name: 'サンバ', kit: 'perc2', f: (bt) => ({ maracas: range(0, bt, 12), agogoH: [0, 72, 144], agogoL: [24, 96, 168], clave: [0, 36, 96, 120, 168] }) },
+  latin: { name: 'ボサノバ', kit: 'perc1', f: () => ({ congaL: [0, 96], congaH: [72, 168], congaM: [48, 144], woodH: [0, 72, 144] }) },
+  matsuri: { name: 'お祭り（和太鼓）', kit: 'wa', f: (bt, b) => ({ chodaiko: [0, 48, 72, 96, 144], shime: range(0, bt, 24), kane: [0, 48, 96, 144], hyoshigi: b % 4 === 3 ? [144] : [] }) },
+  edm: { name: '4つ打ち（EDM）', kit: 'edm', f: (bt) => ({ kick808: range(0, bt, 48), clapE: [48, 144], ohatE: [24, 72, 120, 168], hihatE: range(0, bt, 12) }) },
+  clap: { name: '手拍子', kit: 'perc2', f: (bt) => ({ clap: range(0, bt, 48) }) },
+};
 function applyRhythm(tr, key) {
+  const pre = RHYTHM_PRESETS[key];
   tr.grid = {};
-  const spb = stepsPerBar();
-  const e = Math.max(1, song.res / 8);
+  tr.kit = pre.kit;
+  const bt = barTicks();
   for (let b = 0; b < song.bars; b++) {
-    const pat = RHYTHM_PRESETS[key].f(b, spb, e);
+    const pat = pre.f(bt, b);
     for (const id in pat) for (const s of pat[id]) {
-      if (s >= spb) continue;
-      if (!tr.grid[id]) tr.grid[id] = {};
-      tr.grid[id][b * spb + s] = s === 0 ? 2 : 1;
+      if (s >= bt) continue;
+      (tr.grid[id] = tr.grid[id] || {})[b * bt + s] = s === 0 ? 2 : 1;
     }
   }
 }
-function changeRes(newRes) {
-  const f = newRes / song.res;
-  for (const tr of song.tracks) {
-    if (tr.type === 'melody') tr.notes = tr.notes.map((n) => ({ s: Math.floor(n.s * f), p: n.p, l: Math.max(1, Math.round(n.l * f)) }));
-    if (tr.type === 'drum') for (const id in tr.grid) {
-      const ng = {};
-      for (const s in tr.grid[id]) { const ns = Math.floor(+s * f); if (f >= 1 || +s % 2 === 0) ng[ns] = tr.grid[id][s]; }
-      tr.grid[id] = ng;
+
+/* ============================================================
+   鍵盤で入力・演奏（パソコンのキーボード／MIDI鍵盤）
+   ============================================================ */
+const KEYMAP = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
+const held = new Map();
+let chordAnchor = null;
+function noteOn(midi, keyIndex) {
+  const tr = track();
+  if (tr.type === 'drum') {
+    const ids = kitRows(tr);
+    const i = keyIndex != null ? keyIndex : (((midi - 36) % ids.length) + ids.length) % ids.length;
+    const id = ids[ids.length - 1 - (i % ids.length)];
+    preview(tr, id);
+    highlightRow = id;
+    draw();
+    if (ui.stepRec && !locked(tr)) {
+      const at = chordAnchor != null ? chordAnchor : ui.inputTick;
+      chordAnchor = at;
+      edit(() => setCell(tr, id, at, 1), '鍵盤で入力');
     }
+    return;
   }
-  ui.startStep = Math.floor(ui.startStep * f);
-  ui.defLen = clamp(Math.round(ui.defLen * f), 1, 16);
-  song.res = newRes;
+  if (tr.type === 'chord') { preview({ ...tr, type: 'melody' }, midi); return; }
+  preview(tr, midi, 0.5);
+  showMini(midi);
+  highlightRow = midi;
+  draw();
+  if (ui.stepRec && !locked(tr)) {
+    const at = chordAnchor != null ? chordAnchor : ui.inputTick;
+    chordAnchor = at;
+    edit(() => { if (!tr.notes.some((n) => n.s === at && n.p === midi)) tr.notes.push({ s: at, p: midi, l: cellLen(at) }); }, '鍵盤で入力');
+  }
+}
+function noteOff() {
+  if (held.size) return;
+  highlightRow = null;
+  if (ui.stepRec && chordAnchor != null) { chordAnchor = null; advanceCursor(1); }
+  draw();
+}
+function advanceCursor(dir) {
+  if (dir > 0) ui.inputTick = Math.min(totalTicks() - 1, ui.inputTick + cellLen(ui.inputTick));
+  else ui.inputTick = cellStart(Math.max(0, ui.inputTick - 1));
+  ui.inputTick = cellStart(ui.inputTick);
+  const sc = $('#scroller');
+  const x = ui.inputTick * ppt();
+  if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - LW - 60) sc.scrollLeft = Math.max(0, x - 100);
+  draw();
+}
+function stepBackspace() {
+  const tr = track();
+  advanceCursor(-1);
+  if (locked(tr)) return;
+  const at = ui.inputTick;
+  edit(() => {
+    if (tr.type === 'melody') tr.notes = tr.notes.filter((n) => n.s !== at);
+    else if (tr.type === 'drum') for (const id in tr.grid) if (tr.grid[id][at]) setCell(tr, id, at, 0);
+  }, '鍵盤入力を消す');
+}
+let midiAccess = null;
+async function connectMidi() {
+  if (!navigator.requestMIDIAccess) return alert('このブラウザはMIDI鍵盤に対応していません（Chrome / Edge をおすすめします）');
+  try {
+    midiAccess = await navigator.requestMIDIAccess();
+    const hook = () => {
+      let n = 0;
+      midiAccess.inputs.forEach((inp) => {
+        n++;
+        inp.onmidimessage = (m) => {
+          const [st, note, vel] = m.data;
+          const cmd = st & 0xf0;
+          if (cmd === 0x90 && vel > 0) { held.set('m' + note, note); noteOn(note); }
+          else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) { held.delete('m' + note); noteOff(); }
+        };
+      });
+      $('#btnMidiIn').classList.toggle('on', n > 0);
+      toast(n ? `MIDI鍵盤を${n}台つなぎました` : 'MIDI鍵盤が見つかりません');
+    };
+    midiAccess.onstatechange = hook;
+    hook();
+  } catch (e) { alert('MIDI鍵盤につなげませんでした：' + e.message); }
+}
+
+/* ============================================================
+   ミニディスプレイ
+   ============================================================ */
+let miniTimer = null;
+function showMini(midi) {
+  const box = $('#miniNote');
+  box.innerHTML = `${Notation.single(midi, song.key, isMinor())}<div><b>${noteName(midi)}</b><small>${sciName(midi)}</small></div>`;
+  box.classList.add('show');
+  clearTimeout(miniTimer);
+  miniTimer = setTimeout(() => box.classList.remove('show'), 5000);
+}
+function updateMini(pos) {
+  if (pos === undefined) pos = playheadTick();
+  const t = pos != null ? pos : ui.startTick;
+  const bt = barTicks();
+  const bar = clamp(Math.floor(t / bt), 0, song.bars - 1);
+  const beat = Math.floor((t - bar * bt) / beatTicks());
+  $('#miniTitle').textContent = song.title;
+  $('#miniPos').textContent = `${bar + 1}小節 ${beat + 1}拍`;
+  $('#miniKey').textContent = `${KEY_LABELS[song.key].split('（')[0]} ${isMinor() ? 'minor' : 'major'}`;
+  $('#miniMeter').textContent = song.meter.join('/');
+  $('#miniBpm').textContent = '♩=' + bpmAt(bar);
 }
 
 /* ============================================================
    画面（設定・トラック一覧・ツール）
    ============================================================ */
 function opt(sel, items, val) {
-  sel.innerHTML = '';
-  for (const [v, t] of items) {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = t;
-    sel.appendChild(o);
-  }
+  sel.innerHTML = items.map(([v, t]) => `<option value="${v}">${escapeHtml(t)}</option>`).join('');
   sel.value = String(val);
 }
 function renderSettings() {
   $('#title').value = song.title;
   $('#bpm').value = song.bpm;
   $('#bpmNum').value = song.bpm;
-  opt($('#meter'), [['2/4', '2/4拍子'], ['3/4', '3/4拍子'], ['4/4', '4/4拍子'], ['6/8', '6/8拍子']], song.meter.join('/'));
+  opt($('#meterN'), [1, 2, 3, 4, 5, 6].map((n) => [n, n]), song.meter[0]);
+  opt($('#meterD'), [2, 4, 8].map((n) => [n, n]), song.meter[1]);
   $('#bars').value = song.bars;
-  opt($('#res'), [[8, '8分音符まで'], [16, '16分音符まで']], song.res);
   opt($('#key'), KEY_LABELS.map((l, i) => [i, l]), song.key);
   opt($('#scale'), Object.entries(SCALES).map(([k, v]) => [k, v.name]), song.scale);
-  opt($('#names'), [['doremi', 'ドレミ'], ['movable', 'ドレミ（移動ド）'], ['cde', 'CDE'], ['haniho', 'ハニホ']], ui.names);
-  $('#reverb').value = song.reverb;
+  opt($('#names'), [['doremi', 'ドレミ'], ['movable', 'ドレミ（移動ド）'], ['cde', 'CDE（英語）'], ['haniho', 'ハニホ（日本語）']], ui.names);
+  $('#btnFlat').textContent = ui.flat ? '♭で表示' : '♯で表示';
   $('#swing').value = song.swing;
-  $('#zoom').value = ui.cw;
+  opt($('#swingUnit'), [[24, '8分音符'], [12, '16分音符']], song.swingUnit);
+  $('#zoom').value = ui.zoom;
   $('#btnLoop').classList.toggle('on', ui.loopOn);
   $('#btnMetro').classList.toggle('on', ui.metro);
-  renderLoopInfo();
-}
-function renderLoopInfo() {
-  const el = $('#loopInfo');
-  if (ui.loopRange) {
-    el.innerHTML = `くりかえす範囲：${ui.loopRange[0] + 1}〜${ui.loopRange[1]}小節 <button id="btnLoopClear" class="mini">解除</button>`;
-    $('#btnLoopClear').onclick = () => { ui.loopRange = null; renderLoopInfo(); draw(); };
-  } else el.textContent = '小節番号をクリック＝そこから再生／なぞる＝くりかえし範囲';
+  $('#rules').disabled = !!song.locks.rules;
+  $('#bpm').disabled = $('#bpmNum').disabled = $('#btnTap').disabled = !!song.locks.rules;
+  $('#addRow').hidden = !!song.locks.tracks;
+  $('#btnIns').disabled = $('#btnDelBars').disabled = $('#btnAddFour').disabled = !!song.locks.rules;
+  updateMini();
 }
 
 function renderTracks() {
@@ -1026,127 +1577,428 @@ function renderTracks() {
   list.innerHTML = '';
   song.tracks.forEach((tr, i) => {
     const d = document.createElement('div');
-    d.className = 'track' + (i === cur ? ' sel' : '');
+    d.className = 'track' + (i === cur ? ' sel' : '') + (tr.locked ? ' locked' : '');
     d.style.setProperty('--tc', TRACK_COLORS[i % TRACK_COLORS.length]);
     const icon = tr.type === 'melody' ? '🎵' : tr.type === 'chord' ? '🎹' : '🥁';
-    let instSel = '';
-    if (tr.type !== 'drum') {
-      instSel = `<select class="inst" title="楽器">${Object.entries(Sound.INSTRUMENTS).map(([k, v]) => `<option value="${k}" ${k === tr.inst ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
-    }
+    const instLabel = tr.type === 'drum' ? (Sound.KITS.find((k) => k.id === tr.kit) || Sound.KITS[0]).name : Sound.INSTRUMENTS[tr.inst] || tr.inst;
+    const lockMute = song.locks.mute;
     d.innerHTML = `
-      <div class="trow"><span class="ticon">${icon}</span><input class="tname" value="${escapeHtml(tr.name)}" maxlength="20">
-        <button class="mini mute ${tr.mute ? 'on' : ''}" title="ミュート（消音）">消</button>
-        <button class="mini solo ${tr.solo ? 'on' : ''}" title="ソロ（これだけ鳴らす）">ソロ</button>
-        <button class="mini del" title="トラックを削除">✕</button></div>
-      <div class="trow">${instSel}<input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量"></div>`;
-    d.addEventListener('pointerdown', (ev) => {
-      if (cur !== i) { cur = i; ui.selBar = 0; renderTracks(); renderEditorTools(); resizeEditor(); scrollToNotes(); draw(); }
-    });
-    d.querySelector('.tname').onchange = (ev) => edit(() => { tr.name = ev.target.value || tr.name; });
-    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; renderTracks(); };
-    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; renderTracks(); };
-    d.querySelector('.del').onclick = (ev) => {
+      <div class="trow"><span class="tnum">${i + 1}</span><span class="ticon">${icon}</span><input class="tname" value="${escapeHtml(tr.name)}" maxlength="20" ${tr.locked ? 'disabled' : ''}>
+        ${tr.locked ? '<span title="ロック中">🔒</span>' : ''}
+        <button class="mini mute ${tr.mute ? 'on' : ''}" title="ミュート（消音）" ${lockMute ? 'disabled' : ''}>消</button>
+        <button class="mini solo ${tr.solo ? 'on' : ''}" title="ソロ（これだけ鳴らす）" ${lockMute ? 'disabled' : ''}>ソロ</button></div>
+      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${escapeHtml(instLabel)} ▾</button>
+        <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>
+      <div class="trow tsub">
+        <button class="mini up" title="上へ">▲</button><button class="mini down" title="下へ">▼</button>
+        ${song.locks.tracks ? '' : '<button class="mini dup" title="複製">複製</button><button class="mini del" title="削除">削除</button>'}
+      </div>`;
+    d.addEventListener('pointerdown', () => { if (cur !== i) selectTrack(i); });
+    d.querySelector('.tname').onchange = (ev) => edit(() => { tr.name = ev.target.value || tr.name; }, 'トラック名');
+    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); };
+    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); };
+    d.querySelector('.instbtn').onclick = (ev) => { ev.stopPropagation(); openInstPicker(i); };
+    d.querySelector('.up').onclick = (ev) => { ev.stopPropagation(); moveTrack(i, -1); };
+    d.querySelector('.down').onclick = (ev) => { ev.stopPropagation(); moveTrack(i, 1); };
+    const dup = d.querySelector('.dup');
+    if (dup) dup.onclick = (ev) => {
+      ev.stopPropagation();
+      if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
+      edit(() => { song.tracks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(tr)), id: uid(), name: (tr.name + 'のコピー').slice(0, 20), locked: false }); cur = i + 1; }, 'トラックを複製');
+      renderTracks();
+    };
+    const del = d.querySelector('.del');
+    if (del) del.onclick = (ev) => {
       ev.stopPropagation();
       if (song.tracks.length <= 1) return alert('トラックは1つ以上必要です');
       if (!confirm(`「${tr.name}」を削除しますか？`)) return;
-      edit(() => { song.tracks.splice(i, 1); cur = clamp(cur, 0, song.tracks.length - 1); });
+      edit(() => { song.tracks.splice(i, 1); cur = clamp(cur, 0, song.tracks.length - 1); }, 'トラックを削除');
       renderTracks();
     };
-    const is = d.querySelector('.inst');
-    if (is) is.onchange = (ev) => { edit(() => { tr.inst = ev.target.value; }); preview(tr, tr.type === 'melody' ? RANGES[tr.range][1] + 12 : 60); };
     const vol = d.querySelector('.vol');
     vol.oninput = (ev) => { tr.vol = +ev.target.value; liveVolume(tr); };
     vol.onchange = () => changed();
     list.appendChild(d);
   });
 }
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function moveTrack(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= song.tracks.length) return;
+  edit(() => {
+    const [t] = song.tracks.splice(i, 1);
+    song.tracks.splice(j, 0, t);
+    if (cur === i) cur = j; else if (cur === j) cur = i;
+  }, 'トラックの並べかえ');
+  renderTracks();
+}
+function addTrack(type) {
+  if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
+  const n = song.tracks.filter((t) => t.type === type).length + 1;
+  const name = type === 'melody' ? 'メロディ' + n : type === 'drum' ? 'リズム' + n : 'コード伴奏' + (n > 1 ? n : '');
+  edit(() => { song.tracks.push(newTrack(type, { name })); cur = song.tracks.length - 1; }, 'トラックを追加');
+  renderTracks();
+  scrollToNotes();
+  if (type !== 'chord') openInstPicker(cur);
+}
 
 function renderEditorTools() {
   const tr = track();
   const box = $('#editorTools');
   const pal = $('#chordPalette');
-  const barOpts = Array.from({ length: song.bars }, (_, i) => `<option value="${i}">${i + 1}</option>`).join('');
-  const copyBarUI = `<span class="grp">小節コピー <select id="cbFrom">${barOpts}</select>→<select id="cbTo">${barOpts}</select><button id="btnCopyBar" class="mini">コピー</button></span>`;
+  const lk = locked(tr);
+  const multi = ui.sel.t === cur && ui.sel.b1 > ui.sel.b0;
+  const gridUI = tr.type !== 'chord' ? `<span class="grp otama" title="おたまチョップ：置く音の長さ（マス目の大きさ）">${GRIDS.map(([v, t, ic]) => `<button class="mini gbtn ${ui.grid === v ? 'on' : ''}" data-v="${v}" title="${t}"><span class="ic">${ic}</span>${t.replace('音符', '')}</button>`).join('')}</span>` : '';
   pal.innerHTML = '';
   pal.hidden = tr.type !== 'chord';
+  let html = '';
+  if (lk) html += '<span class="lockmsg">🔒 このトラックは先生がロックしています（見る・聴くだけ）</span>';
+  html += gridUI;
+  let others = [];
   if (tr.type === 'melody') {
-    const lens = [[1, '1マス'], [2, '2マス'], [3, '3マス'], [4, '4マス'], [6, '6マス'], [8, '8マス']];
-    const others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    box.innerHTML = `
-      <span class="grp">置く長さ ${lens.map(([v, t]) => `<button class="mini len ${ui.defLen === v ? 'on' : ''}" data-v="${v}">${t}</button>`).join('')}</span>
+    others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
+    html += `
       <span class="grp">音域 <select id="range">${Object.entries(RANGES).map(([k, v]) => `<option value="${k}" ${k === tr.range ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></span>
-      <span class="grp">移調 <button class="mini" id="tDegDn">音階↓</button><button class="mini" id="tDegUp">音階↑</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tOctUp">オクターブ↑</button></span>
-      <span class="grp"><button class="mini accent" id="btnAuto">🎲 おまかせ作曲</button></span>
-      ${others.length ? `<span class="grp">輪唱・コピー：<select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></span>` : ''}
-      <label class="grp"><input type="checkbox" id="ghost" ${ui.ghost ? 'checked' : ''}> ほかのメロディを点線で表示</label>
-      ${copyBarUI}
-      <button class="mini danger" id="btnClear">ぜんぶ消す</button>`;
-    box.querySelectorAll('.len').forEach((b) => (b.onclick = () => { ui.defLen = +b.dataset.v; renderEditorTools(); }));
-    $('#range').onchange = (ev) => { edit(() => { tr.range = ev.target.value; }); scrollToNotes(); };
-    $('#tDegDn').onclick = () => edit(() => transposeDegree(tr, -1));
-    $('#tDegUp').onclick = () => edit(() => transposeDegree(tr, 1));
-    $('#tSemiDn').onclick = () => edit(() => transpose(tr, -1));
-    $('#tSemiUp').onclick = () => edit(() => transpose(tr, 1));
-    $('#tOctDn').onclick = () => edit(() => transpose(tr, -12));
-    $('#tOctUp').onclick = () => edit(() => transpose(tr, 12));
-    $('#btnAuto').onclick = () => { if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（元に戻すボタンで戻せます）')) return; edit(() => autoCompose(tr)); scrollToNotes(); };
-    $('#ghost').onchange = (ev) => { ui.ghost = ev.target.checked; draw(); };
-    if (others.length) $('#btnRound').onclick = () => {
-      const src = song.tracks.find((t) => t.id === $('#rSrc').value);
-      if (tr.notes.length && !confirm('このトラックの音を上書きしますか？')) return;
-      edit(() => shiftCopy(src, tr, +$('#rBars').value));
-    };
+      <span class="grp" title="キャンバスで2小節以上えらぶと、その範囲だけ動かします">音の移動${multi ? `<small>（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節）</small>` : '<small>（全部）</small>'} <button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button><button class="mini" id="tDegDn">音階↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tOctDn">オクターブ↓</button></span>
+      ${song.locks.compose ? '' : '<span class="grp"><button class="mini accent" id="btnAuto">🎲 おまかせ作曲</button></span>'}
+      ${others.length ? `<span class="grp">輪唱づくり：<select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></span>` : ''}
+      <label class="grp"><input type="checkbox" id="ghost" ${ui.ghost ? 'checked' : ''}> ほかのパートを点線で表示</label>`;
   } else if (tr.type === 'drum') {
-    box.innerHTML = `
-      <span class="hint">クリックするたびに ●→強●→なし と変わります</span>
-      <span class="grp">リズムのお手本 <select id="rPreset"><option value="">えらぶ…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></span>
-      ${copyBarUI}
-      <button class="mini danger" id="btnClear">ぜんぶ消す</button>`;
-    $('#rPreset').onchange = (ev) => {
-      if (!ev.target.value) return;
-      if (Object.keys(tr.grid).length && !confirm('今のリズムを消して、お手本を入れますか？')) { ev.target.value = ''; return; }
-      edit(() => applyRhythm(tr, ev.target.value));
-    };
+    html += `
+      <span class="hint">クリックするたびに ●→強●→なし</span>
+      <span class="grp">リズムのお手本 <select id="rPreset"><option value="">えらぶ…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></span>`;
   } else {
-    box.innerHTML = `
+    html += `
       <span class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></span>
-      <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> 低い音（ベース）もつける</label>
-      ${copyBarUI}
-      <button class="mini danger" id="btnClear">ぜんぶ消す</button>`;
-    $('#cPat').onchange = (ev) => edit(() => { tr.pattern = ev.target.value; });
-    $('#cBass').onchange = (ev) => edit(() => { tr.bassOn = ev.target.checked; });
+      <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> 低い音（ベース）もつける</label>`;
+    const dia = diatonic();
     pal.innerHTML = `<div class="palhead">${ui.selBar + 1}小節目のコードをえらぶ（えらぶと次の小節へ進みます）</div>
-      <div class="palrow">${diatonic().map((c, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[c.r]}"><b>${chordName(c)}</b><small>${c.deg}</small></button>`).join('')}
+      <div class="palrow">${dia.map((c, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[c.r]}"><b>${chordName(c)}</b><small>${c.deg}</small></button>`).join('')}
       <button class="chordbtn none" data-i="-1"><b>なし</b><small>休み</small></button></div>
       <div class="palrow">そのほか：<select id="cRoot">${CHORD_ROOT.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
       <select id="cQ">${Object.entries(CHORD_Q).map(([k, v]) => `<option value="${k}">${v.s || '（長三和音）'}</option>`).join('')}</select>
       <button class="mini" id="cSet">この小節に入れる</button></div>`;
-    const dia = diatonic();
     pal.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; setChord(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
     $('#cSet').onclick = () => setChord({ r: +$('#cRoot').value, q: $('#cQ').value });
   }
-  const cbFrom = $('#cbFrom');
-  if (cbFrom) {
-    cbFrom.value = String(Math.min(ui.selBar, song.bars - 1));
-    $('#cbTo').value = String(Math.min(ui.selBar + 1, song.bars - 1));
-    $('#btnCopyBar').onclick = () => edit(() => copyBar(tr, +$('#cbFrom').value, +$('#cbTo').value));
+  html += `<span class="grp">${tr.type === 'chord' ? '' : `<select id="dragMode" title="音をドラッグしたときの動き"><option value="auto">ドラッグ：自動</option><option value="stretch">ドラッグ：のばすだけ</option><option value="move">ドラッグ：動かすだけ</option></select>`}
+    <button class="mini" id="btnTouch" title="タブレットで指でなぞったときの動き">${ui.touchEdit ? '✏️ 指で編集' : '✋ 指でスクロール'}</button>
+    <button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">▶ 見えている所だけ再生</button>
+    <button class="mini danger" id="btnClear" ${lk ? 'disabled' : ''}>ぜんぶ消す</button></span>`;
+  box.innerHTML = html;
+  box.querySelectorAll('.gbtn').forEach((b) => (b.onclick = () => setGrid(+b.dataset.v)));
+  const dm = $('#dragMode');
+  if (dm) { dm.value = ui.dragMode; dm.onchange = (e) => { ui.dragMode = e.target.value; }; }
+  $('#btnTouch').onclick = () => { ui.touchEdit = !ui.touchEdit; $('#scroller').classList.toggle('touchedit', ui.touchEdit); renderEditorTools(); };
+  $('#btnViewLoop').onclick = () => {
+    const sc = $('#scroller');
+    const bt = barTicks();
+    const b0 = clamp(Math.floor(sc.scrollLeft / ppt() / bt), 0, song.bars - 1);
+    const b1 = clamp(Math.floor((sc.scrollLeft + sc.clientWidth - LW - 10) / ppt() / bt), b0, song.bars - 1);
+    ui.loopRange = [b0, b1 + 1];
+    ui.loopOn = true;
+    ui.startTick = b0 * bt;
+    $('#btnLoop').classList.add('on');
+    play();
+  };
+  $('#btnClear').onclick = () => { if (confirm(`「${tr.name}」の中身をぜんぶ消しますか？`)) edit(() => clearTrack(tr), 'トラックを全部消す'); };
+  if (tr.type === 'melody') {
+    $('#range').onchange = (ev) => { edit(() => { tr.range = ev.target.value; }, '音域'); scrollToNotes(); };
+    const guard = (fn, label) => () => { if (lk) return toast('🔒 ロックされています'); edit(fn, label); };
+    $('#tDegDn').onclick = guard(() => transposeDegree(tr, -1), '音階で下げる');
+    $('#tDegUp').onclick = guard(() => transposeDegree(tr, 1), '音階で上げる');
+    $('#tSemiDn').onclick = guard(() => transpose(tr, -1), '半音下げる');
+    $('#tSemiUp').onclick = guard(() => transpose(tr, 1), '半音上げる');
+    $('#tOctDn').onclick = guard(() => transpose(tr, -12), 'オクターブ下げる');
+    $('#tOctUp').onclick = guard(() => transpose(tr, 12), 'オクターブ上げる');
+    const ba = $('#btnAuto');
+    if (ba) ba.onclick = () => { if (lk) return; if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「戻す」で元に戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
+    $('#ghost').onchange = (ev) => { ui.ghost = ev.target.checked; draw(); };
+    if (others.length) $('#btnRound').onclick = () => {
+      if (lk) return;
+      const src = song.tracks.find((t) => t.id === $('#rSrc').value);
+      if (tr.notes.length && !confirm('このトラックの音を上書きしますか？')) return;
+      edit(() => shiftCopy(src, tr, +$('#rBars').value), '輪唱づくり');
+    };
+  } else if (tr.type === 'drum') {
+    $('#rPreset').onchange = (ev) => {
+      if (!ev.target.value || lk) return;
+      if (Object.keys(tr.grid).length && !confirm('今のリズムを消して、お手本を入れますか？')) { ev.target.value = ''; return; }
+      edit(() => applyRhythm(tr, ev.target.value), 'リズムのお手本');
+      renderTracks();
+    };
+  } else {
+    $('#cPat').onchange = (ev) => edit(() => { tr.pattern = ev.target.value; }, '伴奏の形');
+    $('#cBass').onchange = (ev) => edit(() => { tr.bassOn = ev.target.checked; }, 'ベースの有無');
   }
-  $('#btnClear').onclick = () => { if (confirm(`「${tr.name}」の中身をぜんぶ消しますか？`)) edit(() => clearTrack(tr)); };
+}
+function setGrid(v) {
+  const sc = $('#scroller');
+  const centerTick = (sc.scrollLeft + (sc.clientWidth - LW) / 2) / ppt();
+  ui.grid = v;
+  ui.inputTick = cellStart(ui.inputTick);
+  renderEditorTools();
+  resizeEditor();
+  sc.scrollLeft = Math.max(0, centerTick * ppt() - (sc.clientWidth - LW) / 2);
+  draw();
+  drawOverview();
 }
 
 function scrollToNotes() {
   const tr = track();
   const sc = $('#scroller');
+  resizeEditor();
   if (tr.type !== 'melody') { sc.scrollTop = 0; return; }
   const rows = rowsFor(tr);
   let target;
   if (tr.notes.length) {
     const avg = tr.notes.reduce((a, n) => a + n.p, 0) / tr.notes.length;
     target = rows.findIndex((r) => r.p <= avg);
-  } else target = rows.findIndex((r) => r.p <= RANGES[tr.range][1] + 12);
-  resizeEditor();
+  } else target = rows.findIndex((r) => r.p <= (RANGES[tr.range] || RANGES.soprano)[1] + 12);
   sc.scrollTop = Math.max(0, RH + target * ui.rh - sc.clientHeight / 2);
+}
+
+/* ============================================================
+   楽器えらび
+   ============================================================ */
+let picker = null;
+function openInstPicker(ti) {
+  const tr = song.tracks[ti];
+  if (locked(tr)) return toast('🔒 ロックされています');
+  picker = { ti, type: tr.type, val: tr.type === 'drum' ? tr.kit : tr.inst, cat: tr.type === 'drum' ? null : Sound.INST_CAT[tr.inst] || 'key' };
+  $('#instTitle').textContent = tr.type === 'drum' ? '🥁 打楽器のセットをえらぶ' : '🎹 楽器をえらぶ';
+  renderPicker();
+  $('#dlgInst').showModal();
+}
+function renderPicker() {
+  const p = picker;
+  const box = $('#instBody');
+  if (p.type === 'drum') {
+    const kit = Sound.KITS.find((k) => k.id === p.val) || Sound.KITS[0];
+    box.innerHTML = `<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.icon} ${k.name}</button>`).join('')}</div>
+      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}</button>`).join('')}</div>
+      <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。</p>`;
+    box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.val = b.dataset.k; renderPicker(); }));
+    box.querySelectorAll('.pad').forEach((b) => (b.onpointerdown = () => preview({ type: 'drum' }, b.dataset.id)));
+  } else {
+    const cat = Sound.CATS.find((c) => c.id === p.cat) || Sound.CATS[0];
+    box.innerHTML = `<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>
+      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}</button>`).join('')}</div>
+      <div class="kbd" id="pickKbd"></div>`;
+    box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.cat = b.dataset.c; renderPicker(); }));
+    box.querySelectorAll('.instopt').forEach((b) => (b.onclick = () => {
+      p.val = b.dataset.id;
+      box.querySelectorAll('.instopt').forEach((x) => x.classList.toggle('on', x === b));
+      const ctx = ensureAudio();
+      const base = ['ebass', 'acbass', 'sbass1', 'sbass2', 'sbass3', 'tuba', 'bassoon', 'trombone', 'timpani'].includes(p.val) ? 36 : 60;
+      [0, 4, 7, 12].forEach((iv, i) => Sound.playNote(ctx, previewOut, p.val, base + iv, ctx.currentTime + 0.02 + i * 0.16, 0.3, 0.7));
+    }));
+    renderKeyboard($('#pickKbd'), (m) => { const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, p.val, m, ctx.currentTime + 0.01, 0.5, 0.8); });
+  }
+}
+function renderKeyboard(el, onPress) {
+  const base = ui.kbOct * 12 + 12;
+  const keys = 'awsedftgyhujkolp;';
+  let html = '';
+  for (let i = 0; i < 17; i++) {
+    const m = base + i;
+    const black = [1, 3, 6, 8, 10].includes(m % 12);
+    html += `<button class="key ${black ? 'black' : 'white'}" data-m="${m}"><kbd>${keys[i].toUpperCase()}</kbd>${black ? '' : `<span>${noteName(m)}${m % 12 === 0 ? Math.floor(m / 12) - 1 : ''}</span>`}</button>`;
+  }
+  el.innerHTML = `<div class="keys">${html}</div><div class="kbdhint">鍵盤をおすか、キーボードの文字で音が出ます。Z：オクターブ下げる ／ X：上げる（いま C${ui.kbOct} から）</div>`;
+  el.querySelectorAll('.key').forEach((b) => (b.onpointerdown = (e) => { e.preventDefault(); onPress(+b.dataset.m); }));
+}
+
+/* ============================================================
+   パレット（ミキサー・イコライザー・エフェクト）
+   ============================================================ */
+const FX = {
+  lowpass: ['ローパス（こもった音）', '横：音の明るさ ／ たて：くせの強さ'],
+  highpass: ['ハイパス（シャカシャカ）', '横：低い音をけずる量 ／ たて：くせの強さ'],
+  stutter: ['スタッター（くりかえし）', '横：くりかえす長さ（左ほど短い）'],
+  delay: ['ディレイ（やまびこ）', '横：間かく ／ たて：くりかえす回数'],
+  reverb: ['リバーブ（大きなホール）', 'たて：ひびきの量'],
+  decimator: ['デシメーター（ゲーム機風）', 'たて：音のあらさ'],
+};
+let fxKind = 'lowpass';
+function openPalette() {
+  const box = $('#palBody');
+  box.innerHTML = `
+    <section><h4>🎚 ミキサー（トラックの音量）</h4><div class="mixer">${song.tracks.map((t, i) => `
+      <label class="mixch" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><input type="range" min="0" max="1" step="0.01" value="${t.vol}" data-i="${i}" ${t.locked ? 'disabled' : ''}><span>${i + 1}. ${escapeHtml(t.name)}</span></label>`).join('')}
+      <label class="mixch master"><input type="range" min="0" max="1.2" step="0.01" value="${song.master}" id="mMaster"><span>全体の音量</span></label></div></section>
+    <section><h4>🎛 イコライザー（音域ごとのバランス）</h4>
+      <div class="eqrow"><label>低音 <input type="range" min="-12" max="12" step="1" value="${song.eq.low}" data-eq="low"></label>
+      <label>中音 <input type="range" min="-12" max="12" step="1" value="${song.eq.mid}" data-eq="mid"></label>
+      <label>高音 <input type="range" min="-12" max="12" step="1" value="${song.eq.high}" data-eq="high"></label>
+      <label>ひびき <input type="range" min="0" max="1" step="0.05" value="${song.reverb}" id="mRev"></label>
+      <button class="mini" id="eqReset">もとにもどす</button></div></section>
+    <section><h4>⏱ メトロノーム</h4>
+      <div class="eqrow"><label>音色 <select id="mKind">${Object.entries(Sound.METRO_SOUNDS).map(([k, v]) => `<option value="${k}" ${k === song.metro.kind ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>音量 <input type="range" min="0" max="1.5" step="0.05" value="${song.metro.vol}" id="mVol"></label></div></section>
+    <section><h4>✨ エフェクトパッド <small class="muted">再生中にパッドを押している間だけかかります（書き出しには入りません）</small></h4>
+      <div class="fxsel">${Object.entries(FX).map(([k, v]) => `<button class="mini ${k === fxKind ? 'on' : ''}" data-fx="${k}">${v[0]}</button>`).join('')}</div>
+      <div class="fxpad" id="fxPad"><span id="fxHint">${FX[fxKind][1]}</span><i id="fxDot"></i></div>
+      <button class="mini" id="fxPlay">${player.on ? '⏸ 止める' : '▶ 再生してためす'}</button></section>`;
+  box.querySelectorAll('.mixch input[data-i]').forEach((inp) => {
+    inp.oninput = () => { const t = song.tracks[+inp.dataset.i]; t.vol = +inp.value; liveVolume(t); };
+  });
+  $('#mMaster').oninput = (e) => { song.master = +e.target.value; if (player.graph) player.graph.out.gain.value = song.master; };
+  box.querySelectorAll('[data-eq]').forEach((inp) => (inp.oninput = () => {
+    song.eq[inp.dataset.eq] = +inp.value;
+    if (player.graph) { player.graph.eqL.gain.value = song.eq.low; player.graph.eqM.gain.value = song.eq.mid; player.graph.eqH.gain.value = song.eq.high; }
+  }));
+  $('#eqReset').onclick = () => { song.eq = { low: 0, mid: 0, high: 0 }; if (player.graph) { player.graph.eqL.gain.value = 0; player.graph.eqM.gain.value = 0; player.graph.eqH.gain.value = 0; } openPalette(); };
+  $('#mRev').oninput = (e) => { song.reverb = +e.target.value; if (player.graph) player.graph.wet.gain.value = song.reverb * 0.6; };
+  $('#mKind').onchange = (e) => { song.metro.kind = e.target.value; const ctx = ensureAudio(); Sound.click(ctx, previewOut, ctx.currentTime + 0.01, true, song.metro.kind); };
+  $('#mVol').oninput = (e) => { song.metro.vol = +e.target.value; if (player.graph) player.graph.metro.gain.value = song.metro.vol; };
+  $('#fxPlay').onclick = () => { player.on ? stop() : play(); $('#fxPlay').textContent = player.on ? '⏸ 止める' : '▶ 再生してためす'; };
+  box.querySelectorAll('[data-fx]').forEach((b) => (b.onclick = () => { fxKind = b.dataset.fx; openPalette(); }));
+  const pad = $('#fxPad');
+  let active = false;
+  const apply = (e) => {
+    const r = pad.getBoundingClientRect();
+    const x = clamp((e.clientX - r.left) / r.width, 0, 1);
+    const y = clamp(1 - (e.clientY - r.top) / r.height, 0, 1);
+    $('#fxDot').style.left = x * 100 + '%';
+    $('#fxDot').style.top = (1 - y) * 100 + '%';
+    fxApply(fxKind, x, y, true);
+  };
+  pad.onpointerdown = (e) => { if (!player.on) { toast('再生中に押してみよう'); return; } active = true; pad.setPointerCapture(e.pointerId); pad.classList.add('on'); apply(e); };
+  pad.onpointermove = (e) => { if (active) apply(e); };
+  pad.onpointerup = pad.onpointercancel = () => { if (!active) return; active = false; pad.classList.remove('on'); fxApply(fxKind, 0, 0, false); };
+  if (!$('#dlgPal').open) $('#dlgPal').showModal();
+}
+function fxApply(kind, x, y, on) {
+  const g = player.graph;
+  if (!g) return;
+  const now = actx.currentTime;
+  const tc = 0.02;
+  if (!on) {
+    g.lp.frequency.setTargetAtTime(22000, now, tc); g.lp.Q.value = 1;
+    g.hp.frequency.setTargetAtTime(10, now, tc); g.hp.Q.value = 1;
+    g.crush.curve = identityCurve;
+    g.dIn.gain.setTargetAtTime(0, now, tc);
+    g.fxRevIn.gain.setTargetAtTime(0, now, tc);
+    g.stIn.gain.setTargetAtTime(1, now, 0.005); g.stFb.gain.setTargetAtTime(0, now, 0.005); g.stOut.gain.setTargetAtTime(0, now, 0.005);
+    g.dry.gain.setTargetAtTime(1, now, 0.005);
+    g._stut = false;
+    return;
+  }
+  if (kind === 'lowpass') { g.lp.frequency.setTargetAtTime(150 * Math.pow(100, x), now, tc); g.lp.Q.value = 1 + y * 14; }
+  else if (kind === 'highpass') { g.hp.frequency.setTargetAtTime(40 * Math.pow(150, x), now, tc); g.hp.Q.value = 1 + y * 14; }
+  else if (kind === 'decimator') g.crush.curve = crushCurve(Math.round(8 - y * 6.5));
+  else if (kind === 'delay') { g.dl.delayTime.setTargetAtTime(0.08 + x * 0.6, now, 0.05); g.dFb.gain.value = 0.2 + y * 0.65; g.dIn.gain.setTargetAtTime(0.7, now, tc); }
+  else if (kind === 'reverb') g.fxRevIn.gain.setTargetAtTime(0.3 + y * 1.4, now, tc);
+  else if (kind === 'stutter') {
+    const beat = 60 / bpmAt(0);
+    const lens = [beat / 4, beat / 2, beat, beat * 2];
+    const len = Math.min(1.9, lens[Math.min(3, Math.floor(x * 4))]);
+    if (!g._stut || g._stutLen !== len) {
+      g._stut = true;
+      g._stutLen = len;
+      g.st.delayTime.setValueAtTime(len, now);
+      g.stIn.gain.setValueAtTime(0, now);
+      g.stFb.gain.setValueAtTime(1, now);
+      g.stOut.gain.setValueAtTime(1, now);
+      g.dry.gain.setValueAtTime(0, now);
+    }
+  }
+}
+
+/* ============================================================
+   履歴・先生用設定
+   ============================================================ */
+function openHistory() {
+  const box = $('#histList');
+  const items = undoStack.map((e, i) => `<button class="histrow" data-i="${i}"><span>${i + 1}.</span> ${escapeHtml(e.label)}</button>`);
+  box.innerHTML = items.length ? items.join('') + '<div class="histrow now">▶ いまの状態</div>' : '<p class="muted">まだ操作の記録はありません。</p>';
+  box.querySelectorAll('.histrow[data-i]').forEach((b) => (b.onclick = () => {
+    const i = +b.dataset.i;
+    const label = undoStack[i].label;
+    while (undoStack.length > i) undo();
+    openHistory();
+    toast(`「${label}」の前までもどしました（「やり直す」で進めます）`);
+  }));
+  if (!$('#dlgHist').open) $('#dlgHist').showModal();
+  box.scrollTop = box.scrollHeight;
+}
+async function sha(s) {
+  if (!window.crypto || !crypto.subtle) return 'p:' + s;
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('otsumiki:' + s));
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function openTeacher() {
+  if (song.locks.pin) {
+    const p = prompt('先生用の暗証番号を入れてください');
+    if (p === null) return;
+    if ((await sha(p)) !== song.locks.pin) return alert('暗証番号がちがいます');
+  }
+  const L = song.locks;
+  $('#teachBody').innerHTML = `
+    <p>ここで決めた設定は曲ファイルや共有URLに入ります。設定したファイルを配ると、児童・生徒は決められた範囲だけ操作できます。</p>
+    <h4>使える機能</h4>
+    <label class="chk"><input type="checkbox" id="lkRules" ${L.rules ? 'checked' : ''}> 調・拍子・テンポ・音階・小節数を変えられないようにする</label>
+    <label class="chk"><input type="checkbox" id="lkTracks" ${L.tracks ? 'checked' : ''}> トラックの追加・複製・削除をできないようにする</label>
+    <label class="chk"><input type="checkbox" id="lkMute" ${L.mute ? 'checked' : ''}> 消音・ソロの切りかえをできないようにする</label>
+    <label class="chk"><input type="checkbox" id="lkCompose" ${L.compose ? 'checked' : ''}> 「おまかせ作曲」をかくす</label>
+    <h4>トラックのロック（ロックしたトラックは見る・聴くだけ）</h4>
+    ${song.tracks.map((t, i) => `<label class="chk"><input type="checkbox" class="lkTr" data-i="${i}" ${t.locked ? 'checked' : ''}> ${i + 1}. ${escapeHtml(t.name)}</label>`).join('')}
+    <h4>暗証番号</h4>
+    <label>この画面を開くための暗証番号（空欄のまま＝${L.pin ? '変えない' : 'なし'}） <input id="lkPin" type="password" autocomplete="new-password"></label>
+    ${L.pin ? '<label class="chk"><input type="checkbox" id="lkPinClear"> 暗証番号を消す</label>' : ''}`;
+  $('#teachSave').onclick = async () => {
+    const pin = $('#lkPin').value;
+    const clearPin = $('#lkPinClear') && $('#lkPinClear').checked;
+    const newPin = clearPin ? '' : pin ? await sha(pin) : L.pin;
+    edit(() => {
+      song.locks = { pin: newPin, rules: $('#lkRules').checked, tracks: $('#lkTracks').checked, mute: $('#lkMute').checked, compose: $('#lkCompose').checked };
+      $$('.lkTr').forEach((c) => { song.tracks[+c.dataset.i].locked = c.checked; });
+    }, '先生用設定');
+    renderSettings();
+    renderTracks();
+    $('#dlgTeach').close();
+    toast('先生用設定を保存しました。「ファイル」→「曲ファイルを書き出す」で配れます');
+  };
+  $('#dlgTeach').showModal();
+}
+
+/* ============================================================
+   楽譜
+   ============================================================ */
+function scoreSvg(trackIds) {
+  const parts = song.tracks.filter((t) => t.type === 'melody' && trackIds.includes(t.id)).map((t) => ({ name: t.name, notes: t.notes }));
+  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
+  return Notation.render({
+    parts, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
+    title: song.title, bpm: song.bpm, chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordName(chordTr.chords[b])) : null,
+    width: 780,
+  });
+}
+function openScore() {
+  const mel = song.tracks.filter((t) => t.type === 'melody');
+  if (!mel.length) return alert('楽譜にできるメロディのトラックがありません');
+  $('#scoreParts').innerHTML = mel.map((t) => `<label class="chk"><input type="checkbox" value="${t.id}" ${t.notes.length ? 'checked' : ''}> ${escapeHtml(t.name)}</label>`).join('') + '<span class="muted">（コード伴奏はコードネームとして表示されます）</span>';
+  const upd = () => {
+    const ids = $$('#scoreParts input:checked').map((c) => c.value);
+    $('#scoreView').innerHTML = ids.length ? scoreSvg(ids) : '<p class="muted">パートを選んでください</p>';
+  };
+  $$('#scoreParts input').forEach((c) => (c.onchange = upd));
+  upd();
+  $('#dlgScore').showModal();
+}
+function printScore() {
+  const svg = $('#scoreView').innerHTML;
+  const w = window.open('', '_blank');
+  if (!w) return alert('ポップアップがブロックされました。ブラウザの設定で許可してください');
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}svg{width:100%;height:auto}</style>${svg}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
+  w.document.close();
+}
+function renderScorePanel() {
+  const tr = track();
+  const el = $('#scorePanel');
+  if (!ui.showScore) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = tr.type === 'melody' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディのトラックを選ぶと、ここに楽譜が出ます</p>';
 }
 
 /* ============================================================
@@ -1155,12 +2007,16 @@ function scrollToNotes() {
 function loadSong(s) {
   stop();
   if (!s || !Array.isArray(s.tracks)) throw new Error('曲データの形式がちがいます');
+  s = migrate(s);
   const base = newSong();
-  song = { ...base, ...s };
-  song.tracks = s.tracks.map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
+  song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
+  song.tracks = s.tracks.slice(0, MAX_TRACKS).map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
   cur = 0;
-  ui.startStep = 0;
+  ui.startTick = 0;
+  ui.inputTick = 0;
   ui.loopRange = null;
+  ui.loopOn = false;
+  ui.sel = { t: 0, b0: 0, b1: 0 };
   ui.selBar = 0;
   undoStack.length = 0;
   redoStack.length = 0;
@@ -1175,7 +2031,7 @@ function saveToBrowser() {
   const all = savedList();
   if (all[name] && !confirm('同じ名前の曲があります。上書きしますか？')) return;
   all[name] = { t: Date.now(), song: JSON.parse(snapshot()) };
-  try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); toast('保存しました'); } catch (e) { alert('保存できませんでした（ブラウザの保存領域がいっぱいかもしれません）'); }
+  try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); toast('このブラウザに保存しました'); } catch (e) { alert('保存できませんでした（ブラウザの保存領域がいっぱいかもしれません）'); }
 }
 function openDialog() {
   const all = savedList();
@@ -1202,14 +2058,18 @@ function download(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 const safeName = () => (song.title || 'song').replace(/[\\/:*?"<>|]/g, '_');
-function exportJSON() { download(new Blob([JSON.stringify(song, null, 1)], { type: 'application/json' }), safeName() + '.otsumiki.json'); }
-function importJSON(file) {
+function exportJSON() { download(new Blob([JSON.stringify(song)], { type: 'application/json' }), safeName() + '.otsumiki.json'); toast('曲ファイルを書き出しました'); }
+function importFile(file) {
   const r = new FileReader();
+  if (/\.midi?$/i.test(file.name)) {
+    r.onload = () => { try { loadSong(importMidi(new Uint8Array(r.result), file.name)); toast('MIDIファイルを読み込みました'); } catch (e) { alert('MIDIを読み込めませんでした：' + e.message); } };
+    r.readAsArrayBuffer(file);
+    return;
+  }
   r.onload = () => { try { loadSong(JSON.parse(r.result)); toast('読み込みました'); } catch (e) { alert('読み込めませんでした：' + e.message); } };
   r.readAsText(file);
 }
 
-// 共有URL（曲データをURLの中に入れる）
 async function packSong() {
   const bytes = new TextEncoder().encode(JSON.stringify(song));
   let data = bytes;
@@ -1225,8 +2085,7 @@ async function packSong() {
 }
 async function unpackSong(str) {
   const prefix = str[0];
-  const b64 = str.slice(1).replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(b64);
+  const bin = atob(str.slice(1).replace(/-/g, '+').replace(/_/g, '/'));
   let bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   if (prefix === 'z') {
     const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -1241,23 +2100,20 @@ async function shareDialog() {
   $('#shareUrl').select();
 }
 
-// WAV（音声ファイル）書き出し
 async function exportWav() {
   stop();
   toast('音声ファイルを作っています…');
   const sr = 44100;
-  let dur = 0;
-  for (let s = 0; s < totalSteps(); s++) dur += stepLen(s);
-  const len = Math.ceil((dur + 2.5) * sr);
+  const len = Math.ceil((absSec(totalTicks()) + 3) * sr);
   const ctx = new OfflineAudioContext(2, len, sr);
   const comp = ctx.createDynamicsCompressor();
   comp.connect(ctx.destination);
-  const graph = buildGraph(ctx, comp);
-  let t = 0.05;
-  for (let s = 0; s < totalSteps(); s++) { scheduleStep(ctx, graph, s, t, false); t += stepLen(s); }
+  const graph = buildGraph(ctx, comp, false);
+  for (const e of eventList()) scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t), false);
   const buf = await ctx.startRendering();
   download(encodeWav(buf), safeName() + '.wav');
-  toast('WAVファイルを書き出しました');
+  toast('音声ファイル（WAV）を書き出しました');
+  return buf;
 }
 function encodeWav(buf) {
   const ch = buf.numberOfChannels;
@@ -1275,28 +2131,29 @@ function encodeWav(buf) {
   return new Blob([data], { type: 'audio/wav' });
 }
 
-// MIDI ファイル書き出し（ほかの音楽ソフトで開けます）
-function exportMidi() {
+function midiBytes() {
   const PPQ = 480;
-  const tps = (PPQ * 4) / song.res; // 1ステップのティック数
-  const vlq = (v) => { const b = [v & 0x7f]; while ((v >>= 7)) b.unshift((v & 0x7f) | 0x80); return b; };
+  const k = PPQ / TPQ;
+  const vlq = (v) => { v = Math.max(0, Math.round(v)); const b = [v & 0x7f]; while ((v >>= 7)) b.unshift((v & 0x7f) | 0x80); return b; };
   const str = (s) => Array.from(new TextEncoder().encode(s));
   const chunk = (id, bytes) => [...str(id), (bytes.length >>> 24) & 255, (bytes.length >>> 16) & 255, (bytes.length >>> 8) & 255, bytes.length & 255, ...bytes];
   const trackBytes = (events) => {
     events.sort((a, b) => a.t - b.t || a.o - b.o);
     const out = [];
     let last = 0;
-    for (const e of events) { out.push(...vlq(Math.round(e.t - last)), ...e.d); last = e.t; }
+    for (const e of events) { const t = Math.round(e.t); out.push(...vlq(t - last), ...e.d); last = t; }
     out.push(0, 0xff, 0x2f, 0);
     return out;
   };
-  const usPerQ = Math.round(60000000 / song.bpm);
+  const tempoEv = (t, bpm) => { const us = Math.round(60000000 / bpm); return { t, o: 0, d: [0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255] }; };
   const title = str(song.title).slice(0, 120);
   const t0 = [
     { t: 0, o: 0, d: [0xff, 0x03, ...vlq(title.length), ...title] },
-    { t: 0, o: 0, d: [0xff, 0x51, 3, (usPerQ >> 16) & 255, (usPerQ >> 8) & 255, usPerQ & 255] },
+    tempoEv(0, song.bpm),
     { t: 0, o: 0, d: [0xff, 0x58, 4, song.meter[0], Math.log2(song.meter[1]), 24, 8] },
+    { t: 0, o: 0, d: [0xff, 0x59, 2, (Notation.keyCount(song.key, isMinor()) + 256) & 255, isMinor() ? 1 : 0] },
   ];
+  for (const b in song.tempos) t0.push(tempoEv(+b * barTicks() * k, song.tempos[b]));
   const tracks = [trackBytes(t0)];
   let ch = 0;
   for (const tr of song.tracks) {
@@ -1305,9 +2162,9 @@ function exportMidi() {
     ev.push({ t: 0, o: 0, d: [0xff, 0x03, ...vlq(name.length), ...name] });
     if (tr.type === 'drum') {
       for (const id in tr.grid) for (const s in tr.grid[id]) {
-        const n = Sound.DRUMS[id].gm;
+        const n = Sound.DRUMS[id] ? Sound.DRUMS[id].gm : 38;
         const v = tr.grid[id][s] === 2 ? 115 : 80;
-        ev.push({ t: +s * tps, o: 2, d: [0x99, n, v] }, { t: +s * tps + tps / 2, o: 1, d: [0x89, n, 0] });
+        ev.push({ t: +s * k, o: 2, d: [0x99, n, v] }, { t: (+s + 12) * k, o: 1, d: [0x89, n, 0] });
       }
     } else {
       if (ch === 9) ch++;
@@ -1315,39 +2172,108 @@ function exportMidi() {
       ev.push({ t: 0, o: 0, d: [0xc0 | c, Sound.GM[tr.inst] || 0] }, { t: 0, o: 0, d: [0xb0 | c, 7, Math.round(tr.vol * 127)] });
       const notes = tr.type === 'melody' ? tr.notes.map((n) => ({ ...n, v: 0.8 })) : chordEvents(tr);
       for (const n of notes) {
-        if (n.s >= totalSteps()) continue;
+        if (n.s >= totalTicks()) continue;
         const v = Math.round(clamp(n.v, 0.1, 1) * 110);
-        ev.push({ t: n.s * tps, o: 2, d: [0x90 | c, n.p, v] }, { t: (n.s + n.l) * tps - 1, o: 1, d: [0x80 | c, n.p, 0] });
+        ev.push({ t: n.s * k, o: 2, d: [0x90 | c, n.p, v] }, { t: (n.s + n.l) * k - 1, o: 1, d: [0x80 | c, n.p, 0] });
       }
     }
     tracks.push(trackBytes(ev));
   }
-  const head = chunk('MThd', [0, 1, 0, tracks.length, (PPQ >> 8) & 255, PPQ & 255]);
-  const bytes = [...head];
+  const bytes = chunk('MThd', [0, 1, 0, tracks.length, (PPQ >> 8) & 255, PPQ & 255]);
   for (const t of tracks) bytes.push(...chunk('MTrk', t));
-  download(new Blob([new Uint8Array(bytes)], { type: 'audio/midi' }), safeName() + '.mid');
+  return new Uint8Array(bytes);
+}
+function exportMidi() {
+  download(new Blob([midiBytes()], { type: 'audio/midi' }), safeName() + '.mid');
   toast('MIDIファイルを書き出しました');
 }
 
-function printScore() {
-  // マス目の画像を小節ごとに並べて印刷用ページを作る
-  const tr = track();
-  const w = window.open('', '_blank');
-  if (!w) return alert('ポップアップがブロックされました');
-  const sc = $('#scroller');
-  const saved = [sc.scrollLeft, sc.scrollTop];
-  const imgs = [];
-  const spb = stepsPerBar();
-  const pageBars = Math.max(1, Math.floor((cv.clientWidth - LW) / (spb * ui.cw)));
-  for (let b = 0; b < song.bars; b += pageBars) {
-    sc.scrollLeft = b * spb * ui.cw;
-    draw(null);
-    imgs.push(cv.toDataURL('image/png'));
+// MIDIファイルの読み込み
+function importMidi(buf, fname) {
+  let p = 0;
+  const u32 = () => ((buf[p++] << 24) | (buf[p++] << 16) | (buf[p++] << 8) | buf[p++]) >>> 0;
+  const u16 = () => (buf[p++] << 8) | buf[p++];
+  const vlq = () => { let v = 0; let b; do { b = buf[p++]; v = (v << 7) | (b & 0x7f); } while (b & 0x80 && p < buf.length); return v; };
+  const id = () => String.fromCharCode(buf[p++], buf[p++], buf[p++], buf[p++]);
+  if (id() !== 'MThd') throw new Error('MIDIファイルではありません');
+  const hl = u32();
+  u16();
+  const ntr = u16();
+  const div = u16();
+  p = 8 + hl;
+  if (div & 0x8000) throw new Error('この形式のMIDIには対応していません');
+  const scale = TPQ / div;
+  const s = newSong();
+  s.title = fname.replace(/\.midi?$/i, '');
+  s.tracks = [];
+  let meter = [4, 4];
+  let bpm = 120;
+  const chans = new Map();
+  const drums = [];
+  for (let t = 0; t < ntr && p < buf.length; t++) {
+    if (id() !== 'MTrk') break;
+    const len = u32();
+    const end = p + len;
+    let tick = 0;
+    let rs = 0;
+    const on = new Map();
+    let tname = '';
+    while (p < end) {
+      tick += vlq();
+      let st = buf[p];
+      if (st & 0x80) p++; else st = rs;
+      if (st === 0xff) {
+        const type = buf[p++];
+        const l = vlq();
+        const data = buf.slice(p, p + l);
+        p += l;
+        if (type === 0x51 && tick === 0) bpm = Math.round(60000000 / ((data[0] << 16) | (data[1] << 8) | data[2]));
+        if (type === 0x58 && tick === 0) meter = [data[0], Math.pow(2, data[1])];
+        if (type === 0x03) tname = new TextDecoder().decode(data);
+        continue;
+      }
+      if (st === 0xf0 || st === 0xf7) { p += vlq(); continue; }
+      rs = st;
+      const cmd = st & 0xf0;
+      const chn = st & 15;
+      const a = buf[p++];
+      const b = cmd === 0xc0 || cmd === 0xd0 ? 0 : buf[p++];
+      const key = chn + ':' + a;
+      if (cmd === 0x90 && b > 0) on.set(key, { s: tick, v: b });
+      else if (cmd === 0x80 || (cmd === 0x90 && b === 0)) {
+        const o = on.get(key);
+        if (!o) continue;
+        on.delete(key);
+        if (chn === 9) drums.push({ s: Math.round(o.s * scale), n: a, v: o.v });
+        else {
+          if (!chans.has(t + ':' + chn)) chans.set(t + ':' + chn, { name: tname, notes: [] });
+          chans.get(t + ':' + chn).notes.push({ s: Math.round(o.s * scale), p: a, l: Math.max(1, Math.round((tick - o.s) * scale)) });
+        }
+      }
+    }
+    p = end;
   }
-  sc.scrollLeft = saved[0]; sc.scrollTop = saved[1];
-  draw();
-  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>body{font-family:sans-serif;margin:16px}img{width:100%;border:1px solid #ccc;margin:6px 0;page-break-inside:avoid}</style><h2>${escapeHtml(song.title)} ／ ${escapeHtml(tr.name)}</h2><p>テンポ ${song.bpm}・${song.meter.join('/')}拍子・${KEY_LABELS[song.key]}・${SCALES[song.scale].name}</p>${imgs.map((s) => `<img src="${s}">`).join('')}<script>onload=()=>print()<\/script>`);
-  w.document.close();
+  s.bpm = clamp(bpm, 30, 240);
+  s.meter = [clamp(meter[0], 1, 6), [2, 4, 8].includes(meter[1]) ? meter[1] : 4];
+  const bt = (s.meter[0] * 192) / s.meter[1];
+  let maxT = 0;
+  for (const c of chans.values()) {
+    if (s.tracks.length >= MAX_TRACKS - (drums.length ? 1 : 0)) break;
+    const avg = c.notes.reduce((x, n) => x + n.p, 0) / c.notes.length;
+    const rg = avg < 50 ? 'bass' : avg < 60 ? 'tenor' : 'soprano';
+    s.tracks.push(newTrack('melody', { name: (c.name || 'パート' + (s.tracks.length + 1)).slice(0, 20), inst: avg < 50 ? 'ebass' : 'piano', range: rg, notes: c.notes }));
+    for (const n of c.notes) maxT = Math.max(maxT, n.s + n.l);
+  }
+  if (drums.length) {
+    const rev = {};
+    for (const k of ['kick', 'snare', 'hihat', 'ohat', 'tomL', 'tomH', 'ride', 'crash', 'clap', 'cowbell', 'tamb', 'maracas', 'triangle']) rev[Sound.DRUMS[k].gm] = k;
+    const tr = newTrack('drum', { name: 'ドラム' });
+    for (const d of drums) { const k = rev[d.n] || 'snare'; (tr.grid[k] = tr.grid[k] || {})[d.s] = d.v > 100 ? 2 : 1; maxT = Math.max(maxT, d.s + 1); }
+    s.tracks.push(tr);
+  }
+  if (!s.tracks.length) s.tracks.push(newTrack('melody'));
+  s.bars = clamp(Math.ceil(maxT / bt), 1, 128);
+  return s;
 }
 
 let toastTimer;
@@ -1356,23 +2282,42 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
 /* ============================================================
    初期化・イベント
    ============================================================ */
+const tapTimes = [];
 function init() {
-  ui.ghost = true;
-  // 設定パネル
-  $('#title').onchange = (e) => edit(() => { song.title = e.target.value || 'あたらしい曲'; });
-  const setBpm = (v) => { song.bpm = clamp(Math.round(+v || 100), 30, 260); $('#bpm').value = song.bpm; $('#bpmNum').value = song.bpm; version++; };
-  $('#bpm').oninput = (e) => setBpm(e.target.value);
-  $('#bpmNum').onchange = (e) => setBpm(e.target.value);
-  $('#meter').onchange = (e) => edit(() => { song.meter = e.target.value.split('/').map(Number); ui.startStep = 0; });
-  $('#bars').onchange = (e) => edit(() => { song.bars = clamp(Math.round(+e.target.value || 8), 1, 64); e.target.value = song.bars; ui.selBar = Math.min(ui.selBar, song.bars - 1); ui.loopRange = null; ui.startStep = 0; renderLoopInfo(); });
-  $('#res').onchange = (e) => edit(() => changeRes(+e.target.value));
-  $('#key').onchange = (e) => {
+  const guardRules = (fn) => (e) => { if (song.locks.rules) { renderSettings(); return toast('🔒 ロックされています'); } fn(e); };
+  $('#title').onchange = (e) => edit(() => { song.title = e.target.value || 'あたらしい曲'; }, '曲名');
+  const setBpm = (v) => { song.bpm = clamp(Math.round(+v || 100), 30, 240); $('#bpm').value = song.bpm; $('#bpmNum').value = song.bpm; version++; updateMini(); draw(); };
+  $('#bpm').oninput = guardRules((e) => setBpm(e.target.value));
+  $('#bpmNum').onchange = guardRules((e) => setBpm(e.target.value));
+  $('#btnTap').onclick = guardRules(() => {
+    const now = performance.now();
+    if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2000) tapTimes.length = 0;
+    tapTimes.push(now);
+    if (tapTimes.length > 4) tapTimes.shift();
+    if (tapTimes.length >= 2) {
+      const avg = (tapTimes[tapTimes.length - 1] - tapTimes[0]) / (tapTimes.length - 1);
+      setBpm(60000 / avg);
+      toast(`テンポ ${song.bpm}（${tapTimes.length}回の平均）`);
+    } else toast('リズムに合わせて4回タップしてください');
+  });
+  const setMeter = () => edit(() => { song.meter = [+$('#meterN').value, +$('#meterD').value]; ui.startTick = 0; ui.inputTick = 0; }, '拍子');
+  $('#meterN').onchange = guardRules(setMeter);
+  $('#meterD').onchange = guardRules(setMeter);
+  $('#bars').onchange = guardRules((e) => edit(() => {
+    song.bars = clamp(Math.round(+e.target.value || 8), 1, 128);
+    e.target.value = song.bars;
+    const b = Math.min(ui.sel.b0, song.bars - 1);
+    selectBars(cur, b, b);
+    ui.loopRange = null;
+    ui.startTick = 0;
+  }, '小節の数'));
+  $('#key').onchange = guardRules((e) => {
     const nk = +e.target.value;
     const diff = nk - song.key;
     const hasNotes = song.tracks.some((t) => (t.notes && t.notes.length) || (t.chords && t.chords.some(Boolean)));
@@ -1380,77 +2325,155 @@ function init() {
     edit(() => {
       song.key = nk;
       if (move) {
-        const d = ((diff % 12) + 12) % 12 > 6 ? ((diff % 12) + 12) % 12 - 12 : ((diff % 12) + 12) % 12;
+        const m = ((diff % 12) + 12) % 12;
+        const d = m > 6 ? m - 12 : m;
         for (const t of song.tracks) {
-          if (t.type === 'melody') transpose(t, d);
-          if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: (c.r + diff + 12) % 12 } : c));
+          if (t.type === 'melody' && !t.locked) for (const n of t.notes) n.p = clamp(n.p + d, 21, 108);
+          if (t.type === 'chord' && !t.locked) t.chords = t.chords.map((c) => (c ? { ...c, r: (c.r + m) % 12 } : c));
         }
       }
-    });
-  };
-  $('#scale').onchange = (e) => edit(() => { song.scale = e.target.value; });
+    }, '調');
+  });
+  $('#scale').onchange = guardRules((e) => edit(() => { song.scale = e.target.value; }, '音階'));
   $('#names').onchange = (e) => { ui.names = e.target.value; draw(); };
-  $('#reverb').oninput = (e) => { song.reverb = +e.target.value; if (player.graph) player.graph.wet.gain.value = song.reverb * 0.6; };
-  $('#reverb').onchange = () => changed();
-  $('#swing').oninput = (e) => { song.swing = +e.target.value; };
+  $('#btnFlat').onclick = () => { ui.flat = !ui.flat; renderSettings(); draw(); };
+  $('#swing').oninput = guardRules((e) => { song.swing = +e.target.value; version++; });
+  $('#swingUnit').onchange = guardRules((e) => { song.swingUnit = +e.target.value; version++; });
   $('#zoom').oninput = (e) => {
     const sc = $('#scroller');
-    const ratio = (sc.scrollLeft + 1) / ui.cw;
-    ui.cw = +e.target.value;
+    const tk = sc.scrollLeft / ppt();
+    ui.zoom = +e.target.value;
     resizeEditor();
-    sc.scrollLeft = ratio * ui.cw;
+    sc.scrollLeft = tk * ppt();
     draw();
+    drawOverview();
   };
   $('#rowZoom').oninput = (e) => { ui.rh = +e.target.value; resizeEditor(); draw(); };
 
-  // 再生ボタンなど
   $('#btnPlay').onclick = () => (player.on ? stop() : play());
-  $('#btnStop').onclick = () => { stop(); ui.startStep = ui.loopRange ? ui.loopRange[0] * stepsPerBar() : 0; $('#scroller').scrollLeft = 0; draw(); };
-  $('#btnLoop').onclick = () => { ui.loopOn = !ui.loopOn; $('#btnLoop').classList.toggle('on', ui.loopOn); };
+  $('#btnStop').onclick = () => {
+    const wasOn = player.on;
+    stop();
+    if (!wasOn) { ui.startTick = 0; $('#scroller').scrollLeft = 0; } else ui.startTick = ui.sel.b0 * barTicks();
+    draw(); drawOverview(); updateMini();
+  };
+  $('#btnLoop').onclick = () => {
+    ui.loopOn = !ui.loopOn;
+    if (ui.loopOn && !ui.loopRange) ui.loopRange = [ui.sel.b0, ui.sel.b1 + 1];
+    if (ui.loopOn && !player.on) ui.startTick = ui.loopRange[0] * barTicks();
+    $('#btnLoop').classList.toggle('on', ui.loopOn);
+    draw();
+  };
   $('#btnMetro').onclick = () => { ui.metro = !ui.metro; $('#btnMetro').classList.toggle('on', ui.metro); };
   $('#btnUndo').onclick = undo;
   $('#btnRedo').onclick = redo;
-  $('#btnNew').onclick = () => { if (confirm('新しい曲を作りますか？（今の曲は保存されていなければ消えます）')) loadSong(newSong()); };
-  $('#btnSample').onclick = () => { if (confirm('サンプル曲を開きますか？（今の曲は保存されていなければ消えます）')) loadSong(sampleSong()); };
+  $('#btnHist').onclick = openHistory;
+  $('#btnNew').onclick = () => { if (confirm('注意：保存していないデータは消えてしまいます。新しい曲を作りますか？')) loadSong(newSong()); };
+  $('#btnSample').onclick = () => { if (confirm('注意：保存していないデータは消えてしまいます。サンプル曲を開きますか？')) loadSong(sampleSong()); };
   $('#btnSave').onclick = saveToBrowser;
   $('#btnOpen').onclick = openDialog;
   $('#btnExportJson').onclick = exportJSON;
   $('#btnImportJson').onclick = () => $('#fileIn').click();
-  $('#fileIn').onchange = (e) => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value = ''; };
+  $('#fileIn').onchange = (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
   $('#btnWav').onclick = () => exportWav().catch((err) => alert('書き出しに失敗しました：' + err.message));
   $('#btnMidi').onclick = exportMidi;
-  $('#btnPrint').onclick = printScore;
+  $('#btnScore').onclick = openScore;
+  $('#btnScoreMenu').onclick = openScore;
+  $('#btnPrintScore').onclick = printScore;
+  $('#btnSvgScore').onclick = () => download(new Blob([$('#scoreView').innerHTML], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
+  $('#btnScorePanel').onclick = () => { ui.showScore = !ui.showScore; $('#btnScorePanel').classList.toggle('on', ui.showScore); renderScorePanel(); };
+  $('#btnPal').onclick = openPalette;
+  $('#btnTeach').onclick = openTeacher;
   $('#btnShare').onclick = () => shareDialog().catch((err) => alert('URLを作れませんでした：' + err.message));
   $('#btnCopyUrl').onclick = async () => { try { await navigator.clipboard.writeText($('#shareUrl').value); toast('コピーしました'); } catch (e) { $('#shareUrl').select(); document.execCommand('copy'); toast('コピーしました'); } };
   $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
+  $('#btnMidiIn').onclick = connectMidi;
+  $('#btnStepRec').onclick = () => {
+    ui.stepRec = !ui.stepRec;
+    $('#btnStepRec').classList.toggle('on', ui.stepRec);
+    if (ui.stepRec) { ui.inputTick = cellStart(ui.startTick); toast('鍵盤入力：A〜Kのキー（またはMIDI鍵盤）で緑の線の所に音が入ります。→で休み、Backspaceで消す'); }
+    draw();
+  };
+  $('#instOk').onclick = () => {
+    const tr = song.tracks[picker.ti];
+    edit(() => { if (picker.type === 'drum') tr.kit = picker.val; else tr.inst = picker.val; }, '楽器を変更');
+    renderTracks();
+    $('#dlgInst').close();
+  };
+  $('#dlgPal').addEventListener('close', () => { renderTracks(); changed(); });
   document.querySelectorAll('dialog .close').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
-  $('#addMelody').onclick = () => { edit(() => { song.tracks.push(newTrack('melody', { name: 'メロディ' + (song.tracks.filter((t) => t.type === 'melody').length + 1) })); cur = song.tracks.length - 1; }); renderTracks(); scrollToNotes(); };
-  $('#addChord').onclick = () => { edit(() => { song.tracks.push(newTrack('chord')); cur = song.tracks.length - 1; }); renderTracks(); };
-  $('#addDrum').onclick = () => { edit(() => { song.tracks.push(newTrack('drum', { name: 'リズム' + (song.tracks.filter((t) => t.type === 'drum').length + 1) })); cur = song.tracks.length - 1; }); renderTracks(); };
+  document.querySelectorAll('.dropdown .dd button').forEach((b) => b.addEventListener('click', () => b.closest('details').removeAttribute('open')));
+  $('#addMelody').onclick = () => addTrack('melody');
+  $('#addChord').onclick = () => addTrack('chord');
+  $('#addDrum').onclick = () => addTrack('drum');
+  $('#btnIns').onclick = insertBars;
+  $('#btnDelBars').onclick = deleteBars;
+  $('#btnAddFour').onclick = guardRules(() => { edit(() => { song.bars = Math.min(128, song.bars + 4); }, '4小節ふやす'); renderSettings(); });
 
-  // エディタ
   const sc = $('#scroller');
+  sc.classList.toggle('touchedit', ui.touchEdit);
   sc.addEventListener('pointerdown', onDown);
   sc.addEventListener('pointermove', onMove);
   sc.addEventListener('pointerup', onUp);
-  sc.addEventListener('pointercancel', () => { if (drag && drag.kind === 'tap') drag = null; });
-  sc.addEventListener('scroll', () => { if (!player.on) draw(); });
+  sc.addEventListener('pointercancel', () => { drag = null; });
+  sc.addEventListener('scroll', () => { if (!player.on) { draw(); drawOverview(); } });
   sc.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) { e.preventDefault(); ui.cw = clamp(ui.cw - Math.sign(e.deltaY) * 2, 12, 60); $('#zoom').value = ui.cw; resizeEditor(); draw(); }
+    if (e.ctrlKey) { e.preventDefault(); ui.zoom = clamp(ui.zoom - Math.sign(e.deltaY) * 6, 12, 240); $('#zoom').value = ui.zoom; resizeEditor(); draw(); drawOverview(); }
   }, { passive: false });
-  new ResizeObserver(() => { resizeEditor(); draw(); }).observe($('#editorWrap'));
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => draw());
+  const osc = $('#ovScroller');
+  osc.addEventListener('pointerdown', ovDown);
+  osc.addEventListener('pointermove', ovMove);
+  osc.addEventListener('pointerup', ovUp);
+  osc.addEventListener('pointercancel', () => { ovDrag = null; $('#ovTrash').classList.remove('show', 'hot'); drawOverview(); });
+  osc.addEventListener('scroll', () => drawOverview());
+  new ResizeObserver(() => { resizeEditor(); draw(); drawOverview(); }).observe($('#editorWrap'));
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) mq.addEventListener('change', () => { cssCache = null; draw(); drawOverview(); });
 
-  // キーボード操作
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
-    if (e.code === 'Space') { e.preventDefault(); player.on ? stop() : play(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+      else if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+      return;
+    }
+    const otherDialog = $$('dialog').some((d) => d.open && d.id !== 'dlgInst');
+    if (otherDialog) return;
+    const inPicker = $('#dlgInst').open;
+    if (e.code === 'Space' && !inPicker) { e.preventDefault(); player.on ? stop() : play(); return; }
+    const k = e.key.toLowerCase();
+    if (k === 'z' || k === 'x') {
+      ui.kbOct = clamp(ui.kbOct + (k === 'z' ? -1 : 1), 1, 7);
+      toast(`鍵盤の高さ：C${ui.kbOct} から`);
+      if (inPicker && picker.type !== 'drum') renderPicker();
+      return;
+    }
+    if (ui.stepRec && !inPicker) {
+      if (e.key === 'ArrowRight') { e.preventDefault(); advanceCursor(1); return; }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); advanceCursor(-1); return; }
+      if (e.key === 'Backspace') { e.preventDefault(); stepBackspace(); return; }
+    }
+    if (k in KEYMAP && !e.repeat) {
+      if (held.has(k)) return;
+      const midi = ui.kbOct * 12 + 12 + KEYMAP[k];
+      const drumIdx = 'asdfghjk'.indexOf(k);
+      if (inPicker) {
+        if (picker.type === 'drum') { const kit = Sound.KITS.find((x) => x.id === picker.val) || Sound.KITS[0]; const id = [...kit.list].reverse()[drumIdx]; if (id) preview({ type: 'drum' }, id); }
+        else { const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, picker.val, midi, ctx.currentTime + 0.01, 0.5, 0.8); }
+        return;
+      }
+      if (track().type === 'drum' && drumIdx < 0) return;
+      held.set(k, midi);
+      noteOn(midi, track().type === 'drum' ? drumIdx : null);
+    }
   });
+  document.addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (held.has(k)) { held.delete(k); noteOff(); }
+  });
+  window.addEventListener('beforeunload', () => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } });
 
-  // 起動時：URLに曲があれば開く → なければ前回の続き → なければサンプル
   (async () => {
     const m = location.hash.match(/#song=(.+)$/);
     if (m) {
@@ -1458,7 +2481,7 @@ function init() {
     }
     try {
       const auto = localStorage.getItem('otsumiki-autosave');
-      if (auto) { loadSong(JSON.parse(auto)); return; }
+      if (auto) { loadSong(JSON.parse(auto)); toast('前回の続きから開きました'); return; }
     } catch (e) { /* 何もしない */ }
     loadSong(sampleSong());
   })();
