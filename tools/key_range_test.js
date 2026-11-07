@@ -30,7 +30,7 @@ console.log('high preset', await p.evaluate(() => JSON.stringify(trackRange(trac
 await p.mouse.click(700, 700);
 await p.screenshot({ path: SP + '/k3.png' });
 const m = await (await b.newContext({ ...devices['iPhone 13'] })).newPage(); m.on('pageerror', e => errs.push('PHONE '+e.message));
-await m.goto('http://localhost:8765/'); await m.waitForTimeout(1000);
+await m.goto('http://localhost:8765/'); await m.waitForTimeout(1000); await m.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
 await m.locator('.phonenav [data-view="more"]').tap(); await m.waitForTimeout(300); await m.locator('#keySum').tap(); await m.waitForTimeout(300);
 await m.screenshot({ path: SP + '/k4-phone.png' });
 console.log('errors', errs); await b.close(); })();

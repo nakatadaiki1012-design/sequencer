@@ -142,7 +142,7 @@ const fs = require('fs');
   {
     const ctx = await b.newContext({ ...devices['iPad (gen 7) landscape'] });
     const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept());
-    await p.goto('http://localhost:8765/'); await p.waitForTimeout(900);
+    await p.goto('http://localhost:8765/'); await p.waitForTimeout(900); await p.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
     const box = await p.locator('#scroller').boundingBox();
     const n0 = await p.evaluate(() => song.tracks[0].notes.length);
     await p.touchscreen.tap(box.x + 82 + 28 * 5 + 5, box.y + 30 + 22 * 3 + 5);
