@@ -360,3 +360,105 @@ dialog.score { width: 1100px; max-width: 97vw; }
 .scorepart { border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
 .scorelayout .scoreview { flex: 1; min-width: 0; max-height: 66vh; }
 @media (max-width: 860px) { .scorelayout { flex-direction: column; } .scoreside { width: 100%; max-height: none; } }
+
+/* ============================================================
+   スマホ用の画面（幅700px以下）
+   ============================================================ */
+.trackchips, .phonenav, .phonemore { display: none; }
+body.phone { height: 100dvh; overflow: hidden; }
+body.phone .topbar { flex-wrap: nowrap; gap: 6px; padding: 6px 8px; }
+body.phone .mini-display { min-width: 0; flex: 1; padding: 3px 8px; }
+body.phone .mini-display .title { width: 100%; font-size: 13px; }
+body.phone .mini-info { gap: 6px; font-size: 11px; white-space: nowrap; overflow: hidden; }
+body.phone #miniKey { display: none; }
+body.phone .transport { flex-wrap: nowrap; gap: 4px; }
+body.phone .play { width: 46px; height: 42px; font-size: 20px; }
+body.phone .menu { margin-left: 0; flex-wrap: nowrap; gap: 4px; }
+body.phone #btnScore { display: none; }
+body.phone .tbtn.icon { min-width: 38px; min-height: 40px; padding: 4px; }
+
+body.phone .main { flex: 1; min-height: 0; flex-direction: column; display: flex; }
+body.phone .tracks { display: none; width: auto; max-height: none; border: none; }
+body.phone #trackList { display: flex; flex-direction: column; gap: 8px; }
+body.phone .track { margin: 0; padding: 8px; }
+body.phone .canvas-area { display: none; }
+body.phone .editor { flex: 1; min-height: 0; }
+body.phone .editorwrap { flex: 1; height: auto; min-height: 0; }
+body.phone[data-view="tracks"] .tracks { display: block; flex: 1; overflow-y: auto; padding: 10px; }
+body.phone[data-view="tracks"] .editor { display: none; }
+body.phone[data-view="canvas"] .canvas-area { display: block; flex: 1; overflow: auto; border: none; }
+body.phone[data-view="canvas"] .editor > :not(.canvas-area) { display: none; }
+body.phone .ovtools { flex-wrap: wrap; padding: 8px; }
+body.phone .ovtools .hint { display: inline; font-size: 11px; }
+
+/* トラックのチップ */
+body.phone .trackchips { display: flex; gap: 6px; overflow-x: auto; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--border); scrollbar-width: none; }
+.chip { flex: none; border: 2px solid var(--tc, var(--border)); background: var(--panel); border-radius: 999px; padding: 6px 12px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.chip.on { background: var(--tc); color: #fff; font-weight: bold; }
+.chip.add { border-style: dashed; border-color: var(--border); }
+
+/* 道具のバー */
+body.phone .toolbar { flex-wrap: nowrap; }
+body.phone .tools { flex-wrap: nowrap; overflow-x: auto; padding: 5px 6px; gap: 6px; scrollbar-width: none; }
+body.phone .tools .hint, body.phone .lockmsg { display: none; }
+body.phone .gridsel { min-height: 40px; font-size: 14px; }
+body.phone .tools label.grp { white-space: nowrap; }
+body.phone .tools.static { padding-left: 0; }
+body.phone #btnStepRec { font-size: 0; }
+body.phone #btnStepRec::before { content: '🎹'; font-size: 16px; }
+
+/* 下のタブ */
+body.phone .phonenav { display: flex; background: var(--panel); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); }
+.phonenav button { flex: 1; border: none; background: none; padding: 6px 0 7px; font-size: 11px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; }
+.phonenav button span { font-size: 20px; line-height: 1.1; }
+.phonenav button.on { color: var(--accent2); font-weight: bold; }
+
+/* その他のシート */
+body.phone .phonemore { display: flex; flex-direction: column; position: fixed; left: 0; right: 0; bottom: 0; max-height: 82dvh; z-index: 60; background: var(--panel);
+  border-radius: 18px 18px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,.25); transform: translateY(105%); transition: transform .25s; padding-bottom: env(safe-area-inset-bottom); }
+body.phone .phonemore.open { transform: none; }
+.sheethead { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 6px; }
+.sheetbody { overflow-y: auto; padding: 4px 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.sheetbody > .tbtn, .sheetbody > details > summary { width: 100%; text-align: left; }
+.sheetbody .tempo { display: flex; gap: 8px; }
+.sheetbody .tempo input[type="range"] { flex: 1; }
+.sheetbody details.pop { width: 100%; }
+.sheetbody .popbody, .sheetbody .dd { position: static; box-shadow: none; min-width: 0; margin-top: 6px; }
+.sheetbody #btnMetro { width: 100%; }
+.sheetbody #btnMetro::after { content: ' メトロノーム'; font-size: 14px; }
+
+/* ポップアップは下から出るシートに */
+body.phone .toolbar .popbody, body.phone .tracks .popbody, body.phone .palette .popbody {
+  position: fixed; left: 0; right: 0; top: auto; bottom: 0; max-width: none; max-height: 70dvh; overflow-y: auto;
+  border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 40px rgba(0,0,0,.25); z-index: 61;
+}
+body.phone .popbody label { font-size: 14px; }
+
+/* 画面の鍵盤 */
+.phonekbd { background: var(--panel); border-top: 1px solid var(--border); padding: 4px 6px 6px; }
+.pkbar { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.pkbar .grow { flex: 1; }
+.pkeys { position: relative; display: flex; height: 120px; user-select: none; touch-action: none; }
+.pk.white { flex: 1; background: #fff; color: #222; border: 1px solid #999; border-radius: 0 0 8px 8px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font-size: 12px; }
+.pk.black { position: absolute; top: 0; width: 7.5%; height: 62%; background: #2b2b33; border: none; border-radius: 0 0 6px 6px; z-index: 2; }
+.pk:active, .pk.white:active { background: #ffd43b; }
+.pkpads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; touch-action: none; }
+.pkpad { height: 52px; border-radius: 12px; border: 2px solid var(--border); background: var(--bg); font-size: 12px; font-weight: bold; }
+.pkpad:active { background: var(--accent); color: #fff; }
+
+/* ダイアログは画面いっぱい */
+body.phone dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; padding: 14px; }
+body.phone dialog.wide, body.phone dialog.score { width: 100vw; }
+body.phone .scoreside { max-height: none; }
+body.phone .scorelayout .scoreview { max-height: none; }
+body.phone .mini-note { left: auto; right: 8px; top: calc(100% + 6px); }
+body.phone .toast { bottom: 80px; }
+body.phone .mini-note { position: fixed; left: auto; right: 8px; top: 64px; transform: scale(.85); transform-origin: top right; }
+body.phone .scorelayout .scoreview { order: -1; max-height: 55dvh; }
+body.phone dialog .dlgfoot { flex-wrap: wrap; justify-content: stretch; }
+body.phone dialog .dlgfoot .tbtn { flex: 1 1 30%; }
+body.phone dialog#dlgScore { display: flex; flex-direction: column; }
+body.phone dialog#dlgScore:not([open]) { display: none; }
+body.phone dialog#dlgScore .scorelayout { flex: 1; min-height: 0; overflow-y: auto; }
+body.phone .scorelayout .scoreview { flex: none; height: 46dvh; }
+body.phone .scoreside { flex: none; }

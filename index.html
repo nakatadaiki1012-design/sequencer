@@ -83,6 +83,7 @@
       <div id="trackList"></div>
     </aside>
     <section class="editor">
+      <div id="trackChips" class="trackchips"></div>
       <div class="canvas-area">
         <div class="ovtools">
           <b>キャンバス</b>
@@ -125,6 +126,7 @@
       </div>
       <div id="scorePanel" class="scorepanel" hidden></div>
       <div id="chordPalette" class="palette" hidden></div>
+      <div id="phoneKbd" class="phonekbd" hidden></div>
     </section>
   </main>
 
@@ -197,6 +199,13 @@
       <li>左の鍵盤をおすと音が鳴り、上のミニディスプレイに<b>五線の音符と音名</b>が出ます。</li>
       <li>タブレットで画面をスクロールしたいときは「✋ 指でスクロール」に切りかえます。</li>
     </ul>
+    <h4>📱 スマホで使うとき</h4>
+    <ul>
+      <li>下のタブで「打ち込み・トラック・全体・楽譜・その他」を切りかえます。テンポ・メトロノーム・ルール・メニューは「⚙ その他」にあります。</li>
+      <li>上のトラックの名前（チップ）をおすとパートが切りかわります。もう一度おすとトラックの設定が開きます。</li>
+      <li><b>指1本</b>で音を置く・のばす、<b>指2本</b>で画面をスクロールします。</li>
+      <li>🎹 をおすと画面に鍵盤が出て、1音ずつ入力できます（⌫＝消す、→＝休み）。</li>
+    </ul>
     <h4>鍵盤で入力</h4>
     <ul>
       <li>「⌨ 鍵盤で入力」をおすと、パソコンのキーボードの <kbd>A</kbd><kbd>W</kbd><kbd>S</kbd>…<kbd>K</kbd> がピアノの鍵盤になり、緑の線の所に1音ずつ入ります。</li>
@@ -226,6 +235,20 @@
     <p class="muted">楽器の録音：FluidR3 GM サウンドフォント（Frank Wen 作／CC BY 3.0）</p>
     <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
   </dialog>
+
+  <!-- スマホ用：下のタブ -->
+  <nav id="phoneNav" class="phonenav">
+    <button data-view="edit" class="on"><span>🎵</span>打ち込み</button>
+    <button data-view="tracks"><span>🎚</span>トラック</button>
+    <button data-view="canvas"><span>🗺</span>全体</button>
+    <button data-view="score"><span>🎼</span>楽譜</button>
+    <button data-view="more"><span>⚙</span>その他</button>
+  </nav>
+  <!-- スマホ用：その他のシート（パソコンの上のバーにある部品をここへ移します） -->
+  <div id="phoneMore" class="phonemore">
+    <div class="sheethead"><b>⚙ その他</b><button class="mini" id="phoneMoreClose">閉じる</button></div>
+    <div id="phoneMoreBody" class="sheetbody"></div>
+  </div>
 
   <div id="toast" class="toast"></div>
 
