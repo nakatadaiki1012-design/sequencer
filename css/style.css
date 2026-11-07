@@ -775,3 +775,49 @@ body.phone .instopt .pic { width: 44px; height: 44px; }
 .tour-text { margin: 6px 0 12px; line-height: 1.6; font-size: 14px; }
 .tour-btns { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .tour-btns .tour-skip { margin-right: auto; }
+
+/* ===== 画面サイズごとの整理（むだ・見にくさをへらす） ===== */
+/* 上のバーを1行におさめる */
+.topbar { flex-wrap: nowrap; }
+.mini-display { flex: 0 1 230px; min-width: 150px; }
+.mini-display .title { width: 100%; box-sizing: border-box; }
+.mini-info { white-space: nowrap; overflow: hidden; }
+@media (max-width: 1400px) {
+  #btnPal > span, #btnShare > span { display: none; }
+  .topbar .tempo input[type="range"] { width: 80px; }
+}
+@media (max-width: 1150px) {
+  .topbar { gap: 8px; padding: 6px 10px; }
+  .topbar .tbtn > span, .topbar summary.tbtn > span { display: none; }
+  .topbar .tempo input[type="range"], .topbar .tempo-ic { display: none; }
+  .mini-display { flex-basis: 190px; }
+  #miniMeter { display: none; }
+}
+body.phone .topbar .tbtn > span { display: revert; }
+/* 楽譜を編集しているときは、マス目用の道具（音の長さ・音域・半音）をかくす（楽譜の道具とだぶるため） */
+body.view-score #editorTools .otama, body.view-score #editorTools .gridsel, body.view-score #editorTools [data-pop="range"], body.view-score #editorTools #btnChrom { display: none; }
+/* 楽譜の道具を小さくまとめる */
+.scorepal { padding: 3px 8px; gap: 3px; }
+#scJump { max-width: 9.5em; }
+@media (max-width: 1700px) { .scorepal .prow.small .hint + .hint { display: none; } }
+.scorepal[hidden] { display: none !important; }
+/* トラック：名前と楽器名が切れにくいように */
+.track .vol { width: 64px; flex: none; }
+.track .instbtn { flex: 1; min-width: 0; }
+.tracks .tname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+@media (pointer: coarse) and (min-width: 701px) { .tracks { width: 276px; } .track .ticon { display: none; } }
+/* スマホ：上のミニ表示は曲名と位置だけ、キャンバスのパソコン用の説明はかくす */
+body.phone #miniKey, body.phone #miniMeter { display: none; }
+body.phone .ovtools .hint { display: none; }
+
+/* 道具の行は1行に（入りきらないときは横にスクロール） */
+.toolbar { flex-wrap: nowrap; }
+.toolbar .tools.static { flex: none; flex-wrap: nowrap; }
+.toolbar #editorTools { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+@media (max-width: 1150px) { #editorTools .otama .mini { padding-left: 5px; padding-right: 5px; } }
+/* スマホの「ファ」が2行にならないように */
+.pp-note { white-space: nowrap; letter-spacing: -.02em; }
+body.phone .mini-display { max-width: 460px; }
+@media (pointer: coarse) { .scorepal .mini { min-width: 36px; } }
+#editorTools .grp { flex-wrap: nowrap; flex-shrink: 0; }
+#editorTools { white-space: nowrap; }

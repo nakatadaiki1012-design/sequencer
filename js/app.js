@@ -2535,6 +2535,7 @@ function scEditable() {
 }
 function setView(v) {
   ui.view = v;
+  document.body.classList.toggle('view-score', v === 'score');
   $$('#viewSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
   $('#editorWrap').hidden = v === 'score';
   $('#scoreEdit').hidden = v !== 'score';
@@ -3241,7 +3242,7 @@ function openStart(first) {
 /* ============================================================
    スマホ用の画面
    ============================================================ */
-const phoneMQ = window.matchMedia('(max-width: 700px)');
+const phoneMQ = window.matchMedia('(max-width: 700px), (max-width: 900px) and (orientation: portrait)');
 let isPhone = false;
 const movedEls = [];
 // 指2本でスクロール（1本目で置きかけた音は取り消す）
