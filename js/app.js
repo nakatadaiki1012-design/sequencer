@@ -3297,7 +3297,8 @@ async function shareDialog() {
   $('#shareUrl').select();
 }
 
-async function exportWav() {
+// 曲を音にする（WAV・MP3 で共通）
+async function renderSong() {
   stop();
   toast('音声ファイルを作っています…');
   const c0 = audioCtx();
@@ -3309,10 +3310,22 @@ async function exportWav() {
   comp.connect(ctx.destination);
   const graph = buildGraph(ctx, comp, false);
   for (const e of eventList()) scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t), false);
-  const buf = await ctx.startRendering();
+  return ctx.startRendering();
+}
+async function exportWav() {
+  const buf = await renderSong();
   download(encodeWav(buf), safeName() + '.wav');
   toast('音声ファイル（WAV）を書き出しました');
   return buf;
+}
+// MP3（WAVの約10分の1の大きさ。音楽アプリやスマホでそのまま聴けます）
+async function exportMp3() {
+  MP3.ensure();
+  const buf = await renderSong();
+  const blob = await MP3.encode(buf, { kbps: 192, onProgress: (p) => toast(`MP3に変換中… ${Math.round(p * 100)}%`) });
+  download(blob, safeName() + '.mp3');
+  toast('音声ファイル（MP3）を書き出しました');
+  return blob;
 }
 function encodeWav(buf) {
   const ch = buf.numberOfChannels;
@@ -3559,6 +3572,7 @@ function init() {
   $('#btnImportJson').onclick = () => $('#fileIn').click();
   $('#fileIn').onchange = (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
   $('#btnWav').onclick = () => exportWav().catch((err) => alert('書き出しに失敗しました：' + err.message));
+  $('#btnMp3').onclick = () => exportMp3().catch((err) => alert('書き出しに失敗しました：' + err.message));
   $('#btnMidi').onclick = exportMidi;
   $('#btnScore').onclick = openScore;
   $('#btnScoreMenu').onclick = openScore;
