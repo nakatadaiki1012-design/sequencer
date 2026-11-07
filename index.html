@@ -53,7 +53,7 @@
           <button id="btnSave">💾 このブラウザに保存</button>
           <button id="btnOpen">📂 ブラウザに保存した曲を開く</button>
           <button id="btnExportJson">⬇ 曲ファイルを書き出す（配布・提出用）</button>
-          <button id="btnImportJson">⬆ 曲ファイル／MIDIファイルを開く</button>
+          <button id="btnImportJson">⬆ 曲ファイル／MIDI／MusicXMLを開く</button>
           <hr>
           <button id="btnWav">🔊 音声ファイル（WAV）を書き出す</button>
           <button id="btnScoreMenu">🎼 楽譜を見る・印刷する（PDF）</button>
@@ -64,7 +64,7 @@
           <button id="btnHelp">❓ 使い方</button>
         </div>
       </details>
-      <input id="fileIn" type="file" accept=".json,.mid,.midi,application/json,audio/midi" hidden>
+      <input id="fileIn" type="file" accept=".json,.mid,.midi,.musicxml,.xml,.mxl,application/json,audio/midi" hidden>
     </div>
   </header>
 
@@ -103,6 +103,7 @@
       <div class="toolbar">
         <div id="editorTools" class="tools"></div>
         <div class="tools static">
+          <span class="seg" id="viewSeg" title="マス目（ピアノロール）と楽譜を切りかえます"><button class="mini on" data-v="grid">▦ マス目</button><button class="mini" data-v="score" title="五線譜の上で直接書く（Flat のように）">🎼 楽譜</button></span>
           <button id="btnStepRec" class="mini" title="パソコンのキーボード（A〜K）やMIDI鍵盤で、1音ずつ打ちこめます">⌨ 鍵盤入力</button>
           <details class="pop right" data-pop="view">
             <summary class="mini" title="音名・大きさ・楽譜の表示">👁 表示</summary>
@@ -123,6 +124,10 @@
       <div id="editorWrap" class="editorwrap">
         <canvas id="cv"></canvas>
         <div id="scroller" class="scroller"><div id="spacer"></div></div>
+      </div>
+      <div id="scoreEdit" class="scoreedit" hidden>
+        <div id="scorePal" class="scorepal"></div>
+        <div id="scoreEditView" class="scoreeditview"></div>
       </div>
       <div id="scorePanel" class="scorepanel" hidden></div>
       <div id="chordPalette" class="palette" hidden></div>
@@ -199,6 +204,15 @@
       <li>左の鍵盤をおすと音が鳴り、上のミニディスプレイに<b>五線の音符と音名</b>が出ます。</li>
       <li>タブレットで画面をスクロールしたいときは「✋ 指でスクロール」に切りかえます。</li>
     </ul>
+    <h4>🎼 楽譜で編集（五線譜に直接書く）</h4>
+    <ul>
+      <li>道具の行の「🎼 楽譜」をおすと、五線譜の上で書けます（「▦ マス目」でもどります。どちらで書いても同じ曲です）。</li>
+      <li><b>✏️ 入力</b>モードで五線をクリックすると、その高さに音符が入ります。<b>☝ 選択</b>モードでは音符をえらびます（Shift＋クリックではんい）。</li>
+      <li>キー：<kbd>A</kbd>〜<kbd>G</kbd>＝音名（ドレミ…）、<kbd>1</kbd>〜<kbd>6</kbd>＝長さ（32分〜全音符）、<kbd>.</kbd>＝付点、<kbd>T</kbd>＝3連符、<kbd>0</kbd>＝休符、<kbd>↑</kbd><kbd>↓</kbd>＝高さ（Shiftで半音、Ctrlでオクターブ）、<kbd>←</kbd><kbd>→</kbd>＝となりの音、Shift＋音名＝和音、<kbd>+</kbd>＝タイ、<kbd>S</kbd>＝スラー、<kbd>L</kbd>＝歌詞、<kbd>Delete</kbd>＝消す、<kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>A</kbd>。</li>
+      <li>スタッカート・アクセントなどの記号、強弱記号（pp〜ff）、クレッシェンド、スラーは<b>再生の音にも反映</b>されます。</li>
+      <li>くり返し記号（𝄆 𝄇）と1番・2番かっこは、そのとおりにくり返して再生します。</li>
+      <li>「🎼 楽譜」ボタン（上のバー）の画面で、弱起・速さのことば・大譜表・移調楽器・コード伴奏の楽譜なども設定できます。MusicXMLで書き出すと、Flat や MuseScore でも開けます。</li>
+    </ul>
     <h4>📱 スマホで使うとき</h4>
     <ul>
       <li>下のタブで「打ち込み・トラック・全体・楽譜・その他」を切りかえます。テンポ・メトロノーム・ルール・メニューは「⚙ その他」にあります。</li>
@@ -254,6 +268,7 @@
 
   <script src="js/sound.js"></script>
   <script src="js/notation.js"></script>
+  <script src="js/musicxml.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

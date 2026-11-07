@@ -462,3 +462,23 @@ body.phone dialog#dlgScore:not([open]) { display: none; }
 body.phone dialog#dlgScore .scorelayout { flex: 1; min-height: 0; overflow-y: auto; }
 body.phone .scorelayout .scoreview { flex: none; height: 46dvh; }
 body.phone .scoreside { flex: none; }
+
+/* ---------- 楽譜で編集 ---------- */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.seg .mini { border: none; border-radius: 0; }
+.scoreedit { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scoreedit[hidden] { display: none; }
+.scorepal { background: var(--panel); border-bottom: 1px solid var(--border); padding: 4px 8px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.scorepal .prow { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.scorepal .prow.small { font-size: 11px; }
+.scorepal .grp { gap: 2px; }
+.scorepal .ic { font-family: "Noto Music", "Segoe UI Symbol", "Apple Symbols", serif; font-size: 16px; }
+.scoreeditview { flex: 1; min-height: 0; overflow: auto; background: #e9ecf2; padding: 8px; cursor: crosshair; }
+.scoreeditview svg { display: block; margin: 0 auto; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.12); border-radius: 4px; }
+.scoreeditview .nh { cursor: pointer; }
+.scoreeditview .nh:hover { fill: #1971c2; stroke: #1971c2; }
+.scoreeditview .nh.playing, .scoreview .nh.playing { fill: #ff4d4f !important; stroke: #ff4d4f !important; }
+@media (prefers-color-scheme: dark) { .scoreeditview { background: #12141b; } }
+body.phone .scorepal .prow { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+body.phone .scorepal .prow.small { display: none; }
+body.phone #viewSeg .mini { font-size: 12px; padding: 2px 6px; }
