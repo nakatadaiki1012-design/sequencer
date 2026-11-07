@@ -679,3 +679,22 @@ body.phone .gridsel { margin: 0 2px; }
   .mini.icon, .track .mute, .track .solo, .track .tmenu summary { min-width: 40px; }
   .otama .mini, .seg .mini, .scorepal .grp .mini { min-height: 36px; }
 }
+
+/* 調・音域のポップアップ */
+.keypop { min-width: 420px; }
+.keygrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.keybtn { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); color: var(--text); cursor: pointer; text-align: left; }
+.keybtn:hover { border-color: var(--border-strong); background: var(--hover); }
+.keybtn b { font-size: 13px; }
+.keybtn small { font-size: 11px; color: var(--muted); }
+.keybtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.keybtn.on small { color: var(--accent-text); }
+.modeseg { align-self: flex-start; }
+.scalelist, .rangelist { display: flex; flex-wrap: wrap; gap: 4px; }
+.scalelist .mini, .rangelist .mini { border: 1px solid var(--border); }
+body.phone .keypop { min-width: 0; }
+body.phone .keygrid { grid-template-columns: repeat(3, 1fr); }
+/* 幅がせまいときは、右のボタンをアイコンだけに */
+@media (max-width: 1300px) {
+  .tools.static .mini > span, .tools.static summary > span, #editorTools > .mini > span, #editorTools > details > summary > span { display: none; }
+}

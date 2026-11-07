@@ -44,9 +44,15 @@ const CHORD_PATTERNS = {
   waltz: 'ズン・チャッ・チャッ（ワルツ風）', march: 'ズン・チャッ（マーチ風）', alberti: 'ドソミソ（アルベルティ）',
 };
 const RANGES = {
-  soprano: ['ソプラノ（ド4〜ド6）', 60, 84], alto: ['アルト（ソ3〜ソ5）', 55, 79], tenor: ['テノール（ド3〜ド5）', 48, 72],
-  bass: ['ベース（ド2〜ド4）', 36, 60], wide: ['広い（ド2〜ド7）', 36, 96], all: ['ピアノ全部（88鍵）', 21, 108],
+  high: ['高い音（ド5〜ド8）', 72, 108], soprano: ['ソプラノ（ソ3〜ミ6）', 55, 88], alto: ['アルト（ド3〜ラ5）', 48, 81],
+  tenor: ['テノール（ファ2〜ド5）', 41, 72], bass: ['ベース（ミ1〜ド4）', 28, 60], wide: ['広い（ド2〜ド7）', 36, 96], all: ['ピアノ全部（88鍵）', 21, 108],
 };
+const SOLFA_OCT = (m) => NAMES.doremi[0][m % 12] + (Math.floor(m / 12) - 1);
+// トラックの音域（プリセット＋広げた分）
+function trackRange(tr) {
+  const [, lo, hi] = RANGES[tr.range] || RANGES.soprano;
+  return [tr.lo != null ? tr.lo : lo, tr.hi != null ? tr.hi : hi];
+}
 const GRIDS = [[192, '全音符', '𝅝'], [96, '2分音符', '𝅗𝅥'], [48, '4分音符', '♩'], [24, '8分音符', '♪'], [12, '16分音符', '𝅘𝅥𝅯'], [6, '32分音符', '𝅘𝅥𝅰'], [16, '8分3連符', '♪³'], [8, '16分3連符', '𝅘𝅥𝅯³']];
 const TRACK_COLORS = ['#e5484d', '#3e63dd', '#30a46c', '#f5a524', '#8e4ec6', '#f76b15', '#12a594', '#d6409f'];
 const MAX_TRACKS = 8;
@@ -124,7 +130,7 @@ let cur = 0;
 const ui = {
   zoom: 56, rh: 22, names: 'doremi', flat: false, grid: 24, startTick: 0, loopOn: false, metro: false,
   loopRange: null, sel: { t: 0, b0: 0, b1: 0 }, selBar: 0, follow: true, ghost: true, touchEdit: true, dragMode: 'auto',
-  stepRec: false, inputTick: 0, kbOct: 4, showScore: false, view: 'grid',
+  stepRec: false, inputTick: 0, kbOct: 4, showScore: false, view: 'grid', chromatic: false, keyMove: true,
   sc: { cursor: 0, sel: new Set(), dur: 48, dot: false, trip: false, input: true, clip: null, lastIns: null, zoom: 1 },
 };
 let version = 0;
@@ -661,12 +667,13 @@ function kitRows(tr) {
 function rowsFor(tr) {
   if (tr.type === 'drum') return kitRows(tr).map((id) => ({ id, label: Sound.DRUMS[id].name }));
   if (tr.type === 'chord') return [{ id: 'chord', label: 'コード' }];
-  const [, lo, hi] = RANGES[tr.range] || RANGES.soprano;
-  const pcs = scalePcs();
+  const [lo, hi] = trackRange(tr);
+  const pcs = ui.chromatic ? new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) : scalePcs();
+  const inSc = scalePcs();
   const used = new Set(tr.notes.map((n) => n.p));
   const rows = [];
-  for (let m = hi; m >= lo; m--) if (pcs.has(m % 12) || used.has(m)) rows.push({ id: m, p: m, inScale: pcs.has(m % 12) });
-  for (const p of used) if ((p > hi || p < lo) && !rows.some((r) => r.p === p)) rows.push({ id: p, p, inScale: pcs.has(p % 12) });
+  for (let m = hi; m >= lo; m--) if (pcs.has(m % 12) || used.has(m)) rows.push({ id: m, p: m, inScale: inSc.has(m % 12) });
+  for (const p of used) if ((p > hi || p < lo) && !rows.some((r) => r.p === p)) rows.push({ id: p, p, inScale: inSc.has(p % 12) });
   rows.sort((a, b) => b.p - a.p);
   return rows;
 }
@@ -1482,7 +1489,7 @@ function scaleDegreesInRange(lo, hi) {
 }
 // おまかせ作曲：音階とコードに合わせてメロディを自動で作ります
 function autoCompose(tr) {
-  const [, lo] = RANGES[tr.range] || RANGES.soprano;
+  const lo = Math.max(trackRange(tr)[0], (RANGES[tr.range] || RANGES.soprano)[1]);
   const tones = scaleDegreesInRange(lo + 2, lo + 16);
   const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
   const bt = barTicks();
@@ -1679,7 +1686,7 @@ function updateMini(pos) {
   const beat = Math.floor((t - bar * bt) / beatTicks());
   $('#miniTitle').textContent = song.title;
   $('#miniPos').textContent = `${bar + 1}小節 ${beat + 1}拍`;
-  $('#miniKey').textContent = `${KEY_LABELS[song.key].split('（')[0]} ${isMinor() ? 'minor' : 'major'}`;
+  $('#miniKey').textContent = keyLabel(song.key, isMinor());
   $('#miniMeter').textContent = song.meter.join('/');
   $('#miniBpm').textContent = '♩=' + bpmAt(bar);
 }
@@ -1714,6 +1721,7 @@ function renderSettings() {
   $('#bpm').disabled = $('#bpmNum').disabled = $('#btnTap').disabled = !!song.locks.rules;
   $('#addRow').hidden = !!song.locks.tracks;
   $('#popRules').classList.toggle('locked', !!song.locks.rules);
+  renderKeyPop();
   $('#btnIns').disabled = $('#btnDelBars').disabled = $('#btnAddFour').disabled = !!song.locks.rules;
   updateMini();
 }
@@ -1809,9 +1817,17 @@ function renderEditorTools() {
   let others = [];
   if (tr.type === 'melody') {
     others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}${isPhone ? '' : '<span>おまかせ作曲</span>'}</button>`;
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}${isPhone ? '' : '<span>おまかせ</span>'}</button>`;
+    const [rlo, rhi] = trackRange(tr);
+    html += `<details class="pop" data-pop="range"><summary class="mini" title="表示する音の高さのはんい">${I('piano')}<span>${SOLFA_OCT(rlo)}〜${SOLFA_OCT(rhi)}</span></summary><div class="popbody">
+      <div class="sub">はんいをえらぶ</div>
+      <div class="rangelist">${Object.entries(RANGES).map(([k, v]) => `<button class="mini ${k === tr.range && tr.lo == null && tr.hi == null ? 'on' : ''}" data-range="${k}">${v[0]}</button>`).join('')}</div>
+      <div class="sub">広げる・せまくする（1オクターブずつ）</div>
+      <div class="btnrow"><button class="mini" data-ext="hi+1">${I('plus')}上に広げる</button><button class="mini" data-ext="lo-1">${I('plus')}下に広げる</button></div>
+      <div class="btnrow"><button class="mini" data-ext="hi-1">${I('minus')}上をせまく</button><button class="mini" data-ext="lo+1">${I('minus')}下をせまく</button></div>
+    </div></details>
+    <button class="mini ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('keys')}<span>半音</span></button>`;
     tools = `
-      <label>音域 <select id="range">${Object.entries(RANGES).map(([k, v]) => `<option value="${k}" ${k === tr.range ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
       <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
       <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
       <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
@@ -1853,7 +1869,18 @@ function renderEditorTools() {
   };
   $('#btnClear').onclick = () => { if (confirm(`「${tr.name}」の中身をぜんぶ消しますか？`)) edit(() => clearTrack(tr), 'トラックを全部消す'); };
   if (tr.type === 'melody') {
-    $('#range').onchange = (ev) => { edit(() => { tr.range = ev.target.value; }, '音域'); scrollToNotes(); };
+    box.querySelectorAll('[data-range]').forEach((b) => (b.onclick = () => { edit(() => { tr.range = b.dataset.range; delete tr.lo; delete tr.hi; }, '音域'); scrollToNotes(); }));
+    box.querySelectorAll('[data-ext]').forEach((b) => (b.onclick = () => {
+      const [lo, hi] = trackRange(tr);
+      const [side, d] = [b.dataset.ext.slice(0, 2), +b.dataset.ext.slice(2) * 12];
+      edit(() => {
+        if (side === 'hi') tr.hi = clamp(hi + d, Math.max(lo + 12, 33), 108);
+        else tr.lo = clamp(lo + d, 21, Math.min(hi - 12, 96));
+      }, '音域を広げる');
+      resizeEditor();
+      draw();
+    }));
+    $('#btnChrom').onclick = () => { ui.chromatic = !ui.chromatic; renderEditorTools(); resizeEditor(); draw(); toast(ui.chromatic ? '半音の行もぜんぶ表示します（音階にない音はうすい色）' : '音階の音だけ表示します'); };
     const guard = (fn, label) => () => { if (lk) return toast('ロックされています'); edit(fn, label); };
     $('#tDegDn').onclick = guard(() => transposeDegree(tr, -1), '音階で下げる');
     $('#tDegUp').onclick = guard(() => transposeDegree(tr, 1), '音階で上げる');
@@ -1906,7 +1933,7 @@ function scrollToNotes() {
   if (tr.notes.length) {
     const avg = tr.notes.reduce((a, n) => a + n.p, 0) / tr.notes.length;
     target = rows.findIndex((r) => r.p <= avg);
-  } else target = rows.findIndex((r) => r.p <= (RANGES[tr.range] || RANGES.soprano)[1] + 12);
+  } else target = rows.findIndex((r) => r.p <= trackRange(tr)[0] + 12);
   sc.scrollTop = Math.max(0, RH + target * ui.rh - sc.clientHeight / 2);
 }
 
@@ -2790,6 +2817,92 @@ function initScoreEditor() {
   new ResizeObserver(() => renderScoreEdit()).observe($('#scoreEditView'));
 }
 
+
+/* ============================================================
+   調をかえる（12の調から1回でえらぶ・曲ぜんたいを半音ずつ移調）
+   ============================================================ */
+const KEY_JA_MAJ = ['ハ', '変ニ', 'ニ', '変ホ', 'ホ', 'ヘ', '嬰ヘ', 'ト', '変イ', 'イ', '変ロ', 'ロ'];
+const KEY_JA_MIN = ['ハ', '嬰ハ', 'ニ', '変ホ', 'ホ', 'ヘ', '嬰ヘ', 'ト', '嬰ト', 'イ', '変ロ', 'ロ'];
+const KEY_EN = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+const KEY_EN_MIN = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'B♭', 'B'];
+const keyLabel = (k, minor) => (minor ? KEY_JA_MIN[k] + '短調' : KEY_JA_MAJ[k] + '長調');
+const keyEn = (k, minor) => (minor ? KEY_EN_MIN[k] + 'm' : KEY_EN[k]);
+function keySigText(k, minor) {
+  const c = Notation.keyCount(k, minor);
+  return c === 0 ? '調号なし' : c > 0 ? '♯' + c : '♭' + -c;
+}
+// 調をかえる。move＝入っている音も移す。d＝移す半音の数（決まっていなければ近いほう）
+function changeKey(nk, minor, move, d) {
+  if (song.locks.rules) return toast('ロックされています');
+  const old = song.key;
+  let semis = d;
+  if (semis == null) { const m = (((nk - old) % 12) + 12) % 12; semis = m > 6 ? m - 12 : m; }
+  edit(() => {
+    song.key = ((nk % 12) + 12) % 12;
+    if (minor && !isMinor()) song.scale = 'minor';
+    if (!minor && (song.scale === 'minor' || song.scale === 'hminor')) song.scale = 'major';
+    if (move && semis) {
+      for (const t of song.tracks) {
+        if (t.locked) continue;
+        if (t.type === 'melody') for (const n of t.notes) n.p = clamp(n.p + semis, 21, 108);
+        if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: (((c.r + semis) % 12) + 12) % 12 } : c));
+      }
+    }
+  }, move && semis ? `${keyLabel(song.key, minor)}に移調` : '調');
+  renderSettings();
+  renderKeyPop();
+  toast(`${keyLabel(song.key, isMinor())}（${keyEn(song.key, isMinor())}）${move && semis ? 'に移調しました' : 'にしました'}`);
+}
+function renderKeyPop() {
+  const minor = isMinor();
+  const sum = $('#keySum');
+  if (sum) sum.innerHTML = `${I('key')}<span>${keyLabel(song.key, minor)}</span>`;
+  const box = $('#keyBody');
+  if (!box) return;
+  // 五度圏の順（♯がふえる順・♭がふえる順）
+  const sharps = [0, 7, 2, 9, 4, 11, 6];
+  const flats = [5, 10, 3, 8, 1];
+  const tonic = (maj) => (minor ? (maj + 9) % 12 : maj);
+  const btn = (maj) => {
+    const k = tonic(maj);
+    return `<button class="keybtn ${k === song.key ? 'on' : ''}" data-k="${k}"><b>${keyLabel(k, minor)}</b><small>${keyEn(k, minor)}・${keySigText(k, minor)}</small></button>`;
+  };
+  box.innerHTML = `
+    <div class="seg modeseg"><button class="mini ${minor ? '' : 'on'}" data-mode="maj">長調</button><button class="mini ${minor ? 'on' : ''}" data-mode="min">短調</button></div>
+    <div class="sub">♯の調</div><div class="keygrid">${sharps.map(btn).join('')}</div>
+    <div class="sub">♭の調</div><div class="keygrid">${flats.map(btn).join('')}</div>
+    <label class="chk"><input type="checkbox" id="keyMove" ${ui.keyMove ? 'checked' : ''}> 入っている音やコードも、いっしょに移す（移調）</label>
+    <div class="sub">曲ぜんたいを半音ずつ移調</div>
+    <div class="btnrow"><button class="mini" data-semi="-1">${I('minus')}半音下げる</button><button class="mini" data-semi="1">${I('plus')}半音上げる</button><button class="mini" data-semi="-12">オクターブ下げる</button><button class="mini" data-semi="12">オクターブ上げる</button></div>
+    <div class="sub">音階</div>
+    <div class="scalelist">${Object.entries(SCALES).map(([k, v]) => `<button class="mini ${song.scale === k ? 'on' : ''}" data-scale="${k}">${v.name}</button>`).join('')}</div>`;
+  box.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => changeKey(+b.dataset.k, isMinor(), ui.keyMove)));
+  box.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => {
+    const toMin = b.dataset.mode === 'min';
+    if (toMin === isMinor()) return;
+    // 同じ主音のまま、長調⇔短調（音はそのまま）
+    edit(() => { song.scale = toMin ? 'minor' : 'major'; }, toMin ? '短調にする' : '長調にする');
+    renderSettings();
+    renderKeyPop();
+  }));
+  $('#keyMove').onchange = (e) => { ui.keyMove = e.target.checked; try { localStorage.setItem('otsumiki-keymove', ui.keyMove ? '1' : '0'); } catch (er) { /* 何もしない */ } };
+  box.querySelectorAll('[data-semi]').forEach((b) => (b.onclick = () => {
+    const d = +b.dataset.semi;
+    if (Math.abs(d) === 12) {
+      if (song.locks.rules) return toast('ロックされています');
+      edit(() => { for (const t of song.tracks) if (t.type === 'melody' && !t.locked) for (const n of t.notes) n.p = clamp(n.p + d, 21, 108); }, d > 0 ? 'オクターブ上げる' : 'オクターブ下げる');
+      return;
+    }
+    changeKey(song.key + d, isMinor(), true, d);
+  }));
+  box.querySelectorAll('[data-scale]').forEach((b) => (b.onclick = () => {
+    if (song.locks.rules) return toast('ロックされています');
+    edit(() => { song.scale = b.dataset.scale; }, '音階');
+    renderSettings();
+    renderKeyPop();
+  }));
+}
+
 /* ============================================================
    スマホ用の画面
    ============================================================ */
@@ -2842,7 +2955,7 @@ function applyPhone() {
   document.body.classList.toggle('phone', on);
   if (on) {
     // パソコンでは上のバーにある部品を「その他」シートへ移す
-    for (const sel of ['.topbar .tempo', '#btnMetro', '#popRules', '#btnPal', '#btnShare', '.menu details.dropdown']) {
+    for (const sel of ['.topbar .tempo', '#btnMetro', '#popKey', '#popRules', '#btnPal', '#btnShare', '.menu details.dropdown']) {
       const el = $(sel);
       if (!el) continue;
       const mark = document.createComment('phone');
@@ -3267,24 +3380,8 @@ function init() {
     ui.loopRange = null;
     ui.startTick = 0;
   }, '小節の数'));
-  $('#key').onchange = guardRules((e) => {
-    const nk = +e.target.value;
-    const diff = nk - song.key;
-    const hasNotes = song.tracks.some((t) => (t.notes && t.notes.length) || (t.chords && t.chords.some(Boolean)));
-    const move = hasNotes && confirm('いま入っている音やコードも、新しい調に移しますか？\n（OK＝移す／キャンセル＝調だけ変える）');
-    edit(() => {
-      song.key = nk;
-      if (move) {
-        const m = ((diff % 12) + 12) % 12;
-        const d = m > 6 ? m - 12 : m;
-        for (const t of song.tracks) {
-          if (t.type === 'melody' && !t.locked) for (const n of t.notes) n.p = clamp(n.p + d, 21, 108);
-          if (t.type === 'chord' && !t.locked) t.chords = t.chords.map((c) => (c ? { ...c, r: (c.r + m) % 12 } : c));
-        }
-      }
-    }, '調');
-  });
-  $('#scale').onchange = guardRules((e) => edit(() => { song.scale = e.target.value; }, '音階'));
+  $('#key').onchange = guardRules((e) => changeKey(+e.target.value, isMinor(), ui.keyMove));
+  $('#scale').onchange = guardRules((e) => { edit(() => { song.scale = e.target.value; }, '音階'); renderKeyPop(); });
   $('#names').onchange = (e) => { ui.names = e.target.value; draw(); };
   $('#btnFlat').onclick = () => { ui.flat = !ui.flat; renderSettings(); draw(); };
   $('#swing').oninput = guardRules((e) => { song.swing = +e.target.value; version++; });
@@ -3337,7 +3434,7 @@ function init() {
   $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };
   $('#dragMode').onchange = (e) => { ui.dragMode = e.target.value; };
   $('#touchMode').onchange = (e) => { ui.touchEdit = e.target.value === 'edit'; $('#scroller').classList.toggle('touchedit', ui.touchEdit); };
-  $('#miniInfo').onclick = () => { const d = $('#popRules'); d.open = !d.open; };
+  $('#miniInfo').onclick = () => { const d = isPhone ? $('#popRules') : $('#popKey'); d.open = !d.open; };
   // ポップアップ（ルール・メニュー・道具・表示）は外をおすと閉じる
   document.addEventListener('pointerdown', (e) => { if (e.target.closest('#miniInfo')) return; closePops(e.target.closest('details.pop')); });
   document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pop') && e.target.open) closePops(e.target); }, true);
@@ -3379,6 +3476,7 @@ function init() {
   sc.addEventListener('pointercancel', panUp);
   $$('#phoneNav button').forEach((b) => (b.onclick = () => setPhoneView(b.dataset.view)));
   initScoreEditor();
+  try { ui.keyMove = localStorage.getItem('otsumiki-keymove') !== '0'; } catch (e) { /* 何もしない */ }
   $('#phoneMoreClose').onclick = () => $('#phoneMore').classList.remove('open');
   if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', applyPhone);
   applyPhone();

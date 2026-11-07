@@ -1,0 +1,36 @@
+const { chromium, devices } = require('playwright');
+(async () => { const SP=process.argv[2]; const b = await chromium.launch(); const p = await b.newPage({ viewport:{width:1440,height:900} });
+const errs=[]; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d=>{ errs.push('DIALOG '+d.message()); d.accept(); });
+await p.goto('http://localhost:8765/'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(1000);
+const first = () => p.evaluate(() => [song.key, song.scale, song.tracks[0].notes[0].p, song.tracks[2].chords[0].r]);
+console.log('start', await first());
+await p.click('#keySum'); await p.waitForTimeout(200);
+await p.screenshot({ path: SP + '/k1.png' });
+await p.click('.keybtn[data-k="7"]'); // ト長調
+console.log('G major (move)', await first(), await p.evaluate(()=>$('#keySum').textContent));
+await p.click('[data-semi="-1"]');
+console.log('semitone down', await first());
+await p.click('[data-mode="min"]');
+console.log('minor', await first(), await p.evaluate(()=>$('#keySum').textContent));
+await p.click('#keyMove'); await p.click('.keybtn[data-k="9"]');
+console.log('A minor, no move', await first());
+await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
+console.log('undo x4', await first());
+await p.mouse.click(700, 700);
+// 半音・音域
+const rows0 = await p.evaluate(() => rowsFor(track()).length);
+await p.click('#btnChrom');
+const rows1 = await p.evaluate(() => rowsFor(track()).length);
+await p.click('details[data-pop="range"] > summary'); await p.waitForTimeout(100);
+await p.screenshot({ path: SP + '/k2.png' });
+await p.click('[data-ext="hi+1"]'); await p.click('[data-ext="lo-1"]');
+console.log('rows scale/chromatic/expanded', rows0, rows1, await p.evaluate(() => [rowsFor(track()).length, JSON.stringify(trackRange(track()))]));
+await p.click('[data-range="high"]');
+console.log('high preset', await p.evaluate(() => JSON.stringify(trackRange(track()))));
+await p.mouse.click(700, 700);
+await p.screenshot({ path: SP + '/k3.png' });
+const m = await (await b.newContext({ ...devices['iPhone 13'] })).newPage(); m.on('pageerror', e => errs.push('PHONE '+e.message));
+await m.goto('http://localhost:8765/'); await m.waitForTimeout(1000);
+await m.locator('.phonenav [data-view="more"]').tap(); await m.waitForTimeout(300); await m.locator('#keySum').tap(); await m.waitForTimeout(300);
+await m.screenshot({ path: SP + '/k4-phone.png' });
+console.log('errors', errs); await b.close(); })();

@@ -60,6 +60,7 @@
       <symbol id="i-map" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M8 4v16"/><path d="M12 11.5h5M12 16.5h3" stroke-width="2.6"/></symbol>
       <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
       <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><path d="M9.5 4v16M14.5 4v16M5 10.5l14-3M5 17.5l14-3"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
     </defs>
   </svg>
@@ -83,6 +84,10 @@
         </fieldset>
         <p class="muted">曲の途中でテンポを変えるときは、キャンバスのいちばん下の「R テンポ変化」の行をおします。</p>
       </div>
+    </details>
+    <details class="pop" id="popKey" data-pop="key">
+      <summary class="tbtn" id="keySum" title="調（ハ長調など）をえらぶ・移調する">調</summary>
+      <div class="popbody keypop" id="keyBody"></div>
     </details>
     <div class="transport">
       <button id="btnPlay" class="play" title="再生／一時停止（スペースキー）"><svg class="i"><use href="#i-play"/></svg></button>
@@ -294,6 +299,9 @@
       <li><b>テンポ変化</b>：キャンバスいちばん下の「R」の行をおすと、その小節からテンポを変えられます（だんだんおそく、など）。</li>
       <li><b>ループ</b>：小節番号の上の細い帯をなぞると、その範囲をくりかえします。</li>
       <li><b>音階</b>をえらぶと、その音階の音だけがならびます（日本の音階・沖縄の音階も）。</li>
+      <li><b>調</b>：上のバーの調のボタン（ハ長調など）をおすと、12の調から1回でえらべます。「入っている音もいっしょに移す」をオンにすると移調になります。「半音上げる・下げる」で曲ぜんたいを少しずつ動かせます。</li>
+      <li><b>半音</b>：道具の行の「半音」をおすと、音階にない音（黒鍵）の行もぜんぶ出ます。</li>
+      <li><b>音域</b>：道具の行の音域ボタン（ソ3〜ミ6 など）で、高い音・低い音のはんいをえらんだり、1オクターブずつ広げたりできます。</li>
       <li><b>おまかせ作曲</b>／<b>輪唱づくり</b>／<b>音の移動</b>（キャンバスで選んだ小節だけでも動かせます）。</li>
       <li><b>パレット</b>：ミキサー、イコライザー、メトロノームの音、押している間だけかかる<b>エフェクトパッド</b>。</li>
       <li><b>楽譜</b>：打ちこんだ音を五線譜にします。歌詞・ドレミ・作詞作曲者も入れられます。印刷・PDF・画像のほか、MusicXML（MuseScoreなどの楽譜ソフト用）でも保存できます。</li>
