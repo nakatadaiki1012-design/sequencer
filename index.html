@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>おとつみき — みんなの作曲アプリ</title>
+  <meta name="description" content="マス目に音をならべて、だれでもかんたんに作曲できる音楽アプリ">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎵</span>
+      <input id="title" class="title" maxlength="40" aria-label="曲の名前">
+    </div>
+    <div class="transport">
+      <button id="btnPlay" class="play" title="再生／一時停止（スペースキー）">▶</button>
+      <button id="btnStop" class="tbtn" title="止めて最初にもどる">■</button>
+      <button id="btnLoop" class="tbtn toggle" title="くりかえし再生">🔁 くりかえし</button>
+      <button id="btnMetro" class="tbtn toggle" title="メトロノーム">⏱ メトロノーム</button>
+      <label class="tempo">テンポ
+        <input id="bpm" type="range" min="30" max="260">
+        <input id="bpmNum" type="number" min="30" max="260">
+      </label>
+    </div>
+    <div class="menu">
+      <button id="btnUndo" class="tbtn" title="元に戻す（Ctrl+Z）">↶ 戻す</button>
+      <button id="btnRedo" class="tbtn" title="やり直す（Ctrl+Y）">↷ やり直す</button>
+      <details class="dropdown">
+        <summary class="tbtn">📁 ファイル</summary>
+        <div class="dd">
+          <button id="btnNew">🆕 新しい曲</button>
+          <button id="btnSample">🎼 サンプル曲を開く</button>
+          <hr>
+          <button id="btnSave">💾 このブラウザに保存</button>
+          <button id="btnOpen">📂 保存した曲を開く</button>
+          <hr>
+          <button id="btnExportJson">⬇ 曲ファイルを書き出す（.json）</button>
+          <button id="btnImportJson">⬆ 曲ファイルを読み込む</button>
+          <hr>
+          <button id="btnWav">🔊 音声ファイル（WAV）を書き出す</button>
+          <button id="btnMidi">🎹 MIDIファイルを書き出す</button>
+          <button id="btnPrint">🖨 いまのトラックを印刷</button>
+        </div>
+      </details>
+      <button id="btnShare" class="tbtn">🔗 共有</button>
+      <button id="btnHelp" class="tbtn">❓ 使い方</button>
+      <input id="fileIn" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <section class="settings">
+    <label>拍子 <select id="meter"></select></label>
+    <label>小節の数 <input id="bars" type="number" min="1" max="64"></label>
+    <label>マスのこまかさ <select id="res"></select></label>
+    <label>調 <select id="key"></select></label>
+    <label>音階 <select id="scale"></select></label>
+    <label>音名 <select id="names"></select></label>
+    <label>ひびき <input id="reverb" type="range" min="0" max="1" step="0.05"></label>
+    <label>はねる感じ <input id="swing" type="range" min="0" max="1" step="0.05" title="スウィング"></label>
+    <label>横の大きさ <input id="zoom" type="range" min="12" max="60"></label>
+    <label>たての大きさ <input id="rowZoom" type="range" min="16" max="40" value="22"></label>
+  </section>
+
+  <main class="main">
+    <aside class="tracks">
+      <h2>トラック（パート）</h2>
+      <div id="trackList"></div>
+      <div class="addrow">
+        <button id="addMelody" class="mini">＋ メロディ</button>
+        <button id="addChord" class="mini">＋ コード伴奏</button>
+        <button id="addDrum" class="mini">＋ リズム</button>
+      </div>
+    </aside>
+    <section class="editor">
+      <div id="editorTools" class="tools"></div>
+      <div id="loopInfo" class="loopinfo"></div>
+      <div id="editorWrap" class="editorwrap">
+        <canvas id="cv"></canvas>
+        <div id="scroller" class="scroller"><div id="spacer"></div></div>
+      </div>
+      <div id="chordPalette" class="palette" hidden></div>
+    </section>
+  </main>
+
+  <dialog id="dlgOpen">
+    <h3>保存した曲</h3>
+    <div id="openList"></div>
+    <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
+  </dialog>
+
+  <dialog id="dlgShare">
+    <h3>🔗 この曲を共有する</h3>
+    <p>下のURLを送ると、相手も同じ曲を開けます（曲のデータがURLの中に入っています）。</p>
+    <input id="shareUrl" readonly>
+    <div class="dlgfoot"><button id="btnCopyUrl" class="tbtn">コピー</button><button class="close tbtn">閉じる</button></div>
+  </dialog>
+
+  <dialog id="dlgHelp" class="help">
+    <h3>❓ 使い方</h3>
+    <h4>音を置く・消す</h4>
+    <ul>
+      <li><b>マス目をクリック</b>すると音が置かれます。もう一度クリックすると消えます。</li>
+      <li>置いたまま<b>横にドラッグ</b>すると音が長くなります。音の右はしをドラッグしても長さを変えられます。</li>
+      <li>音を<b>つかんで動かす</b>と、高さや場所を変えられます。</li>
+      <li>タブレットでは、<b>タップで置く／消す</b>、指でなぞるとスクロールです。置く長さは上の「置く長さ」でえらびます。</li>
+      <li>左の音名をクリックすると、その音が鳴ります。</li>
+    </ul>
+    <h4>トラック（パート）</h4>
+    <ul>
+      <li>🎵 <b>メロディ</b>：音の高さと長さを置きます。楽器や音域（ソプラノ〜ベース）をえらべます。</li>
+      <li>🎹 <b>コード伴奏</b>：小節ごとにコード（和音）をえらぶだけで伴奏ができます。伴奏の形も選べます。</li>
+      <li>🥁 <b>リズム</b>：打楽器を置きます。クリックするたびに「ふつう → 強く → なし」と変わります。お手本のリズムも入れられます。</li>
+      <li>「消」はそのトラックを鳴らさない、「ソロ」はそのトラックだけ鳴らします。</li>
+    </ul>
+    <h4>べんりな機能</h4>
+    <ul>
+      <li><b>音階</b>をえらぶと、その音階の音だけがならびます（日本の音階・沖縄の音階なども）。</li>
+      <li><b>🎲 おまかせ作曲</b>：音階とコードに合わせて、メロディを自動で作ります。</li>
+      <li><b>輪唱・コピー</b>：ほかのメロディを何小節かずらして写せます。輪唱（かえる歌のような追いかけっこ）がすぐ作れます。</li>
+      <li><b>移調</b>：メロディ全体を上げ下げします。「音階↑↓」は音階にそって動かします。</li>
+      <li>上の<b>小節番号をクリック</b>するとそこから再生、<b>なぞる</b>とその範囲をくりかえします。</li>
+      <li><b>共有</b>：URLを送るだけで、ほかの人に曲を見せられます。</li>
+      <li><b>書き出し</b>：WAV（音声）やMIDI（ほかの音楽ソフト用）で保存できます。</li>
+      <li>キーボード：スペース＝再生／停止、Ctrl+Z＝元に戻す、Ctrl+Y＝やり直す、Ctrl+ホイール＝拡大縮小</li>
+    </ul>
+    <p class="muted">作った曲はこのブラウザに自動で一時保存されます。大事な曲は「保存」や「書き出し」をしてください。</p>
+    <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/sound.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
