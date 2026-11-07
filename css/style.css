@@ -732,3 +732,23 @@ dialog.start { width: 760px; }
 .tpl-links { display: flex; flex-wrap: wrap; gap: 6px; }
 body.phone .tpl-grid { grid-template-columns: repeat(2, 1fr); }
 body.phone .tpl { padding: 10px; }
+
+/* 楽器の絵 */
+:root { --ii-fill: #e0e7ff; }
+@media (prefers-color-scheme: dark) { :root { --ii-fill: #2e2b6b; } }
+.pic { display: inline-flex; flex: none; }
+.pic svg { width: 100%; height: 100%; }
+.insts { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.instopt { flex-direction: column; gap: 4px; padding: 10px 6px 8px; min-height: 108px; position: relative; font-size: 12.5px; }
+.instopt .pic { width: 56px; height: 56px; color: var(--text); }
+.instopt.on .pic { color: var(--accent-text); }
+.instopt .iname { line-height: 1.25; }
+.instopt small.rec { position: absolute; top: 6px; right: 6px; }
+.catbtn { display: inline-flex; align-items: center; gap: 6px; }
+.catbtn .pic { width: 20px; height: 20px; }
+.instbtn .pic { width: 22px; height: 22px; color: var(--text); }
+.instbtn .badge { margin-left: auto; }
+.instbtn .badge .i { width: 13px; height: 13px; }
+body.phone .insts { grid-template-columns: repeat(3, 1fr); }
+body.phone .instopt { min-height: 96px; }
+body.phone .instopt .pic { width: 44px; height: 44px; }

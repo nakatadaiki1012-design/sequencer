@@ -10,6 +10,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const TPQ = 48;
 const I = (n) => `<svg class="i"><use href="#i-${n}"/></svg>`;
 const TYPE_ICON = { melody: 'note', chord: 'piano', drum: 'drum' };
+const PIC = (kind, id) => (typeof InstIcons !== 'undefined' && InstIcons[kind] ? `<span class="pic">${InstIcons[kind](id)}</span>` : '');
 
 /* ---------- 音楽の基本データ ---------- */
 const PC_COLORS = ['#f25f63', '#f5804f', '#f79e3e', '#f6b93b', '#ecd23f', '#97cc55', '#4cc38a', '#36b3a6', '#4f9cf0', '#6d7ff2', '#9a73ef', '#d76ac9'];
@@ -1749,7 +1750,7 @@ function renderTracks() {
           <button data-a="down" ${i === song.tracks.length - 1 ? 'disabled' : ''}>${I('chevron')}下へ</button>
           ${song.locks.tracks ? '' : `<button data-a="dup">${I('copy')}複製する</button><button data-a="del" class="danger">${I('trash')}削除する</button>`}
         </div></details></div>
-      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${badge}<span class="instname">${escapeHtml(instLabel)}</span>${I('chevron')}</button>
+      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${tr.type === 'drum' ? PIC('kit', tr.kit) : PIC('inst', tr.inst)}<span class="instname">${escapeHtml(instLabel)}</span>${badge}${I('chevron')}</button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
     d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details')) selectTrack(i); });
     d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); };
@@ -1957,7 +1958,7 @@ function renderPicker() {
     <button class="${p.real ? 'on' : ''}" data-r="1">${I('mic')}本物の録音</button><button class="${p.real ? '' : 'on'}" data-r="0">${I('wave')}電子音</button></div>`;
   if (p.type === 'drum') {
     const kit = Sound.KITS.find((k) => k.id === p.val) || Sound.KITS[0];
-    box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.name}</button>`).join('')}</div>
+    box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${PIC('kit', k.id)}${k.name}</button>`).join('')}</div>
       <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}${p.real && Sound.Samples.hasDrum(id) ? `<small class="rec">${I('mic')}</small>` : ''}</button>`).join('')}</div>
       <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。マイクのしるし＝本物の録音があります。</p>`;
     if (p.real) Sound.Samples.loadDrums(ctx).catch(() => {});
@@ -1965,8 +1966,8 @@ function renderPicker() {
     box.querySelectorAll('.pad').forEach((b) => (b.onpointerdown = () => preview({ type: 'drum', real: p.real }, b.dataset.id)));
   } else {
     const cat = Sound.CATS.find((c) => c.id === p.cat) || Sound.CATS[0];
-    box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.name}</button>`).join('')}</div>
-      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}${p.real ? (Sound.Samples.has(id) ? `<small class="rec" title="本物の録音">${I('mic')}</small>` : `<small class="rec syn" title="録音がないので電子音で鳴ります">${I('wave')}</small>`) : ''}</button>`).join('')}</div>
+    box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${PIC('cat', c.id)}${c.name}</button>`).join('')}</div>
+      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${PIC('inst', id)}<span class="iname">${name}</span>${p.real ? (Sound.Samples.has(id) ? `<small class="rec" title="本物の録音">${I('mic')}</small>` : `<small class="rec syn" title="録音がないので電子音で鳴ります">${I('wave')}</small>`) : ''}</button>`).join('')}</div>
       <div class="kbd" id="pickKbd"></div>`;
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.cat = b.dataset.c; renderPicker(); }));
     const demo = async () => {
