@@ -249,6 +249,19 @@
     <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
   </dialog>
 
+  <dialog id="dlgBar">
+    <h3 id="barTitle">小節から変える</h3>
+    <p class="hint">曲のとちゅうで、テンポ・拍子・調を変えられます。チェックを入れたものだけ変わります。</p>
+    <div class="barform">
+      <label class="barrow"><input type="checkbox" id="barTempoOn"> <b>テンポ</b> <span>♩=</span><input type="number" id="barTempo" min="30" max="240" step="1"></label>
+      <label class="barrow"><input type="checkbox" id="barMeterOn"> <b>拍子</b> <select id="barMeterN"></select><span>/</span><select id="barMeterD"></select></label>
+      <label class="barrow"><input type="checkbox" id="barKeyOn"> <b>調</b> <select id="barKey"></select></label>
+      <p class="hint" id="barKeyHint">調を変えると、楽譜の調号が変わります（音の高さはそのままです）。</p>
+      <div class="barrow jumps"><b>D.C. など</b> <select id="barJump"></select></div>
+    </div>
+    <div class="dlgfoot"><button id="barOk" class="tbtn primary">決定</button><button class="close tbtn">キャンセル</button></div>
+  </dialog>
+
   <dialog id="dlgShare">
     <h3>この曲を共有する</h3>
     <p>下のURLを送ると、相手も同じ曲を開けます（曲のデータがURLの中に入っています）。学習支援ソフトの課題やチャットにはりつけて使えます。</p>

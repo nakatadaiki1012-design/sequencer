@@ -160,9 +160,11 @@ const MusicXMLImport = (() => {
             const bt = num(txt(tm, 'beat-type'), 4);
             if (b > 0 && bt > 0) { beats = b; beatType = bt; }
             if (!info.time) info.time = [beats, beatType];
+            M.time = [beats, beatType];
           }
           const ky = kid(el, 'key');
           if (ky && kid(ky, 'fifths') && !info.key) info.key = { fifths: Math.round(num(txt(ky, 'fifths'), 0)), mode: txt(ky, 'mode') };
+          if (ky && kid(ky, 'fifths')) M.key = { fifths: Math.round(num(txt(ky, 'fifths'), 0)), mode: txt(ky, 'mode') };
           for (const c of kids(el, 'clef')) if (txt(c, 'sign') === 'percussion') info.perc = true;
         } else if (tag === 'backup') {
           cur = Math.max(0, cur - toT(txt(el, 'duration')));
@@ -180,7 +182,7 @@ const MusicXMLImport = (() => {
           const pitchEl = kid(el, 'pitch');
           const unp = kid(el, 'unpitched');
           if (!pitchEl && !unp) continue;
-          const n = { kind: 'note', t: start, d: dur };
+          const n = { kind: 'note', t: start, d: dur, voice: txt(el, 'voice') || '1', staff: txt(el, 'staff') || '1' };
           if (pitchEl) {
             info.hasPitched = true;
             const st = STEP[txt(pitchEl, 'step').toUpperCase()];
@@ -379,8 +381,31 @@ const MusicXMLImport = (() => {
       pos += implicitOf(i) && content > 0 ? content : Math.max(content, declOf(i));
     }
     const songEnd = pos;
-    const bars = clamp(Math.max(nMeas, Math.ceil(Math.round(songEnd) / barTicks)), 1, MAX_BARS);
-    const limit = bars * barTicks;
+    // 曲のとちゅうの拍子・調の変化
+    const fixMeter = (t) => { let d = Math.round(t[1]); if (![2, 4, 8].includes(d)) d = 4; return [clamp(Math.round(t[0]), 1, 12), d]; };
+    const keyOf = (k) => { const mi = /minor|aeolian/i.test(k.mode || ''); const f = clamp(k.fifths, -7, 7); return { key: (((f * 7 + (mi ? 9 : 0)) % 12) + 12) % 12, minor: mi }; };
+    const meters = {};
+    const keys = {};
+    {
+      let pm = meter;
+      let pk = { key, minor };
+      for (let i = 1; i < nMeas; i++) {
+        const tp = parts.find((p) => p.measures[i] && p.measures[i].time);
+        if (tp) { const m = fixMeter(tp.measures[i].time); if (String(m) !== String(pm)) { meters[i] = m; pm = m; } }
+        const kp = parts.find((p) => !p.isPerc && p.measures[i] && p.measures[i].key);
+        if (kp) { const k = keyOf(kp.measures[i].key); if (k.key !== pk.key || k.minor !== pk.minor) { keys[i] = k; pk = k; } }
+      }
+    }
+    const varMeter = Object.keys(meters).length > 0;
+    const bars = clamp(varMeter ? nMeas : Math.max(nMeas, Math.ceil(Math.round(songEnd) / barTicks)), 1, MAX_BARS);
+    let limit = bars * barTicks;
+    if (varMeter) {
+      let m = meter;
+      limit = 0;
+      for (let i = 0; i < bars; i++) { if (meters[i]) m = meters[i]; limit += (m[0] * 192) / m[1]; }
+      for (const b in meters) if (+b >= bars) delete meters[b];
+    }
+    for (const b in keys) if (+b >= bars) delete keys[b];
     const absT = (i, t) => Math.round(starts[i] + t);
 
     // テンポ・速さのことば・コード・くり返し
@@ -448,6 +473,8 @@ const MusicXMLImport = (() => {
       key,
       scale: minor ? 'minor' : 'major',
       tempos,
+      meters,
+      keys,
       pickup,
       repeats: {
         start: Array.from(rStart).sort((a, b) => a - b),
@@ -468,6 +495,9 @@ const MusicXMLImport = (() => {
     const openTie = {}; // 音の高さ → つながっている音
     const openSlur = {};
     const openWedge = {};
+    // 声部：同じ段の中で2番目以降の声部は「声部2」
+    const firstVoice = {};
+    p.measures.forEach((M) => { for (const it of M.items) if (it.kind === 'note' && it.p != null) { const v = +it.voice || 1; if (firstVoice[it.staff] == null || v < firstVoice[it.staff]) firstVoice[it.staff] = v; } });
     p.measures.forEach((M, i) => {
       for (const it of M.items) {
         if (it.kind === 'note' && it.p != null) {
@@ -485,6 +515,7 @@ const MusicXMLImport = (() => {
           }
           if (!n) {
             n = { s, l: e - s, p: it.p };
+            if ((+it.voice || 1) !== firstVoice[it.staff]) n.v = 2;
             if (it.art) n.art = it.art.slice();
             if (it.ly) n.ly = it.ly;
             notes.push(n);
