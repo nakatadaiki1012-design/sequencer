@@ -1,5 +1,5 @@
 const { chromium, devices } = require('playwright');
-(async () => { const SP=process.argv[2]; const b = await chromium.launch(); const ctx = await b.newContext({ ...devices['iPhone 13'] }); const m = await ctx.newPage();
+(async () => { const SP=process.argv[2]; const b = await chromium.launch(); const ctx = await b.newContext({ ...devices['iPhone 13'] }); const m = await ctx.newPage(); await ctx.addInitScript(() => { try { localStorage.setItem('otsumiki-tour', '1'); } catch (e) {} });
 const errs=[]; m.on('pageerror', e => errs.push(e.message)); m.on('dialog', d=>d.accept());
 await m.goto('http://localhost:8765/'); await m.waitForTimeout(1200);
 await m.screenshot({ path: SP + '/ps0-start.png' });

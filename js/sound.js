@@ -168,12 +168,20 @@ const Sound = (() => {
   const SUSTAIN = new Set(['organ', 'pipeorgan', 'accordion', 'kenhamo', 'strings', 'violin', 'cello', 'contrabass', 'choir', 'trumpet', 'trombone', 'horn', 'tuba', 'brassens', 'sax', 'oboe', 'clarinet', 'bassoon', 'flute', 'piccolo', 'recorder', 'ocarina', 'shakuhachi', 'bagpipe']);
   const DRUM_SAMPLES = ['kick', 'snare', 'hihat', 'ohat', 'tomL', 'tomH', 'ride', 'crash', 'odaiko', 'kodaiko', 'awase', 'tamb', 'triangle', 'triMute', 'woodL', 'woodH', 'bongoL', 'bongoH', 'congaL', 'congaH', 'congaM', 'cowbell', 'maracas', 'clave', 'guiro', 'agogoL', 'agogoH', 'clap', 'fuchi', 'hyoshigi', 'kane', 'gong', 'roll', 'whistle'];
 
-  const raw = {};
-  const sets = {}; // 楽器 → { notes: [...], buf: {midi: AudioBuffer} }
+  /* 読み込みのしくみ
+     - http(s) で開いたとき: samples/mp3/<楽器>/<音>.mp3 を fetch で1音ずつ読む（曲で使う音だけ）
+     - file:// で開いたときや mp3/ が無いとき: 今までどおり samples/<楽器>.js を読む
+     - 鳴らしたい音がまだ無いときは、いちばん近い録音の高さをずらして鳴らし、その間に正しい録音を読む */
+  const raw = {};      // 楽器 → {音: base64}（.js から読んだとき）
+  const sets = {};     // 楽器 → { notes: [...], buf: {midi: AudioBuffer} }（1音でも読めたらできる）
+  const st = {};       // 楽器 → 読み込みの状態
   const waiting = {};
   let drumRaw = null;
-  let drumBufs = null;
+  let drumBufs = null;  // 打楽器ID → AudioBuffer
+  let drumSt = null;
   let base = 'samples/';
+  let indexP = null;
+  const MAX_FETCH = 6;  // 同時に読む数（画面が重くならないように）
   const b64 = (s) => { const bin = atob(s); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a.buffer; };
   const decode = (ctx, data) => new Promise((res, rej) => { const p = ctx.decodeAudioData(data, res, rej); if (p && p.catch) p.catch(rej); });
   function loadScript(name) {
@@ -187,59 +195,177 @@ const Sound = (() => {
     });
     return waiting[name];
   }
+  // samples/mp3/index.json（http(s) のときだけ。読めなければ null → .js を使う）
+  function getIndex() {
+    if (!indexP) {
+      const http = typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
+      indexP = !http || typeof fetch !== 'function' ? Promise.resolve(null)
+        : fetch(base + 'mp3/index.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    }
+    return indexP;
+  }
+  // 同時に読む数を MAX_FETCH までにする順番待ち（急ぐものは前に入れる）
+  const queue = [];
+  let running = 0;
+  function enqueue(fn, urgent) {
+    return new Promise((res, rej) => {
+      const job = { fn, res, rej };
+      if (urgent) queue.unshift(job); else queue.push(job);
+      pump();
+    });
+  }
+  function pump() {
+    while (running < MAX_FETCH && queue.length) {
+      const j = queue.shift();
+      running++;
+      Promise.resolve().then(j.fn).then(j.res, j.rej).finally(() => { running--; pump(); });
+    }
+  }
+  async function fetchBuf(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status + ' ' + url);
+    return r.arrayBuffer();
+  }
+  const silent = (b) => {
+    const d = b.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < d.length; i += 16) peak = Math.max(peak, Math.abs(d[i]));
+    return peak <= 0.003;
+  };
+  const nearest = (list, m) => { let best = list[0]; for (const n of list) if (Math.abs(n - m) < Math.abs(best - m)) best = n; return best; };
+
+  // 楽器の状態を用意する（どの音があるか・どこから読むか）
+  function prepare(f) {
+    if (!st[f]) {
+      st[f] = { avail: null, src: null, ctx: null, notes: {}, init: null };
+      st[f].init = (async () => {
+        const idx = await getIndex();
+        const list = idx && idx.insts && idx.insts[f];
+        if (list && list.length) {
+          st[f].avail = list.slice();
+          st[f].src = (m) => fetchBuf(base + 'mp3/' + f + '/' + m + '.mp3?v=' + idx.v);
+        } else await useScript(f);
+      })();
+      st[f].init.catch(() => { delete st[f]; });
+    }
+    return st[f].init;
+  }
+  async function useScript(f) {
+    await loadScript(f);
+    const s = st[f];
+    s.avail = Object.keys(raw[f]).map(Number).sort((a, b) => a - b);
+    s.src = async (m) => b64(raw[f][m]);
+  }
+  // 1音を読む（読み終わった音・読んでいる音は二度読まない）
+  function loadNote(f, m, urgent) {
+    const s = st[f];
+    if (!s.notes[m]) {
+      s.notes[m] = enqueue(async () => {
+        let data;
+        try { data = await s.src(m); } catch (e) {
+          // mp3/ が読めないとき（古い公開物など）は .js に切りかえる
+          if (!raw[f]) { await useScript(f); data = await s.src(m); } else throw e;
+        }
+        const b = await decode(s.ctx, data);
+        if (silent(b)) { s.avail = s.avail.filter((n) => n !== m); return null; } // 音域の外で無音になっている録音は使わない
+        const set = sets[f] || (sets[f] = { notes: [], buf: {} });
+        set.buf[m] = b;
+        set.notes = Object.keys(set.buf).map(Number).sort((a, b2) => a - b2);
+        if (raw[f] && s.avail.every((n) => set.buf[n])) delete raw[f];
+        return b;
+      }, urgent);
+      s.notes[m].catch(() => { delete s.notes[m]; });
+    }
+    return s.notes[m];
+  }
+  // pitches（なければ全部）を鳴らすのに必要な録音を読む
+  async function loadFor(f, pitches, urgent) {
+    for (let tries = 0; tries < 4; tries++) {
+      const s = st[f];
+      if (!s.avail.length) return;
+      const want = [...new Set(pitches ? pitches.map((p) => nearest(s.avail, p)) : s.avail)];
+      want.sort((a, b) => Math.abs(a - 66) - Math.abs(b - 66)); // 真ん中の音から先に
+      const res = await Promise.allSettled(want.map((m) => loadNote(f, m, urgent)));
+      if (res.every((r) => r.status === 'fulfilled' && r.value)) return;
+      if (res.every((r) => r.status === 'rejected') && !sets[f]) throw res[0].reason;
+      if (!res.some((r) => r.status === 'fulfilled' && !r.value)) return; // 失敗した音はあとで鳴らすときにもう一度
+    }
+  }
+
   const Samples = {
     add(id, map) { raw[id] = map; },
     addDrums(map) { drumRaw = map; },
     has: (id) => SAMPLE_IDS.includes(SAMPLE_FILE[id] || id),
+    // 1音でも読めたら true（足りない音は近い録音の高さをずらして鳴らします）
     ready: (id) => !!sets[SAMPLE_FILE[id] || id],
     drumsReady: () => !!drumBufs,
     hasDrum: (id) => DRUM_SAMPLES.includes(id),
-    async load(id, ctx) {
+    // notes: 曲で使う音の高さ（MIDI番号）の配列。省略するとその楽器の録音を全部読みます
+    async load(id, ctx, notes) {
       const f = SAMPLE_FILE[id] || id;
-      if (sets[f]) return sets[f];
       if (!SAMPLE_IDS.includes(f)) return null;
-      if (!sets['_p' + f]) {
-        sets['_p' + f] = (async () => {
-          await loadScript(f);
-          const map = raw[f];
-          const buf = {};
-          await Promise.all(Object.keys(map).map(async (m) => {
-            const b = await decode(ctx, b64(map[m]));
-            // 音域の外で無音になっている録音は使わない
-            const d = b.getChannelData(0);
-            let peak = 0;
-            for (let i = 0; i < d.length; i += 16) peak = Math.max(peak, Math.abs(d[i]));
-            if (peak > 0.003) buf[m] = b;
-          }));
-          const notes = Object.keys(buf).map(Number).sort((a, b) => a - b);
-          delete raw[f];
-          sets[f] = { notes, buf };
-          return sets[f];
-        })();
-      }
-      try { return await sets['_p' + f]; } catch (e) { delete sets['_p' + f]; throw e; }
+      await prepare(f);
+      if (!st[f].ctx) st[f].ctx = ctx;
+      const pitches = Array.isArray(notes) && notes.length ? [...new Set(notes.map(Math.round))] : null;
+      await loadFor(f, pitches, false);
+      if (!sets[f]) throw new Error('録音を読み込めませんでした: ' + f);
+      return sets[f];
     },
-    async loadDrums(ctx) {
-      if (drumBufs) return drumBufs;
-      if (!Samples._pd) {
-        Samples._pd = (async () => {
-          await loadScript('drums');
-          const out = {};
-          await Promise.all(Object.keys(drumRaw).map(async (k) => { out[k] = await decode(ctx, b64(drumRaw[k])); }));
-          drumRaw = null;
-          drumBufs = out;
-          return out;
+    // ids: 使う打楽器の配列。省略すると全部
+    async loadDrums(ctx, ids) {
+      if (!drumSt) {
+        drumSt = { ctx, notes: {}, init: null };
+        drumSt.init = (async () => {
+          const idx = await getIndex();
+          if (idx && idx.drums && idx.drums.length) {
+            drumSt.avail = idx.drums.slice();
+            drumSt.src = (k) => fetchBuf(base + 'mp3/drums/' + k + '.mp3?v=' + idx.v);
+          } else await drumScript();
         })();
+        drumSt.init.catch(() => { drumSt = null; });
       }
-      try { return await Samples._pd; } catch (e) { Samples._pd = null; throw e; }
+      const s = drumSt;
+      await s.init;
+      const want = (Array.isArray(ids) ? ids : s.avail).filter((k) => s.avail.includes(k));
+      const res = await Promise.allSettled(want.map((k) => loadDrum(k, false)));
+      if (res.length && res.every((r) => r.status === 'rejected') && !drumBufs) throw res[0].reason;
+      if (!drumBufs) drumBufs = {};
+      return drumBufs;
     },
-    setBase(b) { base = b; },
+    setBase(b) { base = b; indexP = null; },
   };
+  async function drumScript() {
+    await loadScript('drums');
+    drumSt.avail = Object.keys(drumRaw);
+    drumSt.src = async (k) => b64(drumRaw[k]);
+  }
+  function loadDrum(k, urgent) {
+    const s = drumSt;
+    if (!s.notes[k]) {
+      s.notes[k] = enqueue(async () => {
+        let data;
+        try { data = await s.src(k); } catch (e) {
+          if (!drumRaw) { await drumScript(); data = await s.src(k); } else throw e;
+        }
+        const b = await decode(s.ctx, data);
+        (drumBufs || (drumBufs = {}))[k] = b;
+        return b;
+      }, urgent);
+      s.notes[k].catch(() => { delete s.notes[k]; });
+    }
+    return s.notes[k];
+  }
 
   function playSample(ctx, out, inst, midi, t, dur, vel) {
-    const set = sets[SAMPLE_FILE[inst] || inst];
-    let best = set.notes[0];
-    for (const n of set.notes) if (Math.abs(n - midi) < Math.abs(best - midi)) best = n;
+    const f = SAMPLE_FILE[inst] || inst;
+    const set = sets[f];
+    const best = nearest(set.notes, midi);
+    // もっと近い録音があるのにまだ読んでいなければ、今は近い録音で鳴らし、後ろで読んでおく
+    const info = st[f];
+    if (info && info.avail && info.avail.length) {
+      const right = nearest(info.avail, midi);
+      if (right !== best && !info.notes[right]) loadNote(f, right, true).catch(() => {});
+    }
     const buf = set.buf[best];
     const rate = Math.pow(2, (midi - best) / 12);
     const s = ctx.createBufferSource();
@@ -541,6 +667,8 @@ const Sound = (() => {
       s.start(t);
       return;
     }
+    // まだ読んでいない打楽器は電子音で鳴らし、後ろで読んでおく
+    if (real && drumSt && drumSt.avail && drumSt.avail.includes(id) && !drumSt.notes[id]) loadDrum(id, true).catch(() => {});
     const d = DRUMS[id];
     if (d) d.play(ctx, out, t, vel);
   }

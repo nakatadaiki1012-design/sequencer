@@ -752,3 +752,26 @@ body.phone .tpl { padding: 10px; }
 body.phone .insts { grid-template-columns: repeat(3, 1fr); }
 body.phone .instopt { min-height: 96px; }
 body.phone .instopt .pic { width: 44px; height: 44px; }
+
+/* タッチで長おししたときの説明 */
+.touchtip { position: fixed; z-index: 10000; max-width: min(280px, 90vw); padding: 7px 11px; border-radius: 10px; background: #1f2433; color: #fff; font-size: 13px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; animation: tipIn .12s ease-out; }
+@keyframes tipIn { from { opacity: 0; transform: translateY(4px); } }
+@media (pointer: coarse) { button, summary, .tbtn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
+/* 「◯小節目から変える」 */
+.barform { display: grid; gap: 10px; }
+.barrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.barrow b { min-width: 4.5em; }
+.barrow input[type=number] { width: 80px; }
+/* 楽譜のページ（印刷と同じ区切り） */
+.scoreview:has(.pagebox) { background: #e9ebf0; padding: 10px; }
+.scoreview .pagebox { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.18); margin: 0 auto 12px; max-width: 780px; }
+.scoreview .pagebox:last-child { margin-bottom: 0; }
+/* 使い方ツアー */
+.tour { position: fixed; inset: 0; z-index: 9000; }
+.tour-hole { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15, 18, 30, .55); transition: all .25s ease; pointer-events: none; outline: 2px solid rgba(255,255,255,.9); }
+.tour-card { position: fixed; background: var(--panel, #fff); color: var(--text, #111); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); transition: top .25s ease, left .25s ease; }
+.tour-step { font-size: 12px; color: var(--accent, #4f46e5); font-weight: 600; margin-bottom: 2px; }
+.tour-title { font-size: 16px; }
+.tour-text { margin: 6px 0 12px; line-height: 1.6; font-size: 14px; }
+.tour-btns { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.tour-btns .tour-skip { margin-right: auto; }

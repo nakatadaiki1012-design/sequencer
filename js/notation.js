@@ -957,5 +957,30 @@ const Notation = (() => {
     return x.join('\n');
   }
 
-  return { render, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, musicXML, DRUM_POS, lastLayout: null };
+  // 印刷用：楽譜を A4 のページに分ける（段のとちゅうでは切らない）
+  // ratio = ページの高さ ÷ はば（A4・よはく12mm で 273/186）
+  function paginate(svg, layout, ratio = 273 / 186) {
+    if (!layout || !layout.systems.length) return [svg];
+    const W = layout.width;
+    const PH = W * ratio;
+    const sc = layout.scale || 1;
+    const inner = svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
+    const sys = layout.systems;
+    const cuts = [];
+    let y0 = 0;
+    let i = 0;
+    while (i < sys.length) {
+      let j = i;
+      while (j < sys.length && sys[j].y1 + 4 - y0 <= PH - 20) j++;
+      if (j === i) j = i + 1; // 1段がページより大きいとき
+      const cut = j < sys.length ? sys[j].y0 - 2 : layout.height;
+      cuts.push({ y0, cut });
+      if (j < sys.length) y0 = sys[j].y0 - 16;
+      i = j;
+    }
+    if (cuts.length === 1) return [svg];
+    return cuts.map(({ y0: a, cut }, k) => `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 ${a} ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect x="0" y="${a}" width="${W}" height="${PH}" fill="#fff"/>${inner}<rect x="0" y="${cut}" width="${W}" height="${Math.max(0, a + PH - cut) + 200}" fill="#fff"/><text x="${W / 2}" y="${a + PH - 8}" text-anchor="middle" font-size="10" fill="#666">${k + 1} / ${cuts.length}</text></svg>`);
+  }
+
+  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, musicXML, DRUM_POS, lastLayout: null };
 })();

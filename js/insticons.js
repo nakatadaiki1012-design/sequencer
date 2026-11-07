@@ -74,7 +74,10 @@ const InstIcons = (() => {
     strings: () => g(`translate(-7 3) ${rot(-25)} scale(.85) translate(4 4)`, violin()) + g(`translate(7 -3) ${rot(-25)} scale(.85) translate(4 4)`, `<path d="${VBODY}"${T}/>${fholes}<rect x="22.6" y="6" width="2.8" height="23" rx="1.4"${C}/><circle cx="24" cy="4.6" r="2"/>`),
     violin: () => g(rot(-30), violin()) + bow(5, 32, 44, 12),
     cello: () => g('translate(0 -2.5)', `<path d="${VBODY}"${T}/>${fholes}<rect x="22.6" y="6" width="2.8" height="23" rx="1.4"${C}/><circle cx="24" cy="4.6" r="2"/><path d="M21 35.5h6"/><path d="M24 44v4"/>`) + bow(4, 31, 44, 37),
-    contrabass: () => g('translate(0 -1.5)', bass()) + bow(4, 30, 44, 36),
+    // コントラバス：人より大きい楽器（なで肩の大きな胴＋となりに小さな人）
+    contrabass: () => g('translate(-6 0)', `<path d="M24 12C20 12 18.5 14 18 17C17.3 21 16 23 16 25.5C16 27.5 18.5 28.5 18.5 30.5C18.5 32.5 12 34 12 39.5C12 44 17 46.5 24 46.5C31 46.5 36 44 36 39.5C36 34 29.5 32.5 29.5 30.5C29.5 28.5 32 27.5 32 25.5C32 23 30.7 21 30 17C29.5 14 28 12 24 12Z"${T}/>${fholes}<rect x="22.6" y="3.5" width="2.8" height="26" rx="1.4"${C}/><circle cx="24" cy="2.6" r="1.8"/><path d="M21 37h6"/>`) + '<circle cx="40.5" cy="31.5" r="2.6"/><path d="M40.5 34.5v7M40.5 41.5l-2.6 5M40.5 41.5l2.6 5M37 37.5h7"/>',
+    // ビオラ：バイオリンより少し大きく、反対向き
+    viola: () => g('translate(48 0) scale(-1 1) ' + rot(-30), violin()) + bow(44, 32, 4, 12),
     pizz: () => g('translate(-4 0) ' + rot(-20), violin()) + pluck(37, 31),
     acbass: () => g('translate(-4 -1.5)', bass()) + pluck(37, 33),
     brassens: () => tp(11, 12) + tp(3, 33),

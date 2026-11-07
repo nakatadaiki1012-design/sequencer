@@ -124,6 +124,7 @@
           <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>履歴（これまでの操作）</button>
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
           <button id="btnHelp"><svg class="i"><use href="#i-help"/></svg>使い方</button>
+          <button id="btnTour"><svg class="i"><use href="#i-help"/></svg>使い方ツアー（かんたん案内）</button>
         </div>
       </details>
       <input id="fileIn" type="file" accept=".json,.mid,.midi,.musicxml,.xml,.mxl,application/json,audio/midi" hidden>
@@ -314,7 +315,18 @@
       <li><b>コード伴奏</b>：小節ごとにコードをえらぶだけで伴奏になります。</li>
       <li><b>リズム</b>：ドラム・音楽室・和太鼓・ラテン・EDM・効果音の7キット。おすたびに「ふつう→強く→なし」。お手本リズムもあります。</li>
     </ul>
+    <h4>曲の組み立て（とちゅうの変化・くり返し）</h4>
+    <ul>
+      <li><b>とちゅうでテンポ・拍子・調を変える</b>：キャンバスの「R」の行で小節をおすか、楽譜の「拍子・調…」ボタン。「◯小節目から変える」画面で、変えたいものにチェックを入れます。</li>
+      <li><b>D.C.・D.S.・コーダ・Fine</b>：同じ画面か、楽譜の「D.C./コーダ…」から。再生もそのとおりにもどったり、とんだりします。</li>
+      <li><b>2声部</b>：楽譜の「声部」ボタン（キー V）で、1つの段に2つのメロディ（上の声部はぼう上、下の声部はぼう下）を書けます。</li>
+    </ul>
     <h4>べんりな機能</h4>
+    <ul>
+      <li><b>使い方ツアー</b>：メニュー → 使い方ツアー。スマホやタブレットでは、ボタンを<b>長おし</b>すると説明が出ます。</li>
+      <li><b>MP3で書き出し</b>：メニュー → 音声ファイル（MP3）。WAV は高音質ですがファイルが大きくなります。</li>
+      <li><b>印刷</b>：楽譜は A4 のページに分けて表示・印刷します（段のとちゅうでは切れません）。</li>
+    </ul>
     <ul>
       <li><b>キャンバス</b>でマスをドラッグすると小節をコピー、に落とすと消去。Shift+クリックで何小節もまとめて選べます。「小節を入れる／消して詰める」で曲の途中を広げたり縮めたりできます。</li>
       <li><b>テンポ変化</b>：キャンバスいちばん下の「R」の行をおすと、その小節からテンポを変えられます（だんだんおそく、など）。</li>
@@ -358,5 +370,11 @@
   <script src="js/insticons.js"></script>
   <script src="js/mp3.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    // オフラインでも速く開けるように（http(s) で開いたときだけ）
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
 </body>
 </html>

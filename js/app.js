@@ -704,7 +704,12 @@ function preloadSamples() {
   for (const tr of song.tracks) {
     if (tr.real === false) continue;
     if (tr.type === 'drum') { if (!Sound.Samples.drumsReady()) jobs.push(['drums', () => Sound.Samples.loadDrums(ctx)]); }
-    else if (Sound.Samples.has(tr.inst) && !Sound.Samples.ready(tr.inst)) jobs.push([tr.inst, () => Sound.Samples.load(tr.inst, ctx)]);
+    else if (Sound.Samples.has(tr.inst) && !Sound.Samples.ready(tr.inst)) {
+      // 曲で使っている高さの録音だけを先に読む（あとから使う高さは、鳴らすときに読みます）
+      const ps = tr.type === 'melody' ? tr.notes.map((n) => n.p) : chordEvents(tr).map((e) => e.p);
+      const notes = ps.length ? [...new Set(ps)] : undefined;
+      jobs.push([tr.inst, () => Sound.Samples.load(tr.inst, ctx, notes)]);
+    }
   }
   for (const [key, fn] of jobs) {
     if (loadingNow.has(key)) continue;
@@ -2385,6 +2390,8 @@ function assignLyrics(tr, text) {
 }
 function scoreSvg(trackIds) { return Notation.render(scoreOpts(trackIds, true)); }
 let scoreSel = null;
+let scoreFull = '';
+let scorePages = [];
 function openScore() {
   const mel = song.tracks.filter((t) => t.type === 'melody' || t.type === 'drum' || (t.type === 'chord' && t.chords.some(Boolean)));
   if (!mel.some((t) => t.type === 'melody')) return alert('楽譜にできるメロディのトラックがありません');
@@ -2421,7 +2428,11 @@ function openScore() {
   side.querySelectorAll('.strans').forEach((el) => { el.value = String(S.trans[el.dataset.id] || 0); });
   const upd = () => {
     const ids = [...scoreSel];
-    $('#scoreView').innerHTML = ids.length ? scoreSvg(ids) : '<p class="muted" style="padding:12px">パートを選んでください</p>';
+    if (!ids.length) { scoreFull = ''; scorePages = []; $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">パートを選んでください</p>'; return; }
+    scoreFull = scoreSvg(ids);
+    // 印刷するときと同じ、A4 のページに分けて見せる
+    scorePages = Notation.paginate(scoreFull, Notation.lastLayout);
+    $('#scoreView').innerHTML = scorePages.length > 1 ? scorePages.map((pg) => `<div class="pagebox">${pg}</div>`).join('') : scoreFull;
   };
   side.querySelectorAll('[data-s]').forEach((el) => {
     el.oninput = () => { S[el.dataset.s] = el.value; upd(); };
@@ -2448,15 +2459,18 @@ function autosaveSoon() {
   autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } }, 400);
 }
 function printScore() {
-  const svg = $('#scoreView').innerHTML;
+  const pages = scorePages.length ? scorePages : [scoreFull || $('#scoreView').innerHTML];
   const w = window.open('', '_blank');
   if (!w) return alert('ポップアップがブロックされました。ブラウザの設定で許可してください');
-  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}svg{width:100%;height:auto}</style>${svg}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
+  // 1ページに1枚ずつ。段のとちゅうで切れないように、ページを分けてあります
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}.pg{break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}svg{display:block;width:100%;height:auto}.pg svg.page{width:auto;height:268mm;margin:0 auto}</style>${pages.map((pg) => `<div class="pg">${pg}</div>`).join('')}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
   w.document.close();
 }
 function exportPng() {
-  const svgEl = $('#scoreView svg');
-  if (!svgEl) return;
+  if (!scoreFull) return;
+  const holder = document.createElement('div');
+  holder.innerHTML = scoreFull;
+  const svgEl = holder.querySelector('svg');
   const xml = new XMLSerializer().serializeToString(svgEl);
   const img = new Image();
   img.onload = () => {
@@ -3215,8 +3229,9 @@ function openStart(first) {
     setView(t.view || 'grid');
     if (isPhone) setPhoneView(t.view === 'score' ? 'score' : 'edit');
     toast(t.view === 'score' ? '長さ→音名の順におすと、音符が入っていきます' : 'マス目をおして音を置いてみよう');
+    tourFirstTime();
   }));
-  $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); };
+  $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); tourFirstTime(); };
   $('#tplOpen').onclick = () => { $('#dlgStart').close(); $('#fileIn').click(); };
   const c = $('#tplCancel');
   if (c) c.onclick = () => $('#dlgStart').close();
@@ -3777,7 +3792,7 @@ function init() {
   $('#btnPrintScore').onclick = printScore;
   $('#btnPngScore').onclick = exportPng;
   $('#btnXmlScore').onclick = exportMusicXML;
-  $('#btnSvgScore').onclick = () => download(new Blob([$('#scoreView').innerHTML], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
+  $('#btnSvgScore').onclick = () => download(new Blob([scoreFull], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
   $('#btnScorePanel').onchange = (e) => { ui.showScore = e.target.checked; renderScorePanel(); };
   $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };
   $('#dragMode').onchange = (e) => { ui.dragMode = e.target.value; };
@@ -3906,4 +3921,135 @@ function init() {
     openStart(true);
   })();
 }
+// タッチの画面では、ボタンを長おしすると説明（title）が出ます
+function setupTouchTips() {
+  let timer = null;
+  let tip = null;
+  let shownAt = 0;
+  let start = null;
+  const hide = () => { if (tip) { tip.remove(); tip = null; } };
+  const show = (el) => {
+    const text = el.getAttribute('title') || el.getAttribute('aria-label') || el.dataset.tip;
+    if (!text) return;
+    hide();
+    tip = document.createElement('div');
+    tip.className = 'touchtip';
+    tip.textContent = text;
+    document.body.appendChild(tip);
+    const r = el.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const x = clamp(r.left + r.width / 2 - w / 2, 8, innerWidth - w - 8);
+    const y = r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+    shownAt = Date.now();
+    if (navigator.vibrate) try { navigator.vibrate(8); } catch (e) { /* なし */ }
+  };
+  document.addEventListener('pointerdown', (e) => {
+    hide();
+    shownAt = 0;
+    if (e.pointerType !== 'touch') return;
+    const el = e.target.closest && e.target.closest('[title], [aria-label], [data-tip]');
+    if (!el || el.closest('svg') || e.target.closest('canvas')) return;
+    start = { x: e.clientX, y: e.clientY };
+    clearTimeout(timer);
+    timer = setTimeout(() => show(el), 450);
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) { clearTimeout(timer); start = null; }
+  }, true);
+  const up = () => { clearTimeout(timer); start = null; if (tip) setTimeout(hide, 1800); };
+  document.addEventListener('pointerup', up, true);
+  document.addEventListener('pointercancel', up, true);
+  // 説明を出したときは、そのボタンは押さなかったことにする
+  document.addEventListener('click', (e) => { if (shownAt && Date.now() - shownAt < 2500) { shownAt = 0; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', (e) => { if (tip || (start && e.target.closest('[title], [aria-label]'))) e.preventDefault(); }, true);
+}
+setupTouchTips();
+
+/* ============================================================
+   はじめての人への案内（使い方ツアー）
+   ============================================================ */
+const TOUR_PC = [
+  ['#editorWrap', 'オトグラフ', 'マス目をクリックすると音が置けます。もう一度クリックで消えます。右へドラッグすると長い音になります。'],
+  ['#trackList', 'トラック', 'パート（メロディ・コード伴奏・リズム）の一覧です。楽器の絵をおすと音色を変えられます。'],
+  ['#ovWrap', 'キャンバス', '曲全体の地図です。小節をドラッグしてコピー、ゴミ箱で消去。「R」の行をおすと、その小節からテンポ・拍子・調を変えられます。'],
+  ['#viewSeg', 'マス目 ⇔ 楽譜', '楽譜に切りかえると、五線の上で音符を入力・編集できます（キーボードの A〜G と 1〜6 でも入力できます）。'],
+  ['#btnPlay', '再生', '曲を鳴らします。スペースキーでも再生・停止できます。'],
+  ['#keySum', '調', 'ハ長調・ト長調などをえらぶと、曲全体をかんたんに移調できます。'],
+  ['[data-pop="menu"] > summary', 'メニュー', '保存・ファイルを開く・音声（MP3/WAV）や MIDI・楽譜の書き出しはここです。'],
+  [null, 'ヒント', 'ボタンにマウスをのせると、説明が出ます。このツアーは「メニュー → 使い方ツアー」でいつでも見られます。'],
+];
+const TOUR_PHONE = [
+  ['#editorWrap', '打ち込み', 'マス目を指でおすと音が置けます。もう一度おすと消えます。'],
+  ['#phoneNav [data-view="tracks"]', 'トラック', 'パートの一覧です。楽器の絵をおすと音色を変えられます。'],
+  ['#phoneNav [data-view="canvas"]', '全体', '曲全体の地図です。小節のコピーや、テンポ・拍子・調の変化はここから。'],
+  ['#phoneNav [data-view="score"]', '楽譜', '五線譜で入力できます。長さ → ドレミ の順におすだけで、サッと楽譜が作れます。'],
+  ['#btnPlay', '再生', '曲を鳴らします。'],
+  ['#phoneNav [data-view="more"]', 'その他', '保存・書き出し（MP3・MIDI・楽譜）・調や拍子の設定はここです。'],
+  [null, 'ヒント', 'ボタンを長おしすると、そのボタンの説明が出ます。このツアーは「その他 → 使い方ツアー」でいつでも見られます。'],
+];
+function tourFirstTime() {
+  let done = false;
+  try { done = !!localStorage.getItem('otsumiki-tour'); } catch (e) { /* なし */ }
+  if (!done) setTimeout(startTour, 700);
+}
+function startTour() {
+  const steps = (isPhone ? TOUR_PHONE : TOUR_PC).filter(([sel]) => {
+    if (!sel) return true;
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  closePops();
+  if (isPhone) setPhoneView('edit');
+  let k = 0;
+  const ov = document.createElement('div');
+  ov.className = 'tour';
+  ov.innerHTML = '<div class="tour-hole"></div><div class="tour-card" role="dialog" aria-live="polite"><div class="tour-step"></div><b class="tour-title"></b><p class="tour-text"></p><div class="tour-btns"><button class="mini tour-skip">おわる</button><button class="mini tour-back">もどる</button><button class="tbtn primary tour-next">次へ</button></div></div>';
+  document.body.appendChild(ov);
+  const hole = ov.querySelector('.tour-hole');
+  const card = ov.querySelector('.tour-card');
+  const end = () => { ov.remove(); removeEventListener('resize', place); try { localStorage.setItem('otsumiki-tour', '1'); } catch (e) { /* なし */ } };
+  function place() {
+    const [sel, title, text] = steps[k];
+    ov.querySelector('.tour-step').textContent = `${k + 1} / ${steps.length}`;
+    ov.querySelector('.tour-title').textContent = title;
+    ov.querySelector('.tour-text').textContent = text;
+    ov.querySelector('.tour-back').style.visibility = k ? '' : 'hidden';
+    ov.querySelector('.tour-next').textContent = k === steps.length - 1 ? 'はじめる' : '次へ';
+    const el = sel && document.querySelector(sel);
+    const cw = Math.min(340, innerWidth - 24);
+    card.style.width = cw + 'px';
+    if (!el) {
+      hole.style.cssText = `left:${innerWidth / 2}px;top:${innerHeight / 2}px;width:0;height:0`;
+      card.style.left = (innerWidth - cw) / 2 + 'px';
+      card.style.top = Math.max(12, innerHeight / 2 - card.offsetHeight / 2) + 'px';
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const pad = 6;
+    const x = Math.max(4, r.left - pad);
+    const y = Math.max(4, r.top - pad);
+    const w = Math.min(innerWidth - 8, r.right + pad) - x;
+    const h = Math.min(innerHeight - 8, r.bottom + pad) - y;
+    hole.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    const ch = card.offsetHeight;
+    let cy = y + h + 12;
+    if (cy + ch > innerHeight - 8) cy = y - ch - 12;
+    if (cy < 8) cy = Math.min(innerHeight - ch - 8, Math.max(8, y + h / 2 - ch / 2));
+    card.style.top = cy + 'px';
+    card.style.left = clamp(x + w / 2 - cw / 2, 12, innerWidth - cw - 12) + 'px';
+  }
+  ov.querySelector('.tour-next').onclick = () => { if (k >= steps.length - 1) end(); else { k++; place(); } };
+  ov.querySelector('.tour-back').onclick = () => { if (k > 0) { k--; place(); } };
+  ov.querySelector('.tour-skip').onclick = end;
+  ov.onkeydown = (e) => { if (e.key === 'Escape') end(); };
+  addEventListener('resize', place);
+  place();
+  ov.querySelector('.tour-next').focus();
+}
+$('#btnTour').onclick = () => { closePops(); startTour(); };
 init();
