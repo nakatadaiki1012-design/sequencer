@@ -184,6 +184,16 @@ const Notation = (() => {
       st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'bass' ? 18 : 30;
       st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean));
       st.hasDyn = st.sub === (st.grand ? 1 : 0) && ((st.part.dyn || []).length || (st.part.hairpins || []).length);
+      // 五線の外にはみ出す音（加線）の分だけ、段の上下をあける
+      let lo = 0;
+      let hi = 8;
+      for (const n of st.notes) {
+        const pos = st.clef === 'perc' ? Math.floor((n.p - 1000) / 10) : spell(n.p, st.kc).dn - st.baseDn;
+        if (pos < lo) lo = pos;
+        if (pos > hi) hi = pos;
+      }
+      st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0);
+      st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0);
     }
 
     // ---- 小節ごとの「音の始まる位置」と自然な幅 ----
@@ -222,7 +232,7 @@ const Notation = (() => {
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
     const topRow = chordRow + (anyVolta ? 16 : 0);
-    const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0);
+    const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const systemH = topRow + staves.reduce((a, s) => a + staffH(s), 0) + 16;
     const top = 70 + (meta.subtitle ? 18 : 0);
     const height = top + lines.length * systemH + 24;
@@ -281,7 +291,7 @@ const Notation = (() => {
       }
       let yAcc = sysTop;
       staves.forEach((st, si) => {
-        const stTop = yAcc + 2 * SP;
+        const stTop = yAcc + 2 * SP + st.above;
         yAcc += staffH(st);
         const perc = st.clef === 'perc';
         const yOf = (pos) => stTop + (8 - pos) * (SP / 2);
@@ -302,7 +312,7 @@ const Notation = (() => {
           o.push(`<text x="${tx + 6}" y="${stTop + 1.9 * SP}" font-size="${2.2 * SP}" font-weight="bold" font-family="serif" text-anchor="middle" fill="#111">${meter[0]}</text>`);
           o.push(`<text x="${tx + 6}" y="${stTop + 3.9 * SP}" font-size="${2.2 * SP}" font-weight="bold" font-family="serif" text-anchor="middle" fill="#111">${meter[1]}</text>`);
         }
-        const textY = stTop + 4 * SP + 2.7 * SP;
+        const textY = stTop + 4 * SP + 2.7 * SP + st.below;
         const lyrY = textY + (nameOf && !perc ? 15 : 0);
         const dynY = (st.hasLyr ? lyrY + 18 : nameOf && !perc ? textY + 15 : textY) + 2;
         const keyAcc = keyAccOf(st.kc);

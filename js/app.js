@@ -8,9 +8,11 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => Math.random().toString(36).slice(2, 9);
 const TPQ = 48;
+const I = (n) => `<svg class="i"><use href="#i-${n}"/></svg>`;
+const TYPE_ICON = { melody: 'note', chord: 'piano', drum: 'drum' };
 
 /* ---------- 音楽の基本データ ---------- */
-const PC_COLORS = ['#ff5a5f', '#ff7e47', '#ff9f2e', '#ffc02e', '#f5dd2a', '#8fd93a', '#3ccf7a', '#2ec4b6', '#36a6ff', '#5b7bff', '#9b5bff', '#e05bd6'];
+const PC_COLORS = ['#f25f63', '#f5804f', '#f79e3e', '#f6b93b', '#ecd23f', '#97cc55', '#4cc38a', '#36b3a6', '#4f9cf0', '#6d7ff2', '#9a73ef', '#d76ac9'];
 const NAMES = {
   doremi: [['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ', 'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'], ['ド', 'レ♭', 'レ', 'ミ♭', 'ミ', 'ファ', 'ソ♭', 'ソ', 'ラ♭', 'ラ', 'シ♭', 'シ']],
   cde: [['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'], ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']],
@@ -46,7 +48,7 @@ const RANGES = {
   bass: ['ベース（ド2〜ド4）', 36, 60], wide: ['広い（ド2〜ド7）', 36, 96], all: ['ピアノ全部（88鍵）', 21, 108],
 };
 const GRIDS = [[192, '全音符', '𝅝'], [96, '2分音符', '𝅗𝅥'], [48, '4分音符', '♩'], [24, '8分音符', '♪'], [12, '16分音符', '𝅘𝅥𝅯'], [6, '32分音符', '𝅘𝅥𝅰'], [16, '8分3連符', '♪³'], [8, '16分3連符', '𝅘𝅥𝅯³']];
-const TRACK_COLORS = ['#ff6b6b', '#4dabf7', '#51cf66', '#fcc419', '#cc5de8', '#ff922b', '#20c997', '#748ffc'];
+const TRACK_COLORS = ['#e5484d', '#3e63dd', '#30a46c', '#f5a524', '#8e4ec6', '#f76b15', '#12a594', '#d6409f'];
 const MAX_TRACKS = 8;
 
 /* ---------- 曲データ ---------- */
@@ -524,7 +526,7 @@ function play() {
   player.timer = setInterval(tick, 25);
   tick();
   $('#btnPlay').classList.add('on');
-  $('#btnPlay').textContent = '⏸';
+  $('#btnPlay').innerHTML = I('pause');
   requestAnimationFrame(anim);
 }
 const timeOf = (t) => player.seg.time + absSec(t) - absSec(player.seg.tick);
@@ -577,7 +579,7 @@ function stop(silent = false) {
   player.segs = [];
   if (!silent) {
     $('#btnPlay').classList.remove('on');
-    $('#btnPlay').textContent = '▶';
+    $('#btnPlay').innerHTML = I('play');
     draw();
     drawOverview();
     updateMini();
@@ -814,7 +816,7 @@ function draw(playPos) {
       roundRect(g2, x + 1.5, y + 1.5, w - 3, rh - 3, 5);
       g2.fill();
       g2.lineWidth = on ? 3 : 1;
-      g2.strokeStyle = on ? '#fff' : 'rgba(0,0,0,.35)';
+      g2.strokeStyle = on ? '#fff' : 'rgba(0,0,0,.18)';
       g2.stroke();
       if (n.s + n.l > total) { g2.fillStyle = 'rgba(0,0,0,.3)'; g2.fill(); }
       if (w > 24) { g2.fillStyle = '#1b1b1b'; g2.fillText(noteName(n.p), x + 6, y + rh / 2 + 1, w - 12); }
@@ -922,7 +924,7 @@ function draw(playPos) {
     const row = rows[r];
     if (tr.type === 'melody') {
       const black = [1, 3, 6, 8, 10].includes(row.p % 12);
-      g2.fillStyle = row.id === highlightRow ? '#ffd43b' : black ? '#3a3a46' : '#fafafa';
+      g2.fillStyle = row.id === highlightRow ? '#ffd43b' : black ? C('--key-black') : C('--key-white');
       g2.fillRect(LW - 24, y + 1, 23, rh - 2);
       if (row.p % 12 === 0 && rh >= 16) { g2.fillStyle = '#888'; g2.font = '9px sans-serif'; g2.textBaseline = 'middle'; g2.fillText('C' + (Math.floor(row.p / 12) - 1), LW - 22, y + rh / 2 + 1); }
       g2.fillStyle = PC_COLORS[row.p % 12];
@@ -1004,7 +1006,7 @@ function onDown(e) {
   }
   if (h.tick < 0 || h.tick >= totalTicks() || !h.row) return;
   if (e.pointerType === 'touch' && !ui.touchEdit) return; // スクロールモード
-  if (tr.type !== 'chord' && locked(tr)) { toast('🔒 このトラックはロックされています'); return; }
+  if (tr.type !== 'chord' && locked(tr)) { toast('このトラックはロックされています'); return; }
   e.preventDefault();
   $('#scroller').setPointerCapture(e.pointerId);
   const snap = snapshot();
@@ -1194,7 +1196,7 @@ function drawOverview(playPos) {
       const tr = song.tracks[r.i];
       const sel = ui.sel.t === r.i && b >= ui.sel.b0 && b <= ui.sel.b1;
       const has = barHasContent(tr, b);
-      og.fillStyle = sel ? C('--sel-strong') : has ? TRACK_COLORS[r.i % TRACK_COLORS.length] + '55' : C('--row-b');
+      og.fillStyle = sel ? C('--sel-strong') : has ? TRACK_COLORS[r.i % TRACK_COLORS.length] + '26' : C('--row-b');
       roundRect(og, x + 1, y + 1, bw - 2, OV_RH - 2, 4);
       og.fill();
       if (sel) { og.strokeStyle = C('--accent2'); og.lineWidth = 2; og.stroke(); }
@@ -1256,7 +1258,7 @@ function drawOverview(playPos) {
     og.fillRect(0, y + 2, 5, OV_RH - 4);
     og.fillStyle = r.i === cur ? C('--accent2') : C('--text');
     og.font = `${r.i === cur ? 'bold ' : ''}11px sans-serif`;
-    og.fillText(`${r.i + 1} ${tr.locked ? '🔒' : ''}${tr.name}`, 9, y + OV_RH / 2, OV_LW - 12);
+    og.fillText(`${r.i + 1}  ${tr.name}${tr.locked ? '（ロック）' : ''}`, 9, y + OV_RH / 2, OV_LW - 12);
   });
   og.fillStyle = C('--muted');
   og.font = '10px sans-serif';
@@ -1327,7 +1329,7 @@ function ovUp() {
   }
   const src = song.tracks[d.t];
   if (d.trash) {
-    if (locked(src)) return toast('🔒 ロックされています');
+    if (locked(src)) return toast('ロックされています');
     edit(() => clearBars(src, d.b0, d.b1), `${d.b0 + 1}〜${d.b1 + 1}小節を消す`);
     toast(`「${src.name}」の${d.b0 + 1}〜${d.b1 + 1}小節を消しました`);
     return;
@@ -1335,7 +1337,7 @@ function ovUp() {
   if (!d.over) { drawOverview(); return; }
   const dst = song.tracks[d.over.r];
   if (src.type !== dst.type) { toast('ちがう種類のトラックにはコピーできません'); drawOverview(); return; }
-  if (locked(dst)) { toast('🔒 コピー先はロックされています'); drawOverview(); return; }
+  if (locked(dst)) { toast('コピー先はロックされています'); drawOverview(); return; }
   if (d.over.r === d.t && d.over.b === d.b0) { drawOverview(); return; }
   edit(() => copyBars(src, d.b0, d.b1, dst, d.over.b), `${d.b0 + 1}〜${d.b1 + 1}小節をコピー`);
   toast(`${src.name} ${d.b0 + 1}〜${d.b1 + 1}小節 → ${dst.name} ${d.over.b + 1}小節目へコピーしました`);
@@ -1353,7 +1355,7 @@ function selectTrack(i, redraw = true) {
   if (ui.showScore) renderScorePanel();
 }
 function editTempo(b) {
-  if (song.locks.rules) return toast('🔒 ルールの変更はロックされています');
+  if (song.locks.rules) return toast('ルールの変更はロックされています');
   const v = prompt(`${b + 1}小節目からのテンポを入れてください（30〜240）\n空にすると、この小節のテンポ変化を消します`, song.tempos[b] || bpmAt(b));
   if (v === null) return;
   edit(() => {
@@ -1420,7 +1422,7 @@ function shiftAll(fromBar, n) {
   song.tempos = nt;
 }
 function insertBars() {
-  if (song.locks.rules) return toast('🔒 小節数の変更はロックされています');
+  if (song.locks.rules) return toast('小節数の変更はロックされています');
   const at = ui.sel.b0;
   const n = ui.sel.b1 - ui.sel.b0 + 1;
   edit(() => { shiftAll(at, n); song.bars = Math.min(128, song.bars + n); }, `${at + 1}小節目の前に${n}小節入れる`);
@@ -1428,7 +1430,7 @@ function insertBars() {
   toast(`${at + 1}小節目の前に${n}小節入れました`);
 }
 function deleteBars() {
-  if (song.locks.rules) return toast('🔒 小節数の変更はロックされています');
+  if (song.locks.rules) return toast('小節数の変更はロックされています');
   const at = ui.sel.b0;
   const n = ui.sel.b1 - ui.sel.b0 + 1;
   if (n >= song.bars) return toast('全部の小節は消せません');
@@ -1459,7 +1461,7 @@ function previewChord(tr, c) {
 }
 function setChord(c) {
   const tr = track();
-  if (locked(tr)) return toast('🔒 このトラックはロックされています');
+  if (locked(tr)) return toast('このトラックはロックされています');
   edit(() => {
     while (tr.chords.length < song.bars) tr.chords.push(null);
     tr.chords[ui.selBar] = c;
@@ -1723,23 +1725,23 @@ function renderTracks() {
     const d = document.createElement('div');
     d.className = 'track' + (i === cur ? ' sel' : '') + (tr.locked ? ' locked' : '');
     d.style.setProperty('--tc', TRACK_COLORS[i % TRACK_COLORS.length]);
-    const icon = tr.type === 'melody' ? '🎵' : tr.type === 'chord' ? '🎹' : '🥁';
+    const icon = I(TYPE_ICON[tr.type]);
     const instLabel = tr.type === 'drum' ? (Sound.KITS.find((k) => k.id === tr.kit) || Sound.KITS[0]).name : Sound.INSTRUMENTS[tr.inst] || tr.inst;
     const realOk = tr.real !== false && (tr.type === 'drum' || Sound.Samples.has(tr.inst));
     const loading = realOk && !(tr.type === 'drum' ? Sound.Samples.drumsReady() : Sound.Samples.ready(tr.inst));
-    const badge = realOk ? (loading ? '<span class="badge wait" title="録音を読み込み中">⏳</span>' : '<span class="badge" title="本物の楽器の録音">🎙</span>') : '<span class="badge syn" title="電子音">🎛</span>';
+    const badge = realOk ? (loading ? `<span class="badge wait" title="録音を読み込み中">${I('mic')}</span>` : `<span class="badge" title="本物の楽器の録音">${I('mic')}</span>`) : `<span class="badge syn" title="電子音">${I('wave')}</span>`;
     const lockMute = song.locks.mute;
     d.innerHTML = `
-      <div class="trow"><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? '<span title="ロック中">🔒</span>' : ''}
-        <button class="mini mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>消</button>
-        <button class="mini solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>ソロ</button>
-        <details class="pop right tmenu" data-pop="t${i}"><summary class="mini" title="名前・並べかえ・複製・削除">⋯</summary><div class="popbody menu-list">
-          <button data-a="rename" ${tr.locked ? 'disabled' : ''}>✏️ 名前を変える</button>
-          <button data-a="up" ${i === 0 ? 'disabled' : ''}>▲ 上へ</button>
-          <button data-a="down" ${i === song.tracks.length - 1 ? 'disabled' : ''}>▼ 下へ</button>
-          ${song.locks.tracks ? '' : '<button data-a="dup">⧉ 複製する</button><button data-a="del" class="danger">🗑 削除する</button>'}
+      <div class="trow"><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
+        <button class="mini icon mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>M</button>
+        <button class="mini icon solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>S</button>
+        <details class="pop right tmenu" data-pop="t${i}"><summary class="mini icon" title="名前・並べかえ・複製・削除">${I('more')}</summary><div class="popbody menu-list">
+          <button data-a="rename" ${tr.locked ? 'disabled' : ''}>${I('pencil')}名前を変える</button>
+          <button data-a="up" ${i === 0 ? 'disabled' : ''}>${I('chevron')}上へ</button>
+          <button data-a="down" ${i === song.tracks.length - 1 ? 'disabled' : ''}>${I('chevron')}下へ</button>
+          ${song.locks.tracks ? '' : `<button data-a="dup">${I('copy')}複製する</button><button data-a="del" class="danger">${I('trash')}削除する</button>`}
         </div></details></div>
-      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${badge}${escapeHtml(instLabel)} ▾</button>
+      <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${badge}<span class="instname">${escapeHtml(instLabel)}</span>${I('chevron')}</button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
     d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details')) selectTrack(i); });
     d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); };
@@ -1800,14 +1802,14 @@ function renderEditorTools() {
   pal.innerHTML = '';
   pal.hidden = tr.type !== 'chord';
   let html = '';
-  if (lk) html += '<span class="lockmsg" title="先生がロックしています（見る・聴くだけ）">🔒 ロック中</span>';
+  if (lk) html += `<span class="lockmsg" title="先生がロックしています（見る・聴くだけ）">${I('lock')}ロック中</span>`;
   if (tr.type !== 'chord' && isPhone) html += `<select id="gridSel" class="gridsel" title="おたまチョップ：置く音の長さ">${GRIDS.map(([v, t, ic]) => `<option value="${v}" ${ui.grid === v ? 'selected' : ''}>${ic} ${t}</option>`).join('')}</select>`;
   else if (tr.type !== 'chord') html += `<span class="grp otama" title="おたまチョップ：置く音の長さ（マス目の大きさ）">${GRIDS.map(([v, t, ic]) => `<button class="mini gbtn ${ui.grid === v ? 'on' : ''}" data-v="${v}" title="${t}"><span class="ic">${ic}</span>${t.replace('音符', '').replace('3連符', '3連')}</button>`).join('')}</span>`;
   let tools = '';
   let others = [];
   if (tr.type === 'melody') {
     others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">🎲${isPhone ? '' : ' おまかせ作曲'}</button>`;
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}${isPhone ? '' : '<span>おまかせ作曲</span>'}</button>`;
     tools = `
       <label>音域 <select id="range">${Object.entries(RANGES).map(([k, v]) => `<option value="${k}" ${k === tr.range ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
       <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
@@ -1815,7 +1817,7 @@ function renderEditorTools() {
       <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
       ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}`;
   } else if (tr.type === 'drum') {
-    html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">🥁 リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
+    html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
     html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
@@ -1829,8 +1831,8 @@ function renderEditorTools() {
     pal.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; setChord(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
     $('#cSet').onclick = () => setChord({ r: +$('#cRoot').value, q: $('#cQ').value });
   }
-  html += `<details class="pop" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">🛠 道具</summary><div class="popbody">${tools}
-    <div class="sub">再生</div><div class="btnrow"><button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">▶ 見えている所だけくりかえす</button></div>
+  html += `<details class="pop" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">${I('tool')}<span>道具</span></summary><div class="popbody">${tools}
+    <div class="sub">再生</div><div class="btnrow"><button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">${I('loop')}見えている所だけくりかえす</button></div>
     <div class="sub">消す</div><div class="btnrow"><button class="mini danger" id="btnClear" ${lk ? 'disabled' : ''}>このトラックをぜんぶ消す</button></div></div></details>`;
   box.innerHTML = html;
   if (wasOpen) { const again = box.querySelector(`details[data-pop="${wasOpen.dataset.pop}"]`); if (again) again.open = true; }
@@ -1852,7 +1854,7 @@ function renderEditorTools() {
   $('#btnClear').onclick = () => { if (confirm(`「${tr.name}」の中身をぜんぶ消しますか？`)) edit(() => clearTrack(tr), 'トラックを全部消す'); };
   if (tr.type === 'melody') {
     $('#range').onchange = (ev) => { edit(() => { tr.range = ev.target.value; }, '音域'); scrollToNotes(); };
-    const guard = (fn, label) => () => { if (lk) return toast('🔒 ロックされています'); edit(fn, label); };
+    const guard = (fn, label) => () => { if (lk) return toast('ロックされています'); edit(fn, label); };
     $('#tDegDn').onclick = guard(() => transposeDegree(tr, -1), '音階で下げる');
     $('#tDegUp').onclick = guard(() => transposeDegree(tr, 1), '音階で上げる');
     $('#tSemiDn').onclick = guard(() => transpose(tr, -1), '半音下げる');
@@ -1860,7 +1862,7 @@ function renderEditorTools() {
     $('#tOctDn').onclick = guard(() => transpose(tr, -12), 'オクターブ下げる');
     $('#tOctUp').onclick = guard(() => transpose(tr, 12), 'オクターブ上げる');
     const ba = $('#btnAuto');
-    if (ba) ba.onclick = () => { if (lk) return toast('🔒 ロックされています'); if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「↶」で元に戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
+    if (ba) ba.onclick = () => { if (lk) return toast('ロックされています'); if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「元に戻す」で戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
     if (others.length) $('#btnRound').onclick = () => {
       if (lk) return;
       const src = song.tracks.find((t) => t.id === $('#rSrc').value);
@@ -1914,9 +1916,9 @@ function scrollToNotes() {
 let picker = null;
 function openInstPicker(ti) {
   const tr = song.tracks[ti];
-  if (locked(tr)) return toast('🔒 ロックされています');
+  if (locked(tr)) return toast('ロックされています');
   picker = { ti, type: tr.type, val: tr.type === 'drum' ? tr.kit : tr.inst, cat: tr.type === 'drum' ? null : Sound.INST_CAT[tr.inst] || 'key', real: tr.real !== false };
-  $('#instTitle').textContent = tr.type === 'drum' ? '🥁 打楽器のセットをえらぶ' : '🎹 楽器をえらぶ';
+  $('#instTitle').textContent = tr.type === 'drum' ? '打楽器のセットをえらぶ' : '楽器をえらぶ';
   renderPicker();
   $('#dlgInst').showModal();
 }
@@ -1925,19 +1927,19 @@ function renderPicker() {
   const box = $('#instBody');
   const ctx = audioCtx();
   const toggle = `<div class="realtoggle" title="本物の楽器を録音した音か、コンピューターで作った音か">
-    <button class="${p.real ? 'on' : ''}" data-r="1">🎙 本物の録音</button><button class="${p.real ? '' : 'on'}" data-r="0">🎛 電子音</button></div>`;
+    <button class="${p.real ? 'on' : ''}" data-r="1">${I('mic')}本物の録音</button><button class="${p.real ? '' : 'on'}" data-r="0">${I('wave')}電子音</button></div>`;
   if (p.type === 'drum') {
     const kit = Sound.KITS.find((k) => k.id === p.val) || Sound.KITS[0];
-    box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.icon} ${k.name}</button>`).join('')}</div>
-      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}${p.real && Sound.Samples.hasDrum(id) ? '<small>🎙</small>' : ''}</button>`).join('')}</div>
-      <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。🎙＝本物の録音があります。</p>`;
+    box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${k.name}</button>`).join('')}</div>
+      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}${p.real && Sound.Samples.hasDrum(id) ? `<small class="rec">${I('mic')}</small>` : ''}</button>`).join('')}</div>
+      <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。マイクのしるし＝本物の録音があります。</p>`;
     if (p.real) Sound.Samples.loadDrums(ctx).catch(() => {});
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.val = b.dataset.k; renderPicker(); }));
     box.querySelectorAll('.pad').forEach((b) => (b.onpointerdown = () => preview({ type: 'drum', real: p.real }, b.dataset.id)));
   } else {
     const cat = Sound.CATS.find((c) => c.id === p.cat) || Sound.CATS[0];
-    box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>
-      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}${p.real ? (Sound.Samples.has(id) ? ' <small>🎙</small>' : ' <small title="録音がないので電子音で鳴ります">🎛</small>') : ''}</button>`).join('')}</div>
+    box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${c.name}</button>`).join('')}</div>
+      <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${name}${p.real ? (Sound.Samples.has(id) ? `<small class="rec" title="本物の録音">${I('mic')}</small>` : `<small class="rec syn" title="録音がないので電子音で鳴ります">${I('wave')}</small>`) : ''}</button>`).join('')}</div>
       <div class="kbd" id="pickKbd"></div>`;
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.cat = b.dataset.c; renderPicker(); }));
     const demo = async () => {
@@ -1984,22 +1986,22 @@ let fxKind = 'lowpass';
 function openPalette() {
   const box = $('#palBody');
   box.innerHTML = `
-    <section><h4>🎚 ミキサー（トラックの音量）</h4><div class="mixer">${song.tracks.map((t, i) => `
+    <section><h4>ミキサー</h4><div class="mixer">${song.tracks.map((t, i) => `
       <label class="mixch" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><input type="range" min="0" max="1" step="0.01" value="${t.vol}" data-i="${i}" ${t.locked ? 'disabled' : ''}><span>${i + 1}. ${escapeHtml(t.name)}</span></label>`).join('')}
       <label class="mixch master"><input type="range" min="0" max="1.2" step="0.01" value="${song.master}" id="mMaster"><span>全体の音量</span></label></div></section>
-    <section><h4>🎛 イコライザー（音域ごとのバランス）</h4>
+    <section><h4>イコライザー <small class="muted">音域ごとのバランス</small></h4>
       <div class="eqrow"><label>低音 <input type="range" min="-12" max="12" step="1" value="${song.eq.low}" data-eq="low"></label>
       <label>中音 <input type="range" min="-12" max="12" step="1" value="${song.eq.mid}" data-eq="mid"></label>
       <label>高音 <input type="range" min="-12" max="12" step="1" value="${song.eq.high}" data-eq="high"></label>
       <label>ひびき <input type="range" min="0" max="1" step="0.05" value="${song.reverb}" id="mRev"></label>
       <button class="mini" id="eqReset">もとにもどす</button></div></section>
-    <section><h4>⏱ メトロノーム</h4>
+    <section><h4>メトロノーム</h4>
       <div class="eqrow"><label>音色 <select id="mKind">${Object.entries(Sound.METRO_SOUNDS).map(([k, v]) => `<option value="${k}" ${k === song.metro.kind ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>音量 <input type="range" min="0" max="1.5" step="0.05" value="${song.metro.vol}" id="mVol"></label></div></section>
-    <section><h4>✨ エフェクトパッド <small class="muted">再生中にパッドを押している間だけかかります（書き出しには入りません）</small></h4>
+    <section><h4>エフェクトパッド <small class="muted">再生中にパッドを押している間だけかかります（書き出しには入りません）</small></h4>
       <div class="fxsel">${Object.entries(FX).map(([k, v]) => `<button class="mini ${k === fxKind ? 'on' : ''}" data-fx="${k}">${v[0]}</button>`).join('')}</div>
       <div class="fxpad" id="fxPad"><span id="fxHint">${FX[fxKind][1]}</span><i id="fxDot"></i></div>
-      <button class="mini" id="fxPlay">${player.on ? '⏸ 止める' : '▶ 再生してためす'}</button></section>`;
+      <button class="mini accent" id="fxPlay">${player.on ? '止める' : '再生してためす'}</button></section>`;
   box.querySelectorAll('.mixch input[data-i]').forEach((inp) => {
     inp.oninput = () => { const t = song.tracks[+inp.dataset.i]; t.vol = +inp.value; liveVolume(t); };
   });
@@ -2012,7 +2014,7 @@ function openPalette() {
   $('#mRev').oninput = (e) => { song.reverb = +e.target.value; if (player.graph) player.graph.wet.gain.value = song.reverb * 0.6; };
   $('#mKind').onchange = (e) => { song.metro.kind = e.target.value; const ctx = ensureAudio(); Sound.click(ctx, previewOut, ctx.currentTime + 0.01, true, song.metro.kind); };
   $('#mVol').oninput = (e) => { song.metro.vol = +e.target.value; if (player.graph) player.graph.metro.gain.value = song.metro.vol; };
-  $('#fxPlay').onclick = () => { player.on ? stop() : play(); $('#fxPlay').textContent = player.on ? '⏸ 止める' : '▶ 再生してためす'; };
+  $('#fxPlay').onclick = () => { player.on ? stop() : play(); $('#fxPlay').textContent = player.on ? '止める' : '再生してためす'; };
   box.querySelectorAll('[data-fx]').forEach((b) => (b.onclick = () => { fxKind = b.dataset.fx; openPalette(); }));
   const pad = $('#fxPad');
   let active = false;
@@ -2072,7 +2074,7 @@ function fxApply(kind, x, y, on, gph) {
 function openHistory() {
   const box = $('#histList');
   const items = undoStack.map((e, i) => `<button class="histrow" data-i="${i}"><span>${i + 1}.</span> ${escapeHtml(e.label)}</button>`);
-  box.innerHTML = items.length ? items.join('') + '<div class="histrow now">▶ いまの状態</div>' : '<p class="muted">まだ操作の記録はありません。</p>';
+  box.innerHTML = items.length ? items.join('') + '<div class="histrow now">いまの状態</div>' : '<p class="muted">まだ操作の記録はありません。</p>';
   box.querySelectorAll('.histrow[data-i]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.i;
     const label = undoStack[i].label;
@@ -2215,7 +2217,7 @@ function openScore() {
     <label class="chk"><input type="checkbox" data-c="accomp" ${S.accomp ? 'checked' : ''}> コード伴奏をピアノの楽譜（大譜表）にする</label>
     <h4>パート</h4>
     ${mel.map((t) => `<div class="scorepart">
-      <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${t.type === 'drum' ? '🥁' : t.type === 'chord' ? '🎹' : '🎵'} ${escapeHtml(t.name)}</label>
+      <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
       ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
       <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="0">なし（C）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
       <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
@@ -2320,7 +2322,7 @@ function scKeyAcc() {
 function scEditable() {
   const tr = track();
   if (tr.type !== 'melody') { toast('楽譜で書けるのはメロディのトラックです（リズム・コードはマス目で）'); return null; }
-  if (locked(tr)) { toast('🔒 このトラックはロックされています'); return null; }
+  if (locked(tr)) { toast('このトラックはロックされています'); return null; }
   return tr;
 }
 function setView(v) {
@@ -2610,7 +2612,7 @@ function scChord() {
   renderScoreEdit();
 }
 function scBarMark(kind) {
-  if (song.locks.rules) return toast('🔒 ロックされています');
+  if (song.locks.rules) return toast('ロックされています');
   const b = Math.floor(Math.max(0, ui.sc.cursor - 1) / barTicks());
   const bb = kind === 'start' ? Math.floor(ui.sc.cursor / barTicks()) : b;
   edit(() => {
@@ -2634,9 +2636,9 @@ function renderScorePal() {
   const durBtns = SC_DURS.map(([v, name, ic, key]) => `<button class="mini sdur ${ui.sc.dur === v ? 'on' : ''}" data-d="${v}" title="${name}（キー ${key}）"><span class="ic">${ic}</span></button>`).join('');
   pal.innerHTML = `
     <div class="prow">
-      <span class="seg"><button class="mini ${ui.sc.input ? 'on' : ''}" data-m="1" title="クリックで音符を置く（キー N で切りかえ）">✏️ 入力</button><button class="mini ${ui.sc.input ? '' : 'on'}" data-m="0" title="クリックで音符をえらぶ">☝ 選択</button></span>
+      <span class="seg"><button class="mini ${ui.sc.input ? 'on' : ''}" data-m="1" title="クリックで音符を置く（キー N で切りかえ）">${I('pencil')}<span>入力</span></button><button class="mini ${ui.sc.input ? '' : 'on'}" data-m="0" title="クリックで音符をえらぶ">${I('pointer')}<span>選択</span></button></span>
       <span class="grp">${durBtns}<button class="mini ${ui.sc.dot ? 'on' : ''}" id="scDot" title="付点（キー .）">付点</button><button class="mini ${ui.sc.trip ? 'on' : ''}" id="scTrip" title="3連符（キー T）">3連</button></span>
-      <button class="mini" id="scRest" title="休符を入れる（キー 0 または R）">𝄽 休符</button>
+      <button class="mini" id="scRest" title="休符を入れる（キー 0 または R）"><span class="ic">𝄽</span> 休符</button>
       <span class="grp">${['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'].map((n, i) => `<button class="mini snote" data-l="${i}" title="${'CDEFGAB'[i]} キー（Shift で和音に足す）">${n}</button>`).join('')}</span>
       <span class="grp"><button class="mini" id="scSharp" title="半音上げる">♯</button><button class="mini" id="scFlat" title="半音下げる">♭</button><button class="mini" id="scNat" title="調号の音にもどす">♮</button><button class="mini" id="scUp" title="1音上げる（↑）">↑</button><button class="mini" id="scDn" title="1音下げる（↓）">↓</button><button class="mini" id="scOct" title="オクターブ上げる（Ctrl+↑）">8va</button></span>
     </div>
@@ -2646,8 +2648,8 @@ function renderScorePal() {
       <span class="grp"><button class="mini" id="scSlur" title="スラー（なめらかに）・キー S">⌒ スラー</button><button class="mini" id="scTieB" title="タイ（同じ高さをつなぐ）・キー +">‿ タイ</button></span>
       <span class="grp"><button class="mini" id="scLyr" title="歌詞・キー L">あ 歌詞</button><button class="mini" id="scChd" title="コードネーム">C7 コード</button></span>
       <span class="grp"><button class="mini" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="mini" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="mini" data-bar="1" title="1番かっこ">1.</button><button class="mini" data-bar="2" title="2番かっこ">2.</button></span>
-      <span class="grp"><button class="mini" id="scCopyB" title="コピー（Ctrl+C）">⧉</button><button class="mini" id="scPasteB" title="貼りつけ（Ctrl+V）">📋</button><button class="mini" id="scClr" title="えらんだ所の強弱・スラーなどの記号を消す">記号を消す</button><button class="mini danger" id="scDel" title="消す（Delete）">🗑</button></span>
-      <span class="grp"><button class="mini" id="scZoomOut" title="小さく">－</button><button class="mini" id="scZoomIn" title="大きく">＋</button></span>
+      <span class="grp"><button class="mini icon" id="scCopyB" title="コピー（Ctrl+C）">${I('copy')}</button><button class="mini icon" id="scPasteB" title="貼りつけ（Ctrl+V）">${I('paste')}</button><button class="mini" id="scClr" title="えらんだ所の強弱・スラーなどの記号を消す">記号を消す</button><button class="mini icon danger" id="scDel" title="消す（Delete）">${I('trash')}</button></span>
+      <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button></span>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す</span></div>`;
   pal.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { ui.sc.input = b.dataset.m === '1'; renderScorePal(); }));
@@ -2765,7 +2767,7 @@ function scoreKey(e) {
   if (k === '.') { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); return true; }
   if (k === 't' || k === 'T') { ui.sc.trip = !ui.sc.trip; renderScorePal(); return true; }
   if (k === '0' || k === 'r' || k === 'R') { e.preventDefault(); scInsert([]); return true; }
-  if (k === 'n' || k === 'N') { ui.sc.input = !ui.sc.input; renderScorePal(); toast(ui.sc.input ? '✏️ 入力モード' : '☝ 選択モード'); return true; }
+  if (k === 'n' || k === 'N') { ui.sc.input = !ui.sc.input; renderScorePal(); toast(ui.sc.input ? '入力モード' : '選択モード'); return true; }
   if (k === '+') { scTie(); return true; }
   if (k === 's' || k === 'S') { scSlur(); return true; }
   if (k === 'l' || k === 'L') { scLyric(); return true; }
@@ -2872,7 +2874,7 @@ function applyPhone() {
 }
 function renderChips() {
   const box = $('#trackChips');
-  box.innerHTML = song.tracks.map((t, i) => `<button class="chip ${i === cur ? 'on' : ''}" data-i="${i}" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}">${t.type === 'melody' ? '🎵' : t.type === 'chord' ? '🎹' : '🥁'} ${escapeHtml(t.name)}${t.mute ? ' 🔇' : ''}${t.locked ? ' 🔒' : ''}</button>`).join('') + (song.locks.tracks ? '' : '<button class="chip add" data-add="1">＋</button>');
+  box.innerHTML = song.tracks.map((t, i) => `<button class="chip ${i === cur ? 'on' : ''}" data-i="${i}" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><i class="dot"></i>${escapeHtml(t.name)}${t.mute ? I('mute') : ''}${t.locked ? I('lock') : ''}</button>`).join('') + (song.locks.tracks ? '' : `<button class="chip add" data-add="1">${I('plus')}</button>`);
   box.querySelectorAll('.chip[data-i]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.i;
     if (i === cur) setPhoneView('tracks'); else { selectTrack(i); renderPhoneKbd(); }
@@ -2908,7 +2910,7 @@ function renderPhoneKbd() {
   el.innerHTML = `<div class="pkbar">
     <button class="mini" data-a="oct-">◀</button><b>C${ui.kbOct}</b><button class="mini" data-a="oct+">▶</button>
     <span class="grow"></span>
-    <button class="mini" data-a="back" title="ひとつもどって消す">⌫</button><button class="mini" data-a="rest" title="休み（次へ進む）">→ 休み</button><button class="mini" data-a="close">✕</button></div>${keys}`;
+    <button class="mini" data-a="back" title="ひとつもどって消す">⌫</button><button class="mini" data-a="rest" title="休み（次へ進む）">→ 休み</button><button class="mini icon" data-a="close">${I('x')}</button></div>${keys}`;
   el.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => {
     const a = b.dataset.a;
     if (a === 'oct-' || a === 'oct+') { ui.kbOct = clamp(ui.kbOct + (a === 'oct+' ? 1 : -1), 1, 7); renderPhoneKbd(); }
@@ -3238,7 +3240,7 @@ function toast(msg) {
    ============================================================ */
 const tapTimes = [];
 function init() {
-  const guardRules = (fn) => (e) => { if (song.locks.rules) { renderSettings(); return toast('🔒 ロックされています'); } fn(e); };
+  const guardRules = (fn) => (e) => { if (song.locks.rules) { renderSettings(); return toast('ロックされています'); } fn(e); };
   $('#title').onchange = (e) => edit(() => { song.title = e.target.value || 'あたらしい曲'; }, '曲名');
   const setBpm = (v) => { song.bpm = clamp(Math.round(+v || 100), 30, 240); $('#bpm').value = song.bpm; $('#bpmNum').value = song.bpm; version++; updateMini(); draw(); };
   $('#bpm').oninput = guardRules((e) => setBpm(e.target.value));
