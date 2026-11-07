@@ -2362,6 +2362,7 @@ function setView(v) {
     renderScorePal();
     renderScoreEdit();
   } else { resizeEditor(); draw(); }
+  renderPhonePad();
 }
 function scoreEditIds() {
   return song.tracks.filter((t) => t.type === 'melody' || (t.type === 'drum' && Object.keys(t.grid).length) || (t.type === 'chord' && scoreSettings().accomp && t.chords.some(Boolean))).map((t) => t.id);
@@ -2379,7 +2380,7 @@ function renderScoreEditNow() {
   scoreParts = o.partTracks;
   const pi = scoreParts.indexOf(track());
   o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel };
-  o.width = Math.max(560, box.clientWidth - 8);
+  o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
   const keepTop = box.scrollTop;
@@ -2730,7 +2731,7 @@ function scoreClick(e) {
   const r = svg.getBoundingClientRect();
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
-  const nh = e.target.closest && e.target.closest('.nh');
+  const nh = e.target.closest && e.target.closest('.nh, .nhhit');
   if (nh) {
     const tr = scoreParts[+nh.dataset.pi];
     if (tr && tr !== track()) { selectTrack(song.tracks.indexOf(tr), false); }
@@ -2904,6 +2905,131 @@ function renderKeyPop() {
 }
 
 /* ============================================================
+   スマホで楽譜をサッと書く入力パネル
+   長さ → ドレミ をおすだけで、カーソルの所に音符が入っていきます
+   ============================================================ */
+function renderPhonePad() {
+  const pad = $('#phonePad');
+  if (!pad) return;
+  const show = isPhone && ui.view === 'score';
+  pad.hidden = !show;
+  $('#scorePal').hidden = show;
+  if (!show) return;
+  const durs = SC_DURS.slice(0, 5);
+  pad.innerHTML = `
+    <div class="pp-row pp-durs">${durs.map(([v, name, ic]) => `<button class="pp-btn ${ui.sc.dur === v ? 'on' : ''}" data-d="${v}" title="${name}"><span class="ic">${ic}</span></button>`).join('')}
+      <button class="pp-btn ${ui.sc.dot ? 'on' : ''}" data-x="dot" title="付点">付点</button><button class="pp-btn ${ui.sc.trip ? 'on' : ''}" data-x="trip" title="3連符">3連</button></div>
+    <div class="pp-row pp-notes">${['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'].map((n, i) => `<button class="pp-note" data-l="${i}" style="--pc:${PC_COLORS[[0, 2, 4, 5, 7, 9, 11][i]]}">${n}</button>`).join('')}</div>
+    <div class="pp-row pp-tools">
+      <button class="pp-btn" data-x="oct+" title="オクターブ上">${I('plus')}<small>8va</small></button>
+      <button class="pp-btn" data-x="oct-" title="オクターブ下">${I('minus')}<small>8vb</small></button>
+      <button class="pp-btn" data-x="sharp" title="半音上げる">♯</button>
+      <button class="pp-btn" data-x="flat" title="半音下げる">♭</button>
+      <button class="pp-btn" data-x="rest" title="休符"><span class="ic">𝄽</span></button>
+      <button class="pp-btn" data-x="left" title="前へ">←</button>
+      <button class="pp-btn" data-x="right" title="次へ">→</button>
+      <button class="pp-btn danger" data-x="del" title="消す">⌫</button>
+      <details class="pop pp-more" data-pop="ppmore"><summary class="pp-btn" title="記号・歌詞・コードなど">${I('more')}</summary><div class="popbody">
+        <div class="sub">記号（えらんだ音符に）</div>
+        <div class="btnrow">${ARTS.map(([a, ic, t]) => `<button class="mini" data-art="${a}">${ic} ${t.split('（')[0]}</button>`).join('')}</div>
+        <div class="btnrow"><button class="mini" data-x="tie">タイ</button><button class="mini" data-x="slur">スラー</button><button class="mini" data-x="cresc">cresc.</button><button class="mini" data-x="dim">dim.</button></div>
+        <div class="sub">強弱</div>
+        <div class="btnrow">${DYNS.map((d) => `<button class="mini dynb" data-dyn="${d}">${d}</button>`).join('')}</div>
+        <div class="sub">ことば・コード</div>
+        <div class="btnrow"><button class="mini" data-x="lyric">歌詞</button><button class="mini" data-x="chord">コードネーム</button></div>
+        <div class="sub">小節</div>
+        <div class="btnrow"><button class="mini" data-bar="start">𝄆 くり返しはじめ</button><button class="mini" data-bar="end">𝄇 くり返しおわり</button><button class="mini" data-bar="1">1番かっこ</button><button class="mini" data-bar="2">2番かっこ</button></div>
+        <div class="sub">そのほか</div>
+        <div class="btnrow"><button class="mini" data-x="copy">コピー</button><button class="mini" data-x="paste">貼りつけ</button><button class="mini" data-x="print">印刷・書き出し</button></div>
+      </div></details>
+    </div>`;
+  pad.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; scApplyDurToSel(); renderPhonePad(); }));
+  pad.querySelectorAll('.pp-note').forEach((b) => (b.onclick = () => {
+    const tr = track();
+    if (tr.type !== 'melody') { scEditable(); return; }
+    scInsert([letterPitch(+b.dataset.l, refPitch(tr))], false);
+  }));
+  const act = {
+    dot: () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); },
+    trip: () => { ui.sc.trip = !ui.sc.trip; },
+    'oct+': () => phoneOct(12),
+    'oct-': () => phoneOct(-12),
+    sharp: () => scAccidental('#'),
+    flat: () => scAccidental('b'),
+    rest: () => scInsert([]),
+    left: () => scMove(-1, false),
+    right: () => scMove(1, false),
+    del: () => scDelete(),
+    tie: scTie, slur: scSlur, cresc: () => scHairpin('cresc'), dim: () => scHairpin('dim'),
+    lyric: scLyric, chord: scChord, copy: () => scCopy(false), paste: scPaste,
+    print: () => openScore(),
+  };
+  pad.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => { closePops(); act[b.dataset.x](); renderPhonePad(); }));
+  pad.querySelectorAll('[data-art]').forEach((b) => (b.onclick = () => { closePops(); scArt(b.dataset.art); }));
+  pad.querySelectorAll('[data-dyn]').forEach((b) => (b.onclick = () => { closePops(); scDynamic(b.dataset.dyn); }));
+  pad.querySelectorAll('[data-bar]').forEach((b) => (b.onclick = () => { closePops(); scBarMark(b.dataset.bar); }));
+}
+// オクターブ：えらんだ音符を動かし、次に入れる音の高さもいっしょに
+function phoneOct(d) {
+  const tr = track();
+  if (ui.sc.sel.size && tr.type === 'melody' && !locked(tr)) {
+    scEditSel((ns) => ns.forEach((n) => { n.p = clamp(n.p + d, 21, 108); }), d > 0 ? 'オクターブ上げる' : 'オクターブ下げる');
+    const ns = selNotes(tr);
+    if (ns.length) { preview(tr, ns[0].p, 0.3); ui.sc.lastIns = { ...(ui.sc.lastIns || { t: ns[0].s, d: ns[0].l }), p: ns[0].p, ref: ns[0].p }; }
+  } else {
+    const ref = refPitch(tr) + d;
+    ui.sc.lastIns = { ...(ui.sc.lastIns || { t: ui.sc.cursor, d: scDur() }), p: null, ref };
+    toast(`次の音は ${SOLFA_OCT(ref)} のあたり`);
+  }
+}
+
+/* ============================================================
+   はじめの画面：曲のひな形をえらぶ（カトカトーンより早く始められる）
+   ============================================================ */
+const TEMPLATES = [
+  { id: 'melody', icon: 'note', title: 'メロディをつくる', desc: 'メロディ＋コード伴奏＋リズム', make: () => [newTrack('melody', { name: 'メロディ', inst: 'recorder' }), newTrack('chord'), newTrack('drum', { name: 'リズム' })] },
+  { id: 'song', icon: 'mic', title: '歌と伴奏', desc: '歌のメロディ＋ピアノ伴奏', make: () => [newTrack('melody', { name: '歌', inst: 'choir' }), newTrack('chord', { name: 'ピアノ伴奏', pattern: 'arp' })] },
+  { id: 'duet', icon: 'layers', title: 'リコーダー二重奏', desc: 'ソプラノとアルトの2パート', make: () => [newTrack('melody', { name: 'ソプラノ', inst: 'recorder' }), newTrack('melody', { name: 'アルト', inst: 'recorder', range: 'alto' })] },
+  { id: 'rhythm', icon: 'drum', title: 'リズムアンサンブル', desc: '打楽器だけで合奏', make: () => [newTrack('drum', { name: '音楽室の打楽器', kit: 'school' }), newTrack('drum', { name: '和太鼓', kit: 'wa' })] },
+  { id: 'score', icon: 'score', title: '楽譜で書く', desc: '五線譜に直接書いていく', make: () => [newTrack('melody', { name: 'メロディ', inst: 'piano' })], view: 'score' },
+  { id: 'empty', icon: 'plus', title: 'からっぽ', desc: 'メロディ1つだけ', make: () => [newTrack('melody', { name: 'メロディ', inst: 'piano' })] },
+];
+function openStart(first) {
+  const box = $('#startBody');
+  box.innerHTML = `
+    <div class="tpl-grid">${TEMPLATES.map((t) => `<button class="tpl" data-t="${t.id}"><span class="tpl-ic">${I(t.icon)}</span><b>${t.title}</b><small>${t.desc}</small></button>`).join('')}</div>
+    <div class="tpl-opts">
+      <label>拍子 <select id="tplMeter"><option value="2/4">2/4</option><option value="3/4">3/4</option><option value="4/4" selected>4/4</option><option value="6/8">6/8</option></select></label>
+      <label>調 <select id="tplKey">${[[0, 0], [7, 0], [5, 0], [2, 0], [10, 0], [9, 1], [4, 1], [2, 1]].map(([k, m]) => `<option value="${k}:${m}">${keyLabel(k, !!m)}</option>`).join('')}</select></label>
+      <label>小節 <select id="tplBars">${[4, 8, 12, 16, 24, 32].map((n) => `<option ${n === 8 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label>テンポ <input id="tplBpm" type="number" min="30" max="240" value="100"></label>
+    </div>
+    <div class="tpl-links"><button class="mini" id="tplSample">${I('note')}サンプル曲を開く</button><button class="mini" id="tplOpen">${I('folder')}ファイルを開く</button>${first ? '' : `<button class="mini" id="tplCancel">${I('x')}いまの曲にもどる</button>`}</div>`;
+  box.querySelectorAll('.tpl').forEach((b) => (b.onclick = () => {
+    const t = TEMPLATES.find((x) => x.id === b.dataset.t);
+    const s = newSong();
+    s.title = 'あたらしい曲';
+    s.meter = $('#tplMeter').value.split('/').map(Number);
+    const [k, m] = $('#tplKey').value.split(':').map(Number);
+    s.key = k;
+    s.scale = m ? 'minor' : 'major';
+    s.bars = +$('#tplBars').value;
+    s.bpm = clamp(+$('#tplBpm').value || 100, 30, 240);
+    s.tracks = t.make();
+    $('#dlgStart').close();
+    loadSong(s);
+    setView(t.view || 'grid');
+    if (isPhone) setPhoneView(t.view === 'score' ? 'score' : 'edit');
+    toast(t.view === 'score' ? '長さ→音名の順におすと、音符が入っていきます' : 'マス目をおして音を置いてみよう');
+  }));
+  $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); };
+  $('#tplOpen').onclick = () => { $('#dlgStart').close(); $('#fileIn').click(); };
+  const c = $('#tplCancel');
+  if (c) c.onclick = () => $('#dlgStart').close();
+  if (!$('#dlgStart').open) $('#dlgStart').showModal();
+}
+
+/* ============================================================
    スマホ用の画面
    ============================================================ */
 const phoneMQ = window.matchMedia('(max-width: 700px)');
@@ -2941,7 +3067,14 @@ function panUp(e) {
 }
 
 function setPhoneView(v) {
-  if (v === 'score') { openScore(); return; }
+  if (v === 'score') {
+    $('#phoneMore').classList.remove('open');
+    document.body.dataset.view = 'edit';
+    $$('#phoneNav button').forEach((b) => b.classList.toggle('on', b.dataset.view === 'score'));
+    setView('score');
+    return;
+  }
+  if (v === 'edit' && ui.view === 'score') setView('grid');
   if (v === 'more') { $('#phoneMore').classList.toggle('open'); return; }
   $('#phoneMore').classList.remove('open');
   document.body.dataset.view = v;
@@ -2979,8 +3112,10 @@ function applyPhone() {
     document.body.dataset.view = '';
     $('#phoneMore').classList.remove('open');
   }
+  if (on) ui.sc.input = false; // スマホでは、楽譜をタップ＝えらぶ（入力は下のパネルで）
   renderEditorTools();
   renderPhoneKbd();
+  renderPhonePad();
   resizeEditor();
   draw();
   drawOverview();
@@ -3415,7 +3550,7 @@ function init() {
   $('#btnUndo').onclick = undo;
   $('#btnRedo').onclick = redo;
   $('#btnHist').onclick = openHistory;
-  $('#btnNew').onclick = () => { if (confirm('注意：保存していないデータは消えてしまいます。新しい曲を作りますか？')) loadSong(newSong()); };
+  $('#btnNew').onclick = () => openStart(false);
   $('#btnSample').onclick = () => { if (confirm('注意：保存していないデータは消えてしまいます。サンプル曲を開きますか？')) loadSong(sampleSong()); };
   $('#btnSave').onclick = saveToBrowser;
   $('#btnOpen').onclick = openDialog;
@@ -3555,6 +3690,7 @@ function init() {
       if (auto) { loadSong(JSON.parse(auto)); toast('前回の続きから開きました'); return; }
     } catch (e) { /* 何もしない */ }
     loadSong(sampleSong());
+    openStart(true);
   })();
 }
 init();

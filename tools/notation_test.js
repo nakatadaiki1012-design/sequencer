@@ -4,6 +4,7 @@ const errs=[]; p.on('pageerror', e => errs.push(e.message));
 await p.goto('http://localhost:8765/'); await p.waitForTimeout(800);
 const R = await p.evaluate(() => {
   const res = {};
+  const cnt = (svg, nm) => svg.split(Glyphs.g[nm].d).length - 1;
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   // 1. どの拍子でも、小節の長さの合計が正しい（ランダムな曲 300曲）
   let bad = 0, total = 0;
@@ -24,14 +25,14 @@ const R = await p.evaluate(() => {
   // 3. 臨時記号：上がるとき♯、下がるとき♭（ハ長調）
   const up = Notation.render({ parts: [{ name: 'a', notes: [60,61,62].map((p,i)=>({s:i*48,p,l:48})) }], bars: 1, barTicks: 192, meter: [4,4], key: 0, minor: false, title: '', bpm: 100 });
   const dn = Notation.render({ parts: [{ name: 'a', notes: [62,61,60].map((p,i)=>({s:i*48,p,l:48})) }], bars: 1, barTicks: 192, meter: [4,4], key: 0, minor: false, title: '', bpm: 100 });
-  res['ド→ド♯→レ は♯で書く'] = up.includes('♯') && !up.includes('♭') ? 'OK' : 'NG';
-  res['レ→レ♭→ド は♭で書く'] = dn.includes('♭') && !dn.includes('♯') ? 'OK' : 'NG';
+  res['ド→ド♯→レ は♯で書く'] = cnt(up,'accidentalSharp')===1 && cnt(up,'accidentalFlat')===0 ? 'OK' : 'NG';
+  res['レ→レ♭→ド は♭で書く'] = cnt(dn,'accidentalFlat')===1 && cnt(dn,'accidentalSharp')===0 ? 'OK' : 'NG';
   // 同じ小節で2回目の同じ音には臨時記号を書かない、ナチュラルでもどす
   const nat = Notation.render({ parts: [{ name: 'a', notes: [61,61,60].map((p,i)=>({s:i*48,p,l:48})) }], bars: 1, barTicks: 192, meter: [4,4], key: 0, minor: false, title: '', bpm: 100 });
-  res['小節内の臨時記号（♯1回・♮1回）'] = (nat.match(/♯/g)||[]).length === 1 && (nat.match(/♮/g)||[]).length === 1 ? 'OK' : 'NG';
+  res['小節内の臨時記号（♯1回・♮1回）'] = cnt(nat,'accidentalSharp')===1 && cnt(nat,'accidentalNatural')===1 ? 'OK' : 'NG';
   // ト長調のファは♯なし（調号）、ファ♮は♮
   const g = Notation.render({ parts: [{ name: 'a', notes: [66,65].map((p,i)=>({s:i*48,p,l:48})) }], bars: 1, barTicks: 192, meter: [4,4], key: 7, minor: false, title: '', bpm: 100 });
-  res['ト長調：ファ♯は調号だけ、ファは♮'] = (g.match(/♯/g)||[]).length === 1 && (g.match(/♮/g)||[]).length === 1 ? 'OK' : 'NG';
+  res['ト長調：ファ♯は調号だけ、ファは♮'] = cnt(g,'accidentalSharp')===1 && cnt(g,'accidentalNatural')===1 ? 'OK' : 'NG';
   // 4. 楽譜のクリック位置→音の高さ（ト音・ヘ音・調号つき）全部の線と間
   let hb = 0, ht = 0;
   for (const [key, clef] of [[0,'treble'],[0,'bass'],[7,'treble'],[5,'bass'],[2,'treble']]) {

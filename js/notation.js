@@ -11,6 +11,12 @@
 const Notation = (() => {
   const FONT = `"Noto Music","Bravura","Segoe UI Symbol","Apple Symbols","Noto Sans Symbols 2",serif`;
   const SP = 8; // 五線の間隔
+  // 楽譜フォント Bravura の形（js/glyphs.js）で記号を描く
+  const G = (name, x, y, attrs = '', sp = SP) => Glyphs.svg(name, +x.toFixed(2), +y.toFixed(2), sp, attrs || 'fill="#111"');
+  const GW = (name, sp = SP) => (Glyphs.g[name] ? Glyphs.g[name].w : 1) * sp;
+  const ACC_G = { 1: 'accidentalSharp', '-1': 'accidentalFlat', 0: 'accidentalNatural', 2: 'accidentalDoubleSharp', '-2': 'accidentalDoubleFlat' };
+  const DYN_G = { p: 'dynamicPiano', m: 'dynamicMezzo', f: 'dynamicForte', s: 'dynamicSforzando', z: 'dynamicZ', r: 'dynamicRinforzando' };
+  const headName = (base, shape) => (shape === 1 ? 'noteheadXBlack' : shape === 2 ? 'noteheadCircleX' : base >= 192 ? 'noteheadWhole' : base >= 96 ? 'noteheadHalf' : 'noteheadBlack');
   const KEYSIG = { 0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: 6, 5: -1, 10: -2, 3: -3, 8: -4, 1: -5 };
   const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6];
   const FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3];
@@ -138,6 +144,7 @@ const Notation = (() => {
   }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  let textW = (t) => [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12 : 7), 0);
   const spaceFor = (d) => 11 + 9 * Math.log2(Math.max(d, 4) / 6);
 
   /* ------------------------------------------------------------
@@ -199,14 +206,35 @@ const Notation = (() => {
     // ---- 小節ごとの「音の始まる位置」と自然な幅 ----
     const barStartTick = (b) => (b === 0 && pickup ? barTicks - pickup : 0);
     const barInfo = [];
+    textW = (t) => [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12 : 7), 0);
     for (let b = 0; b < bars; b++) {
       const set = new Set([barStartTick(b), barTicks]);
       let accRoom = 0;
-      for (const st of staves) for (const ev of st.bars[b]) if (ev.pos >= barStartTick(b)) { set.add(ev.pos); if (ev.pitches && ev.pos === barStartTick(b)) accRoom = 8; }
+      const need = new Map(); // 位置 → { w: 文字のはば, acc: 臨時記号がつくか }
+      for (const st of staves) {
+        const keyPcs = new Set([0, 2, 4, 5, 7, 9, 11].map((v, i) => (v + keyAccOf(st.kc)[i] + 12) % 12));
+        for (const ev of st.bars[b]) {
+          if (ev.pos < barStartTick(b)) continue;
+          set.add(ev.pos);
+          const n = need.get(ev.pos) || { w: 0, acc: false };
+          if (ev.pitches && st.clef !== 'perc' && ev.pitches.some((p) => !keyPcs.has(((p % 12) + 12) % 12))) n.acc = true;
+          if (ev.first && st.sub === 0) {
+            const ly = ev.ly || (st.notes.some((x) => x.ly) ? '' : st.lyrics[ev.syll]);
+            n.w = Math.max(n.w, textW(ly), nameOf && st.clef !== 'perc' && ev.pitches ? ev.pitches.length * 11 : 0);
+          }
+          need.set(ev.pos, n);
+          if (ev.pitches && ev.pos === barStartTick(b) && n.acc) accRoom = 8;
+        }
+      }
       if (edit && edit.cursor != null && Math.floor(edit.cursor / barTicks) === b) set.add(edit.cursor - b * barTicks);
       const ticks = [...set].sort((a, c) => a - c);
       const segW = [];
-      for (let i = 0; i < ticks.length - 1; i++) segW.push(spaceFor(ticks[i + 1] - ticks[i]));
+      for (let i = 0; i < ticks.length - 1; i++) {
+        const a = need.get(ticks[i]) || { w: 0 };
+        const z = need.get(ticks[i + 1]) || { w: 0, acc: false };
+        // 音の長さに合った間隔・歌詞が重ならない間隔・臨時記号の分
+        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]), (a.w + z.w) / 2 + 5) + (z.acc ? 9 : 0));
+      }
       const nat = 14 + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
       barInfo.push({ ticks, segW, nat, accRoom });
     }
@@ -214,7 +242,7 @@ const Notation = (() => {
     // ---- 段組み（1段に何小節入れるか） ----
     const left = 16;
     const kcMax = Math.max(0, ...staves.map((s) => Math.abs(s.kc)));
-    const headW = (first) => 34 + kcMax * 8 + (first ? 24 : 6) + (staves.some((s) => s.grand) ? 10 : 0);
+    const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 : 6) + (staves.some((s) => s.grand) ? 10 : 0);
     const lines = [];
     let b = 0;
     while (b < bars) {
@@ -227,6 +255,22 @@ const Notation = (() => {
       }
       lines.push([b, b + n]);
       b += n;
+    }
+    if (!opts.perLine && lines.length > 1) {
+      // 1段ごとの量を平均にそろえて、もう一度わける
+      const total = barInfo.reduce((a, x) => a + x.nat, 0);
+      const target = total / lines.length;
+      const avail = width - left - headW(false) - 10;
+      const even = [];
+      let bb = 0;
+      while (bb < bars) {
+        let n = 0;
+        let w = 0;
+        while (bb + n < bars && (n === 0 || (w + barInfo[bb + n].nat <= Math.min(avail, target * 1.12) && even.length < lines.length - 1) || (even.length === lines.length - 1 && w + barInfo[bb + n].nat <= avail))) { w += barInfo[bb + n].nat; n++; }
+        even.push([bb, bb + n]);
+        bb += n;
+      }
+      if (even.length <= lines.length) lines.splice(0, lines.length, ...even);
     }
 
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
@@ -244,7 +288,12 @@ const Notation = (() => {
     if (meta.subtitle) o.push(`<text x="${width / 2}" y="52" text-anchor="middle" font-size="13" fill="#333">${esc(meta.subtitle)}</text>`);
     const credits = [meta.lyricist ? '作詞：' + meta.lyricist : '', meta.composer ? '作曲：' + meta.composer : ''].filter(Boolean);
     credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12" fill="#222">${esc(c)}</text>`));
-    o.push(`<text x="${left}" y="${top - 12}" font-size="13" font-weight="bold" fill="#111">${opts.tempoText ? esc(opts.tempoText) + '  ' : ''}<tspan font-weight="normal">♩ = ${bpm}</tspan></text>`);
+    {
+      const tw = opts.tempoText ? textW(opts.tempoText) * 1.05 + 8 : 0;
+      if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="13" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
+      o.push(G('metNoteQuarterUp', left + tw, top - 12, 'fill="#111"', 6.5));
+      o.push(`<text x="${left + tw + 11}" y="${top - 12}" font-size="13" fill="#111">= ${bpm}</text>`);
+    }
 
     // 臨時記号は段ごと・小節ごとに覚える
     lines.forEach(([b0, b1], line) => {
@@ -252,7 +301,8 @@ const Notation = (() => {
       const hx = left + headW(line === 0);
       const avail = width - hx - 10;
       const natSum = barInfo.slice(b0, b1).reduce((a, x) => a + x.nat, 0);
-      const stretch = avail / natSum;
+      let stretch = avail / natSum;
+      if (line === lines.length - 1 && lines.length > 1 && stretch > 1.8) stretch = 1.8;
       const sys = { y0: sysTop - topRow, y1: sysTop + systemH - topRow, bars: [], staves: [] };
       // 小節の x 位置
       let x = hx;
@@ -297,20 +347,27 @@ const Notation = (() => {
         const yOf = (pos) => stTop + (8 - pos) * (SP / 2);
         sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: st.clef, baseDn: st.baseDn, kc: st.kc, tr: st.tr, perc });
         for (let i = 0; i < 5; i++) o.push(`<line x1="${left}" x2="${xEnd}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="0.9"/>`);
-        if (line === 0 && (staves.length > 1) && st.sub === 0) o.push(`<text x="${left + (st.grand ? 10 : 0)}" y="${stTop - 7}" font-size="10" fill="#555">${esc(st.part.name)}${st.tr ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : ''}</text>`);
+        if (line === 0 && (staves.length > 1) && st.sub === 0) o.push(`<text x="${left + (st.grand ? 10 : 0)}" y="${stTop - (Math.abs(st.kc) > 0 ? 15 : 7)}" font-size="10" fill="#555">${esc(st.part.name)}${st.tr ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : ''}</text>`);
         const cl = left + (st.grand ? 10 : 0);
-        if (perc) o.push(`<rect x="${cl + 8}" y="${yOf(6)}" width="3" height="${SP * 2}" fill="#111"/><rect x="${cl + 14}" y="${yOf(6)}" width="3" height="${SP * 2}" fill="#111"/>`);
-        else if (st.clef === 'treble') o.push(`<text x="${cl + 2}" y="${stTop + 3.1 * SP}" font-size="${4.4 * SP}" font-family='${FONT}' fill="#111">𝄞</text>`);
-        else o.push(`<text x="${cl + 3}" y="${stTop + 2.6 * SP}" font-size="${3.4 * SP}" font-family='${FONT}' fill="#111">𝄢</text>`);
+        // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
+        if (perc) o.push(G('unpitchedPercussionClef1', cl + 7, yOf(4)));
+        else if (st.clef === 'treble') o.push(G('gClef', cl + 4, yOf(2)));
+        else o.push(G('fClef', cl + 4, yOf(6)));
         if (!perc) for (let i = 0; i < Math.abs(st.kc); i++) {
           let pos = (st.kc >= 0 ? [8, 5, 9, 6, 3, 7, 4] : [4, 7, 3, 6, 2, 5, 1])[i];
           if (st.clef === 'bass') pos -= 2;
-          o.push(`<text x="${cl + 32 + i * 8}" y="${yOf(pos) + (st.kc >= 0 ? 4 : 3)}" font-size="15" fill="#111">${st.kc >= 0 ? '♯' : '♭'}</text>`);
+          o.push(G(st.kc >= 0 ? 'accidentalSharp' : 'accidentalFlat', cl + 30 + i * 8.5, yOf(pos)));
         }
         if (line === 0) {
-          const tx = cl + 36 + kcMax * 8;
-          o.push(`<text x="${tx + 6}" y="${stTop + 1.9 * SP}" font-size="${2.2 * SP}" font-weight="bold" font-family="serif" text-anchor="middle" fill="#111">${meter[0]}</text>`);
-          o.push(`<text x="${tx + 6}" y="${stTop + 3.9 * SP}" font-size="${2.2 * SP}" font-weight="bold" font-family="serif" text-anchor="middle" fill="#111">${meter[1]}</text>`);
+          const tx = cl + 34 + kcMax * 8.5;
+          const digits = (str, y) => {
+            const cs = [...String(str)];
+            const tot = cs.reduce((a, c) => a + GW('timeSig' + c), 0);
+            let xx = tx + 7 - tot / 2;
+            for (const c of cs) { o.push(G('timeSig' + c, xx, y)); xx += GW('timeSig' + c); }
+          };
+          digits(meter[0], yOf(6));
+          digits(meter[1], yOf(2));
         }
         const textY = stTop + 4 * SP + 2.7 * SP + st.below;
         const lyrY = textY + (nameOf && !perc ? 15 : 0);
@@ -348,7 +405,7 @@ const Notation = (() => {
                 const cur = sp.dn in barAcc ? barAcc[sp.dn] : keyAcc[sp.letter];
                 let accTxt = null;
                 if (cur !== sp.acc && !ev.tieEnd) { accTxt = ACC_CH[sp.acc]; barAcc[sp.dn] = sp.acc; }
-                return { pos, accTxt, p: m - st.tr };
+                return { pos, accTxt, acc: sp.acc, p: m - st.tr };
               });
             }
             heads.sort((a, c) => a.pos - c.pos);
@@ -370,22 +427,24 @@ const Notation = (() => {
               const hx2 = x + disp[i];
               const y = yOf(h.pos);
               ysAll.push(y);
-              if (!perc || true) {
-                if (h.pos < -1) for (let lp = -2; lp >= h.pos; lp -= 2) o.push(`<line x1="${x - 8}" x2="${x + 8 + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#222"/>`);
-                if (h.pos > 9) for (let lp = 10; lp <= h.pos; lp += 2) o.push(`<line x1="${x - 8 + Math.min(0, disp[i])}" x2="${x + 8}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#222"/>`);
-              }
+              const hn = headName(ev.base, perc ? h.shape : 0);
+              const hw = GW(hn) / 2;
+              const le = hw + 0.4 * SP;
+              if (h.pos < -1) for (let lp = -2; lp >= h.pos; lp -= 2) o.push(`<line x1="${x - le + Math.min(0, disp[i])}" x2="${x + le + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1.3"/>`);
+              if (h.pos > 9) for (let lp = 10; lp <= h.pos; lp += 2) o.push(`<line x1="${x - le + Math.min(0, disp[i])}" x2="${x + le + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1.3"/>`);
               const isSel = sel && edit.sel.has(ev.src + ':' + h.p);
               const col = isSel ? '#1971c2' : '#111';
               const data = `class="nh" data-pi="${st.pi}" data-s="${ev.src}" data-e="${ev.srcEnd}" data-p="${h.p}"`;
-              if (perc && h.shape === 1) o.push(`<path ${data} d="M${hx2 - 4} ${y - 4} L${hx2 + 4} ${y + 4} M${hx2 - 4} ${y + 4} L${hx2 + 4} ${y - 4}" stroke="${col}" stroke-width="1.8"/>`);
-              else if (perc && h.shape === 2) o.push(`<g ${data}><path d="M${hx2 - 4} ${y - 4} L${hx2 + 4} ${y + 4} M${hx2 - 4} ${y + 4} L${hx2 + 4} ${y - 4}" stroke="${col}" stroke-width="1.6"/><circle cx="${hx2}" cy="${yOf(11)}" r="3" fill="none" stroke="${col}"/></g>`);
-              else o.push(`<ellipse ${data} cx="${hx2}" cy="${y}" rx="5.2" ry="3.7" transform="rotate(-20 ${hx2} ${y})" fill="${filled ? col : '#fff'}" stroke="${col}" stroke-width="${filled ? 0 : 1.6}"/>`);
+              // 符頭のまわりに、クリックしやすい透明な当たりを入れる
+              o.push(`<rect ${data.replace('class="nh"', 'class="nhhit"')} x="${hx2 - hw - 2}" y="${y - 5}" width="${hw * 2 + 4}" height="10" fill="transparent"/>`);
+              o.push(G(hn, hx2 - hw, y, `${data} fill="${col}"`));
               if (h.accTxt) {
                 if (lastAccPos - h.pos < 6) accCol++; else accCol = 0;
                 lastAccPos = h.pos;
-                o.push(`<text x="${x - 15 - accCol * 8 + Math.min(0, disp[i])}" y="${y + 4.5}" font-size="14" fill="${col}">${h.accTxt}</text>`);
+                const an = ACC_G[h.acc] || 'accidentalNatural';
+                o.push(G(an, x - hw - GW(an) - 2.5 - accCol * 9 + Math.min(0, disp[i]), y, `fill="${col}"`));
               }
-              if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; o.push(`<circle cx="${x + 9 + Math.max(0, ...disp)}" cy="${y + dy}" r="1.7" fill="${col}"/>`); }
+              if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; o.push(G('augmentationDot', x + hw + 3 + Math.max(0, ...disp), y + dy, `fill="${col}"`)); }
             }
             // 階名・歌詞
             if (!perc && nameOf && ev.first) o.push(`<text x="${x}" y="${textY}" font-size="10" text-anchor="middle" fill="#2b6cb0">${esc(heads.map((h) => nameOf(h.p)).reverse().join('・'))}</text>`);
@@ -398,7 +457,7 @@ const Notation = (() => {
             if (prevHead && prevHead.ev.tie) drawTie(o, prevHead, d, yOf);
             prevHead = d;
           }
-          drawStemsAndBeams(o, drawn);
+          drawStemsAndBeams(o, drawn, meter);
           // アーティキュレーション（符頭の、ぼうと反対がわ）
           for (const d of drawn) {
             const arts = d.ev.first ? d.ev.art || [] : [];
@@ -406,17 +465,16 @@ const Notation = (() => {
             for (const a of arts) {
               if (a === 'ferm') continue;
               const below = d.up;
-              const yy = below ? d.yOf(d.lo) + 11 + k * 8 : d.yOf(d.hi) - 11 - k * 8;
-              const xx = d.x;
-              if (a === 'stac') o.push(`<circle cx="${xx}" cy="${yy}" r="1.9" fill="#111"/>`);
-              else if (a === 'ten') o.push(`<line x1="${xx - 5}" x2="${xx + 5}" y1="${yy}" y2="${yy}" stroke="#111" stroke-width="1.6"/>`);
-              else if (a === 'acc') o.push(`<path d="M${xx - 5} ${yy - 3} L${xx + 5} ${yy} L${xx - 5} ${yy + 3}" fill="none" stroke="#111" stroke-width="1.3"/>`);
-              else if (a === 'marc') o.push(below ? `<path d="M${xx - 4} ${yy - 4} L${xx} ${yy + 4} L${xx + 4} ${yy - 4}" fill="none" stroke="#111" stroke-width="1.6"/>` : `<path d="M${xx - 4} ${yy + 4} L${xx} ${yy - 4} L${xx + 4} ${yy + 4}" fill="none" stroke="#111" stroke-width="1.6"/>`);
+              // 符頭から半スペース以上はなし、線の上にかからないように
+              let yy = below ? d.yOf(d.lo) + 6 + k * 9 : d.yOf(d.hi) - 6 - k * 9;
+              const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato' }[a] + (below ? 'Below' : 'Above');
+              if (!Glyphs.g[nm]) continue;
+              o.push(G(nm, d.x - GW(nm) / 2, yy));
               k++;
             }
             if (arts.includes('ferm')) {
-              const yy = Math.min(d.yOf(10), d.yOf(d.hi) - 12, d.up ? d.yOf(d.hi) - 3.5 * SP - 6 : 99999);
-              o.push(`<path d="M${d.x - 8} ${yy} Q${d.x} ${yy - 11} ${d.x + 8} ${yy}" fill="none" stroke="#111" stroke-width="1.6"/><circle cx="${d.x}" cy="${yy - 2}" r="1.6" fill="#111"/>`);
+              const yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up ? stemEnd(d) - 4 : 99999);
+              o.push(G('fermataAbove', d.x - GW('fermataAbove') / 2, yy));
             }
           }
           drawTriplets(o, drawn, yOf);
@@ -454,7 +512,12 @@ const Notation = (() => {
         // 強弱記号・クレッシェンド
         if (st.hasDyn) {
           const tx = (t) => { const bb = Math.floor(t / barTicks); if (bb < b0 || bb >= b1) return null; return xAt(bb, t - bb * barTicks); };
-          for (const dy of st.part.dyn || []) { const xx = tx(dy.t); if (xx != null) o.push(`<text x="${xx - 4}" y="${dynY}" font-size="15" font-style="italic" font-weight="bold" font-family="serif" fill="#111">${esc(dy.v)}</text>`); }
+          for (const dy of st.part.dyn || []) {
+            let xx = tx(dy.t);
+            if (xx == null) continue;
+            xx -= 5;
+            for (const c of dy.v) { const nm = DYN_G[c]; if (!nm) continue; o.push(G(nm, xx, dynY + 2)); xx += GW(nm) * 0.92; }
+          }
           for (const hp of st.part.hairpins || []) {
             if (hp.e <= b0 * barTicks || hp.s >= b1 * barTicks) continue;
             const xa = hp.s >= b0 * barTicks ? tx(hp.s) + 18 : sys.bars[0].xs[0];
@@ -486,7 +549,7 @@ const Notation = (() => {
           const yA = tops[si];
           const yZ = tops[si + 1] + 4 * SP;
           const xm = left + 5;
-          o.push(`<path d="M${xm + 3} ${yA} Q${xm - 5} ${yA + (yZ - yA) / 4} ${xm} ${(yA + yZ) / 2 - 4} Q${xm - 3} ${(yA + yZ) / 2} ${xm} ${(yA + yZ) / 2 + 4} Q${xm - 5} ${yZ - (yZ - yA) / 4} ${xm + 3} ${yZ}" fill="none" stroke="#111" stroke-width="2"/>`);
+          o.push(G('brace', xm - 3, yZ, 'fill="#111"', (yZ - yA) / 4));
           o.push(`<line x1="${left + 10}" x2="${left + 10}" y1="${yA}" y2="${yZ}" stroke="#222"/>`);
           for (const B of sys.bars) o.push(`<line x1="${B.x1}" x2="${B.x1}" y1="${yA + 4 * SP}" y2="${tops[si + 1]}" stroke="#222"/>`);
         }
@@ -511,22 +574,15 @@ const Notation = (() => {
   }
   function drawRest(o, ev, x, yOf) {
     const base = ev.whole ? 192 : ev.base;
-    const c = '#111';
-    const data = `class="rest" data-s="${ev.abs}"`;
-    if (base >= 192) o.push(`<rect ${data} x="${x - 5}" y="${yOf(6)}" width="11" height="4.5" fill="${c}"/>`);
-    else if (base >= 96) o.push(`<rect ${data} x="${x - 5}" y="${yOf(4) - 4.5}" width="11" height="4.5" fill="${c}"/>`);
-    else if (base >= 48) {
-      const y = yOf(6);
-      o.push(`<path ${data} d="M${x - 2} ${y - 2} L${x + 3} ${y + 5} L${x - 2} ${y + 11} L${x + 3} ${y + 17} Q${x - 5} ${y + 14} ${x} ${y + 22}" fill="none" stroke="${c}" stroke-width="2.4" stroke-linejoin="round"/>`);
-    } else {
-      const n = base <= 6 ? 3 : base <= 12 ? 2 : 1;
-      const y = yOf(5);
-      o.push(`<line x1="${x + 4}" y1="${y - 1}" x2="${x - 2}" y2="${y + 8 + n * 7}" stroke="${c}" stroke-width="1.6"/>`);
-      for (let i = 0; i < n; i++) o.push(`<circle cx="${x - 2 - i * 1.5}" cy="${y + 2 + i * 7}" r="2.6" fill="${c}"/><path d="M${x - 2 - i * 1.5} ${y + 4 + i * 7} Q${x + 1} ${y + 5 + i * 7} ${x + 4 - i * 1.5} ${y - 1 + i * 7}" stroke="${c}" stroke-width="1.4" fill="none"/>`);
-    }
-    if (ev.dot) o.push(`<circle cx="${x + 10}" cy="${yOf(5)}" r="1.7" fill="${c}"/>`);
+    const data = `class="rest" data-s="${ev.abs}" fill="#111"`;
+    const nm = base >= 192 ? 'restWhole' : base >= 96 ? 'restHalf' : base >= 48 ? 'restQuarter' : base >= 24 ? 'rest8th' : base >= 12 ? 'rest16th' : 'rest32nd';
+    // 全休符は第4線（上から2本目）からぶら下がる。ほかは中央の線
+    const y = nm === 'restWhole' ? yOf(6) : yOf(4);
+    o.push(G(nm, x - GW(nm) / 2, y, data));
+    if (ev.dot) o.push(G('augmentationDot', x + GW(nm) / 2 + 3, yOf(5)));
   }
-  const stemX = (d) => (d.up ? d.x + 5 : d.x - 5);
+  // 符尾は符頭のはし（Bravura の stemUpSE / stemDownNW）
+  const stemX = (d) => (d.up ? d.x + 4.25 : d.x - 4.25);
   function stemEnd(d) {
     const len = 3.5 * SP;
     let y = d.up ? d.yOf(d.hi) - len : d.yOf(d.lo) + len;
@@ -535,12 +591,22 @@ const Notation = (() => {
     if (!d.up && y < d.yOf(4)) y = d.yOf(4);
     return y;
   }
-  function drawStemsAndBeams(o, drawn) {
-    const groups = [];
+  function drawStemsAndBeams(o, drawn, meter) {
+    let groups = [];
     let curG = null;
     for (const d of drawn) {
       if (d.flags > 0 && curG && curG[curG.length - 1].beatIdx === d.beatIdx && !!curG[0].ev.trip === !!d.ev.trip) curG.push(d);
       else if (d.flags > 0) { curG = [d]; groups.push(curG); } else curG = null;
+    }
+    if (meter && meter[0] === 4 && meter[1] === 4) {
+      const pure8 = (g) => g.length === 2 && g.every((d) => d.flags === 1 && !d.ev.trip && !d.ev.dot) && g[0].ev.pos % 48 === 0;
+      const merged = [];
+      for (let i = 0; i < groups.length; i++) {
+        const a = groups[i];
+        const z = groups[i + 1];
+        if (z && pure8(a) && pure8(z) && a[0].beatIdx % 2 === 0 && z[0].beatIdx === a[0].beatIdx + 1) { merged.push([...a, ...z]); i++; } else merged.push(a);
+      }
+      groups = merged;
     }
     const beamed = new Set();
     for (const g of groups) {
@@ -567,7 +633,7 @@ const Notation = (() => {
         off = up ? Math.min(off, need - lineY) : Math.max(off, need - lineY);
       }
       const by = (d) => off + slope * (stemX(d) - stemX(f));
-      for (const d of g) o.push(`<line x1="${stemX(d)}" x2="${stemX(d)}" y1="${up ? d.yOf(d.lo) : d.yOf(d.hi)}" y2="${by(d)}" stroke="#111" stroke-width="1.3"/>`);
+      for (const d of g) o.push(`<line x1="${stemX(d)}" x2="${stemX(d)}" y1="${up ? d.yOf(d.lo) - 1.3 : d.yOf(d.hi) + 1.3}" y2="${by(d)}" stroke="#111" stroke-width="1"/>`);
       const beam = (xa, xz, lvl) => {
         const dy = (up ? 1 : -1) * (lvl - 1) * 6;
         o.push(`<path d="M${xa} ${by({ x: xa - (up ? 5 : -5), up }) + dy} L${xz} ${by({ x: xz - (up ? 5 : -5), up }) + dy} L${xz} ${by({ x: xz - (up ? 5 : -5), up }) + dy + (up ? 4 : -4)} L${xa} ${by({ x: xa - (up ? 5 : -5), up }) + dy + (up ? 4 : -4)} Z" fill="#111"/>`);
@@ -585,12 +651,8 @@ const Notation = (() => {
       if (beamed.has(d) || !d.hasStem) continue;
       const x = stemX(d);
       const ye = stemEnd(d) + (d.up ? -1 : 1) * Math.max(0, d.flags - 1) * 4;
-      o.push(`<line x1="${x}" x2="${x}" y1="${d.up ? d.yOf(d.lo) : d.yOf(d.hi)}" y2="${ye}" stroke="#111" stroke-width="1.3"/>`);
-      for (let i = 0; i < d.flags; i++) {
-        const y = ye + (d.up ? 1 : -1) * i * 7;
-        const s = d.up ? 1 : -1;
-        o.push(`<path d="M${x} ${y} c1 ${s * 7} 9 ${s * 8} 6 ${s * 17} c1 ${-s * 6} -2 ${-s * 9} -6 ${-s * 12} Z" fill="#111"/>`);
-      }
+      o.push(`<line x1="${x}" x2="${x}" y1="${d.up ? d.yOf(d.lo) - 1.3 : d.yOf(d.hi) + 1.3}" y2="${ye}" stroke="#111" stroke-width="1"/>`);
+      if (d.flags) o.push(G(`flag${d.flags === 1 ? '8th' : d.flags === 2 ? '16th' : '32nd'}${d.up ? 'Up' : 'Down'}`, x - 0.5, ye));
     }
   }
   function drawTriplets(o, drawn, yOf) {
@@ -601,7 +663,7 @@ const Notation = (() => {
       const x1 = run[run.length - 1].x;
       const up = run[0].up;
       const y = up ? Math.min(yOf(10), ...run.map((d) => stemEnd(d) - 7)) : Math.max(yOf(-2), ...run.map((d) => stemEnd(d) + 14));
-      o.push(`<text x="${(x0 + x1) / 2 + (up ? 5 : -5)}" y="${y}" font-size="11" font-style="italic" font-weight="bold" text-anchor="middle" fill="#111">3</text>`);
+      o.push(G('tuplet3', (x0 + x1) / 2 + (up ? 4 : -4) - GW('tuplet3', 7) / 2, y, 'fill="#111"', 7));
       run = [];
     };
     for (const d of drawn) {
@@ -654,15 +716,15 @@ const Notation = (() => {
     const yOf = (p) => st + (8 - p) * (SP / 2) * s;
     const o = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`];
     for (let i = 0; i < 5; i++) o.push(`<line x1="2" x2="${W - 2}" y1="${st + i * SP * s}" y2="${st + i * SP * s}" stroke="currentColor" stroke-width="0.8"/>`);
-    if (clef === 'treble') o.push(`<text x="3" y="${st + 3.1 * SP * s}" font-size="${4.4 * SP * s}" font-family='${FONT}' fill="currentColor">𝄞</text>`);
-    else o.push(`<text x="4" y="${st + 2.6 * SP * s}" font-size="${3.4 * SP * s}" font-family='${FONT}' fill="currentColor">𝄢</text>`);
+    if (clef === 'treble') o.push(Glyphs.svg('gClef', 4, yOf(2), SP * s));
+    else o.push(Glyphs.svg('fClef', 4, yOf(6), SP * s));
     const x = 60;
     const y = yOf(pos);
     if (pos < -1) for (let lp = -2; lp >= pos; lp -= 2) o.push(`<line x1="${x - 8}" x2="${x + 8}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="currentColor"/>`);
     if (pos > 9) for (let lp = 10; lp <= pos; lp += 2) o.push(`<line x1="${x - 8}" x2="${x + 8}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="currentColor"/>`);
-    o.push(`<ellipse cx="${x}" cy="${y}" rx="4.6" ry="3.3" transform="rotate(-20 ${x} ${y})" fill="currentColor"/>`);
+    o.push(Glyphs.svg('noteheadBlack', x - GW('noteheadBlack', SP * s) / 2, y, SP * s));
     const keyAcc = keyAccOf(kc);
-    if (sp.acc !== keyAcc[sp.letter]) o.push(`<text x="${x - 14}" y="${y + 4}" font-size="13" fill="currentColor">${ACC_CH[sp.acc]}</text>`);
+    if (sp.acc !== keyAcc[sp.letter]) { const an = ACC_G[sp.acc]; o.push(Glyphs.svg(an, x - GW('noteheadBlack', SP * s) / 2 - GW(an, SP * s) - 2, y, SP * s)); }
     o.push('</svg>');
     return o.join('');
   }

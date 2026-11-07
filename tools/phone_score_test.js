@@ -1,0 +1,20 @@
+const { chromium, devices } = require('playwright');
+(async () => { const SP=process.argv[2]; const b = await chromium.launch(); const ctx = await b.newContext({ ...devices['iPhone 13'] }); const m = await ctx.newPage();
+const errs=[]; m.on('pageerror', e => errs.push(e.message)); m.on('dialog', d=>d.accept());
+await m.goto('http://localhost:8765/'); await m.waitForTimeout(1200);
+await m.screenshot({ path: SP + '/ps0-start.png' });
+await m.locator('.tpl[data-t="score"]').tap(); await m.waitForTimeout(500);
+// 4分→ド レ ミ ファ、8分→ソ ラ ソ ラ、2分→ド
+await m.locator('.pp-btn[data-d="48"]').tap();
+for (const l of [0,1,2,3]) await m.locator(`.pp-note[data-l="${l}"]`).tap();
+await m.locator('.pp-btn[data-d="24"]').tap();
+for (const l of [4,5,4,5]) await m.locator(`.pp-note[data-l="${l}"]`).tap();
+await m.locator('.pp-btn[data-d="96"]').tap();
+await m.locator('.pp-note[data-l="0"]').tap();
+await m.locator('.pp-btn[data-x="oct+"]').tap();
+console.log('notes', await m.evaluate(() => JSON.stringify(track().notes.map(n=>[n.s,n.p,n.l]))));
+await m.waitForTimeout(300);
+await m.screenshot({ path: SP + '/ps1-score.png' });
+await m.locator('.pp-more > summary').tap(); await m.waitForTimeout(300);
+await m.screenshot({ path: SP + '/ps2-more.png' });
+console.log('errors', errs); await b.close(); })();

@@ -189,12 +189,18 @@
       <div id="scoreEdit" class="scoreedit" hidden>
         <div id="scorePal" class="scorepal"></div>
         <div id="scoreEditView" class="scoreeditview"></div>
+        <div id="phonePad" class="phonepad" hidden></div>
       </div>
       <div id="scorePanel" class="scorepanel" hidden></div>
       <div id="chordPalette" class="palette" hidden></div>
       <div id="phoneKbd" class="phonekbd" hidden></div>
     </section>
   </main>
+
+  <dialog id="dlgStart" class="wide start">
+    <h3>どんな曲をつくる？</h3>
+    <div id="startBody"></div>
+  </dialog>
 
   <dialog id="dlgInst" class="wide">
     <h3 id="instTitle">楽器をえらぶ</h3>
@@ -331,6 +337,7 @@
   <div id="toast" class="toast"></div>
 
   <script src="js/sound.js"></script>
+  <script src="js/glyphs.js"></script>
   <script src="js/notation.js"></script>
   <script src="js/musicxml.js"></script>
   <script src="js/app.js"></script>
