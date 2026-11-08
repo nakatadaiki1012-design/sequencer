@@ -935,3 +935,24 @@ body:not(.phone) .main { padding: 8px; gap: 8px; }
 .keycols td:first-child { white-space: nowrap; padding-right: 12px; }
 kbd { display: inline-block; min-width: 20px; padding: 1px 6px; margin: 0 1px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 6px; font: 600 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; text-align: center; background: var(--panel-2); color: var(--text); }
 body.phone .keycols { grid-template-columns: 1fr; }
+
+/* 自動保存の印 */
+.mini-display { position: relative; }
+.savemark { position: absolute; top: 7px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: #3ddc97; box-shadow: 0 0 8px #3ddc97; transition: background .2s, box-shadow .2s; }
+.savemark[data-st="saving"] { background: #ffd43b; box-shadow: 0 0 8px #ffd43b; }
+.savemark[data-st="error"] { background: #ff6b6b; box-shadow: 0 0 8px #ff6b6b; }
+/* マイ曲 */
+#openList { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.openrow { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); transition: border-color .15s, box-shadow .15s; }
+.openrow:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 12%, transparent); }
+.openthumb { flex: none; width: 120px; height: 40px; border-radius: 8px; background: var(--panel-2); cursor: pointer; overflow: hidden; display: block; }
+.openname { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.openname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.openname small { color: var(--muted); font-size: 11.5px; }
+body.phone .openthumb { width: 84px; }
+body.phone .openthumb svg { width: 84px; }
+/* 書き出しのようす */
+dialog.export { width: 380px; max-width: 92vw; }
+.expbar { height: 10px; border-radius: 10px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
+.expbar i { display: block; height: 100%; width: 0; background: var(--grad); border-radius: 10px; transition: width .2s; }
+dialog.export .dlgfoot { justify-content: space-between; align-items: center; }

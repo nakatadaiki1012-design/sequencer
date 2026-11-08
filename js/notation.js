@@ -187,6 +187,7 @@ const Notation = (() => {
     const hasJ = (k) => J[k] != null && J[k] >= 0 && J[k] < bars;
     const anyJump = ['segno', 'coda', 'tocoda', 'fine', 'dc', 'ds'].some(hasJ);
     const edit = opts.edit || null;
+    const SELC = (edit && edit.color) || '#1971c2';
 
     // ---- 段（五線）を用意する（大譜表は2段） ----
     const staves = [];
@@ -342,7 +343,12 @@ const Notation = (() => {
     lines.forEach(([b0, b1], line) => {
       const sysTop = top + line * systemH + topRow;
       const hx = left + headW(line === 0);
-      const avail = width - hx - 10;
+      // 次の段の頭で調・拍子が変わるなら、この段の終わりに予告を書く場所をとる
+      const nb = b1 < bars ? barInfo[b1] : null;
+      const cautK = nb && nb.keyChg ? Math.max(1, ...staves.map((st) => Math.abs(st.kcs[b1]) || Math.abs(st.kcs[b1 - 1]))) * 8.5 + 6 : 0;
+      const cautM = nb && nb.mChg ? 18 : 0;
+      const caut = cautK || cautM ? cautK + cautM + 8 : 0;
+      const avail = width - hx - 10 - caut;
       const natSum = barInfo.slice(b0, b1).reduce((a, x) => a + x.nat, 0);
       let stretch = avail / natSum;
       if (line === lines.length - 1 && lines.length > 1 && stretch > 1.8) stretch = 1.8;
@@ -408,7 +414,7 @@ const Notation = (() => {
         const perc = st.clef === 'perc';
         const yOf = (pos) => stTop + (8 - pos) * (SP / 2);
         sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: st.clef, baseDn: st.baseDn, kc: st.kcs[b0], kcs: st.kcs, tr: st.tr, perc });
-        for (let i = 0; i < 5; i++) o.push(`<line x1="${left}" x2="${xEnd}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="0.9"/>`);
+        for (let i = 0; i < 5; i++) o.push(`<line x1="${left}" x2="${xEnd + caut}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="0.9"/>`);
         if (line === 0 && (staves.length > 1) && st.sub === 0) o.push(`<text x="${left + (st.grand ? 10 : 0)}" y="${stTop - (Math.abs(st.kc) > 0 ? 15 : 7)}" font-size="10" fill="#555">${esc(st.part.name)}${st.tr ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : ''}</text>`);
         const cl = left + (st.grand ? 10 : 0);
         // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
@@ -515,7 +521,7 @@ const Notation = (() => {
               if (h.pos < -1) for (let lp = -2; lp >= h.pos; lp -= 2) o.push(`<line x1="${x - le + Math.min(0, disp[i])}" x2="${x + le + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1.3"/>`);
               if (h.pos > 9) for (let lp = 10; lp <= h.pos; lp += 2) o.push(`<line x1="${x - le + Math.min(0, disp[i])}" x2="${x + le + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1.3"/>`);
               const isSel = sel && edit.sel.has(ev.src + ':' + h.p);
-              const col = isSel ? '#1971c2' : '#111';
+              const col = isSel ? SELC : '#111';
               const data = `class="nh" data-pi="${st.pi}" data-s="${ev.src}" data-e="${ev.srcEnd}" data-p="${h.p}"${stream === 'B' ? ' data-v="2"' : ''}`;
               // 符頭のまわりに、クリックしやすい透明な当たりを入れる
               o.push(`<rect ${data.replace('class="nh"', 'class="nhhit"')} x="${hx2 - hw - 2}" y="${y - 5}" width="${hw * 2 + 4}" height="10" fill="transparent"/>`);
@@ -582,6 +588,18 @@ const Notation = (() => {
           else o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
           if (si === 0 && chords && chords[bb]) o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
         }
+        // 予告の調号・拍子（段の終わり）
+        if (caut) {
+          let cx3 = xEnd + 7;
+          if (cautK && !perc) {
+            const nk = st.kcs[b1];
+            const ok = st.kcs[b1 - 1];
+            if (nk !== ok) { if (nk === 0) keySig(ok, cx3, true); else keySig(nk, cx3, false); }
+            cx3 += cautK;
+          } else if (cautK) cx3 += cautK;
+          if (cautM) { digits(mAt(b1)[0], yOf(6), cx3 + 6); digits(mAt(b1)[1], yOf(2), cx3 + 6); }
+          o.push(`<line x1="${xEnd - 3}" x2="${xEnd - 3}" y1="${stTop}" y2="${stTop + 4 * SP}" stroke="#222"/>`);
+        }
         // スラー
         for (const sl of st.part.slurs || []) {
           const a = headsAt.get(sl.s);
@@ -626,7 +644,7 @@ const Notation = (() => {
           if (cb >= b0 && cb < b1) {
             const cxx = xAt(cb, edit.cursor - bS(cb));
             const grandH = st.grand ? staffH(st) : 0;
-            o.push(`<rect class="cursor" x="${cxx - 7}" y="${stTop - 12}" width="${Math.max(14, (edit.curLen || 0) ? 14 : 14)}" height="${4 * SP + 24 + grandH}" rx="4" fill="rgba(25,113,194,.14)" stroke="#1971c2" stroke-width="1.2"/>`);
+            o.push(`<rect class="cursor" x="${cxx - 7}" y="${stTop - 12}" width="${Math.max(14, (edit.curLen || 0) ? 14 : 14)}" height="${4 * SP + 24 + grandH}" rx="4" fill="${SELC}" fill-opacity=".14" stroke="${SELC}" stroke-width="1.2"/>`);
           }
         }
       });

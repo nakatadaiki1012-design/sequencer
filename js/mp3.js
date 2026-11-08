@@ -68,6 +68,7 @@
       sinceYield += n;
       if (sinceYield >= yieldEvery) {
         sinceYield = 0;
+        if (opts.signal && opts.signal.aborted) throw new DOMException('やめました', 'AbortError');
         if (onProgress) onProgress(Math.min(1, (pos + n) / total));
         await tick();
       }

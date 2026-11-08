@@ -366,6 +366,13 @@ function updateUndoButtons() {
   $('#btnRedo').title = r ? `やり直す：「${r.label}」（Ctrl+Y）` : 'やり直す（Ctrl+Y）';
 }
 let autosaveTimer = null;
+// 自動保存のようす（ミニディスプレイの右上の小さな印）
+function saveState(st) {
+  const el = $('#saveMark');
+  if (!el) return;
+  el.dataset.st = st;
+  el.title = st === 'saved' ? 'このブラウザに自動で保存しました（とじても、つぎに開くと続きから）' : st === 'saving' ? '保存しています…' : '保存できませんでした（ブラウザの保存領域がいっぱいかもしれません）';
+}
 let scoreTimer = null;
 function changed(full = false) {
   version++;
@@ -377,7 +384,8 @@ function changed(full = false) {
   updateUndoButtons();
   updateMini();
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 保存できなくても続ける */ } }, 500);
+  saveState('saving');
+  autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); saveState('saved'); } catch (e) { saveState('error'); } }, 500);
   if (ui.showScore) { clearTimeout(scoreTimer); scoreTimer = setTimeout(renderScorePanel, 250); }
   if (ui.view === 'score') renderScoreEdit();
 }
@@ -788,6 +796,17 @@ function roundRect(g, x, y, w, h, r) {
   g.closePath();
 }
 let cssCache = null;
+// 置いた音が「きらっ」と光る（0.4秒）
+const fxNotes = new Map();
+let fxRaf = 0;
+function sparkle(n) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  fxNotes.set(n, performance.now());
+  if (!fxRaf) {
+    const loop = () => { draw(); fxRaf = fxNotes.size ? requestAnimationFrame(loop) : 0; };
+    fxRaf = requestAnimationFrame(loop);
+  }
+}
 // 色を明るく（amt>0）・暗く（amt<0）する
 const shadeCache = new Map();
 function shade(hex, amt) {
@@ -927,9 +946,51 @@ function draw(playPos) {
       // 下の声部（声部2）の音は点線のふち
       if (n.v === 2 && !on) { g2.setLineDash([4, 3]); g2.lineWidth = 2; g2.strokeStyle = 'rgba(0,0,0,.6)'; g2.stroke(); g2.setLineDash([]); }
       if (n.s + n.l > total) { g2.fillStyle = 'rgba(0,0,0,.3)'; g2.fill(); }
+      const fx = fxNotes.get(n);
+      if (fx != null) {
+        const a = (performance.now() - fx) / 420;
+        if (a >= 1) fxNotes.delete(n);
+        else {
+          const g = 3 + a * 9;
+          g2.save();
+          g2.globalAlpha = 1 - a;
+          g2.lineWidth = 2.5;
+          g2.strokeStyle = PC_COLORS[n.p % 12];
+          roundRect(g2, x + 1.5 - g, y + 1.5 - g, w - 3 + g * 2, rh - 3 + g * 2, 8 + g);
+          g2.stroke();
+          g2.restore();
+        }
+      }
       if (w > 24) { g2.fillStyle = '#1b1b1b'; g2.fillText(noteName(n.p), x + 6, y + rh / 2 + 1, w - 12); }
       if (w > 12) { g2.fillStyle = 'rgba(0,0,0,.25)'; g2.fillRect(x + w - 6, y + 5, 3, rh - 10); }
     }
+  }
+  // まだ音がないときは、まん中にやさしい案内
+  if ((tr.type === 'melody' && !tr.notes.length) || (tr.type === 'drum' && !Object.values(tr.grid).some((g) => Object.keys(g).length))) {
+    if (!player.on && !locked(tr)) {
+      const msg = tr.type === 'drum' ? 'マスをおして、リズムを置いてみよう' : 'マス目をおして、音を置いてみよう ♪';
+      const sub = tr.type === 'drum' ? '下ほど低い太鼓、上ほど高いシンバルです' : '右へなぞると長い音に。上の「おまかせ」で自動作曲もできます';
+      const cx = LW + (W - LW) / 2;
+      const cy = RH + (H - RH) / 2;
+      g2.save();
+      g2.textAlign = 'center';
+      g2.textBaseline = 'middle';
+      const bw = Math.min(W - LW - 24, 440);
+      g2.fillStyle = C('--panel');
+      g2.globalAlpha = 0.86;
+      roundRect(g2, cx - bw / 2, cy - 34, bw, 68, 16);
+      g2.fill();
+      g2.globalAlpha = 1;
+      g2.fillStyle = C('--accent');
+      g2.font = `600 ${W < 500 ? 14 : 16}px sans-serif`;
+      g2.fillText(msg, cx, cy - 9, bw - 20);
+      g2.fillStyle = C('--muted');
+      g2.font = `${W < 500 ? 11 : 12}px sans-serif`;
+      g2.fillText(sub, cx, cy + 14, bw - 20);
+      g2.restore();
+    }
+  }
+  if (false) {
   } else if (tr.type === 'drum') {
     for (const id in tr.grid) {
       const ri = rowIndex.get(id);
@@ -1139,6 +1200,7 @@ function onDown(e) {
     } else {
       const nn = { s: h.cell, p: h.row.p, l: cellLen(h.cell) };
       tr.notes.push(nn);
+      sparkle(nn);
       preview(tr, nn.p);
       showMini(nn.p);
       drag = { kind: 'resize', n: nn, snap, moved: true, label: '音を置く' };
@@ -2593,7 +2655,7 @@ function renderScoreEditNow() {
   const o = scoreOpts(scoreEditIds(), true);
   scoreParts = o.partTracks;
   const pi = scoreParts.indexOf(track());
-  o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel };
+  o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel, color: C('--accent') };
   o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
@@ -3261,7 +3323,7 @@ function openStart(first) {
     loadSong(s);
     setView(t.view || 'grid');
     if (isPhone) setPhoneView(t.view === 'score' ? 'score' : 'edit');
-    toast(t.view === 'score' ? '長さ→音名の順におすと、音符が入っていきます' : 'マス目をおして音を置いてみよう');
+    if (t.view === 'score') toast('長さ→音名の順におすと、音符が入っていきます');
     tourFirstTime();
   }));
   $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); tourFirstTime(); };
@@ -3456,6 +3518,35 @@ function loadSong(s) {
   draw();
   preloadSamples();
 }
+// 曲の小さな絵（メロディを線で、リズムを点で）
+function songThumb(sg) {
+  const W = 120;
+  const H = 40;
+  const bt = ((sg.meter || [4, 4])[0] * 192) / (sg.meter || [4, 4])[1];
+  const total = Math.max(1, (sg.bars || 8) * bt);
+  const mel = (sg.tracks || []).filter((t) => t.type === 'melody' && (t.notes || []).length);
+  const ps = mel.flatMap((t) => t.notes.map((x) => x.p));
+  const lo = Math.min(...ps, 60) - 1;
+  const hi = Math.max(...ps, 72) + 1;
+  const cols = ['#e5484d', '#3e63dd', '#30a46c', '#f76b15', '#8e4ec6', '#d6409f'];
+  let out = '';
+  mel.slice(0, 4).forEach((t, i) => {
+    for (const x of t.notes) {
+      if (x.s >= total) continue;
+      out += `<rect x="${(x.s / total * W).toFixed(1)}" y="${((hi - x.p) / (hi - lo) * (H - 4) + 1).toFixed(1)}" width="${Math.max(1.5, x.l / total * W - 0.5).toFixed(1)}" height="2.6" rx="1.2" fill="${cols[i % cols.length]}"/>`;
+    }
+  });
+  if (!out) out = `<text x="${W / 2}" y="${H / 2 + 4}" text-anchor="middle" font-size="10" fill="#999">（音なし）</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${out}</svg>`;
+}
+function relTime(t) {
+  const d = (Date.now() - t) / 1000;
+  if (d < 60) return 'いま';
+  if (d < 3600) return `${Math.floor(d / 60)}分前`;
+  if (d < 86400) return `${Math.floor(d / 3600)}時間前`;
+  if (d < 86400 * 7) return `${Math.floor(d / 86400)}日前`;
+  return new Date(t).toLocaleDateString('ja-JP');
+}
 function savedList() { try { return JSON.parse(localStorage.getItem('otsumiki-songs') || '{}'); } catch (e) { return {}; } }
 function saveToBrowser() {
   const name = prompt('どの名前で保存しますか？', song.title);
@@ -3473,8 +3564,11 @@ function openDialog() {
   for (const n of names) {
     const row = document.createElement('div');
     row.className = 'openrow';
-    row.innerHTML = `<span>${escapeHtml(n)}<small>${new Date(all[n].t).toLocaleString('ja-JP')}</small></span><button class="mini">開く</button><button class="mini danger">削除</button>`;
+    const sg = all[n].song || {};
+    const info = [`${sg.bars || '?'}小節`, `♩=${sg.bpm || '?'}`, `${(sg.tracks || []).length}トラック`].join('・');
+    row.innerHTML = `<span class="openthumb">${songThumb(sg)}</span><span class="openname"><b>${escapeHtml(n)}</b><small>${info}　${relTime(all[n].t)}</small></span><button class="mini primary">開く</button><button class="mini icon danger" title="削除">${I('trash')}</button>`;
     const [bOpen, bDel] = row.querySelectorAll('button');
+    row.querySelector('.openthumb').onclick = () => bOpen.click();
     bOpen.onclick = () => { loadSong(all[n].song); $('#dlgOpen').close(); };
     bDel.onclick = () => { if (!confirm(`「${n}」を削除しますか？`)) return; delete all[n]; localStorage.setItem('otsumiki-songs', JSON.stringify(all)); openDialog(); };
     box.appendChild(row);
@@ -3542,9 +3636,19 @@ async function shareDialog() {
 }
 
 // 曲を音にする（WAV・MP3 で共通）
-async function renderSong() {
+// 書き出しのようすを出す小さな画面
+let exportJob = null;
+function exportProgress(label, p) {
+  const d = $('#dlgExport');
+  if (label == null) { if (d.open) d.close(); return; }
+  $('#expLabel').textContent = label;
+  $('#expBar').style.width = Math.round(p * 100) + '%';
+  $('#expPct').textContent = Math.round(p * 100) + '%';
+  if (!d.open) d.showModal();
+}
+async function renderSong(onProg) {
   stop();
-  toast('音声ファイルを作っています…');
+  if (onProg) onProg(0.02);
   const c0 = audioCtx();
   await Promise.all(song.tracks.filter((t) => t.real !== false).map((t) => (t.type === 'drum' ? Sound.Samples.loadDrums(c0) : Sound.Samples.has(t.inst) ? Sound.Samples.load(t.inst, c0) : null)).map((p) => p && p.catch(() => null)));
   const sr = 44100;
@@ -3554,23 +3658,44 @@ async function renderSong() {
   comp.connect(ctx.destination);
   const graph = buildGraph(ctx, comp, false);
   for (const e of eventList()) scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t), false);
+  // とちゅうで止めて、進みぐあいを知らせる
+  if (onProg && ctx.suspend) {
+    const dur = len / sr;
+    for (let t = 1; t < dur; t += Math.max(1, dur / 20)) {
+      const tt = t;
+      ctx.suspend(tt).then(() => { onProg(tt / dur); ctx.resume(); }).catch(() => {});
+    }
+  }
   return ctx.startRendering();
 }
 async function exportWav() {
-  const buf = await renderSong();
-  download(encodeWav(buf), safeName() + '.wav');
-  toast('音声ファイル（WAV）を書き出しました');
-  return buf;
+  const job = (exportJob = { cancel: false });
+  try {
+    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.9));
+    if (job.cancel) return;
+    exportProgress('ファイルにまとめています…', 0.95);
+    download(encodeWav(buf), safeName() + '.wav');
+    toast('音声ファイル（WAV）を書き出しました');
+    return buf;
+  } finally { exportProgress(null); exportJob = null; }
 }
-// MP3（WAVの約10分の1の大きさ。音楽アプリやスマホでそのまま聴けます）
 async function exportMp3() {
-  MP3.ensure();
-  const buf = await renderSong();
-  const blob = await MP3.encode(buf, { kbps: 192, onProgress: (p) => toast(`MP3に変換中… ${Math.round(p * 100)}%`) });
-  download(blob, safeName() + '.mp3');
-  toast('音声ファイル（MP3）を書き出しました');
-  return blob;
+  const job = (exportJob = { cancel: false, ac: new AbortController() });
+  try {
+    MP3.ensure();
+    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.5));
+    if (job.cancel) return;
+    const blob = await MP3.encode(buf, { kbps: 192, signal: job.ac.signal, onProgress: (p) => exportProgress('MP3 に変換しています…', 0.5 + p * 0.5) });
+    if (job.cancel) return;
+    download(blob, safeName() + '.mp3');
+    toast('音声ファイル（MP3）を書き出しました');
+    return blob;
+  } catch (e) {
+    if (e && e.name === 'AbortError') { toast('書き出しをやめました'); return; }
+    throw e;
+  } finally { exportProgress(null); exportJob = null; }
 }
+function cancelExport() { if (exportJob) { exportJob.cancel = true; if (exportJob.ac) exportJob.ac.abort(); } exportProgress(null); toast('書き出しをやめました'); }
 function encodeWav(buf) {
   const ch = buf.numberOfChannels;
   const n = buf.length;
@@ -3818,6 +3943,7 @@ function init() {
   $('#btnImportJson').onclick = () => $('#fileIn').click();
   $('#fileIn').onchange = (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
   $('#btnWav').onclick = () => exportWav().catch((err) => alert('書き出しに失敗しました：' + err.message));
+  $('#expCancel').onclick = cancelExport;
   $('#btnMp3').onclick = () => exportMp3().catch((err) => alert('書き出しに失敗しました：' + err.message));
   $('#btnMidi').onclick = exportMidi;
   $('#btnScore').onclick = openScore;

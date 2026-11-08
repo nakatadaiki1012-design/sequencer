@@ -68,6 +68,7 @@
   <header class="topbar">
     <div class="mini-display" title="ミニディスプレイ（おすとルールを変えられます）">
       <input id="title" class="title" maxlength="40" aria-label="曲の名前">
+      <span id="saveMark" class="savemark" data-st="saved" title="このブラウザに自動で保存しています"></span>
       <button class="mini-info" id="miniInfo" title="ルール（調・拍子など）を変える"><span id="miniTitle" hidden></span><b id="miniPos"></b><span id="miniKey"></span><span id="miniMeter"></span><span id="miniBpm"></span></button>
       <div id="miniNote" class="mini-note"></div>
     </div>
@@ -247,7 +248,7 @@
   </dialog>
 
   <dialog id="dlgOpen">
-    <h3>ブラウザに保存した曲</h3>
+    <h3>マイ曲（このブラウザに保存した曲）</h3>
     <div id="openList"></div>
     <div class="dlgfoot"><button class="close tbtn">閉じる</button></div>
   </dialog>
@@ -280,6 +281,13 @@
       <section><h4>楽譜で編集</h4><table><tr><td><kbd>A</kbd>〜<kbd>G</kbd></td><td>音名で入力（C＝ド）。<kbd>Shift</kbd>をおしながらで和音</td></tr><tr><td><kbd>1</kbd>〜<kbd>6</kbd></td><td>長さ（6＝全、5＝2分、4＝4分、3＝8分、2＝16分、1＝32分）</td></tr><tr><td><kbd>.</kbd></td><td>付点</td></tr><tr><td><kbd>T</kbd></td><td>3連符</td></tr><tr><td><kbd>0</kbd> / <kbd>R</kbd></td><td>休符</td></tr><tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>高さを1音上げる・下げる（<kbd>Ctrl</kbd>でオクターブ）</td></tr><tr><td><kbd>←</kbd><kbd>→</kbd></td><td>となりへ（<kbd>Shift</kbd>でえらぶ範囲を広げる）</td></tr><tr><td><kbd>Delete</kbd></td><td>消す</td></tr><tr><td><kbd>N</kbd></td><td>入力 ⇔ 選択</td></tr><tr><td><kbd>V</kbd></td><td>声部1 ⇔ 声部2</td></tr><tr><td><kbd>S</kbd></td><td>スラー</td></tr><tr><td><kbd>+</kbd></td><td>タイ</td></tr><tr><td><kbd>L</kbd></td><td>歌詞</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>C</kbd> / <kbd>V</kbd></td><td>コピー・貼りつけ</td></tr><tr><td><kbd>Esc</kbd></td><td>えらんだのをやめる</td></tr></table></section>
     </div>
     <div class="dlgfoot"><button class="close tbtn primary">閉じる</button></div>
+  </dialog>
+
+  <dialog id="dlgExport" class="export">
+    <h3>音声ファイルを書き出しています</h3>
+    <p id="expLabel" class="hint">準備しています…</p>
+    <div class="expbar"><i id="expBar"></i></div>
+    <div class="dlgfoot"><span id="expPct" class="hint">0%</span><button id="expCancel" class="tbtn">やめる</button></div>
   </dialog>
 
   <dialog id="dlgShare">
