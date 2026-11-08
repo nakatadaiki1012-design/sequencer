@@ -124,6 +124,7 @@
           <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>履歴（これまでの操作）</button>
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
           <button id="btnHelp"><svg class="i"><use href="#i-help"/></svg>使い方</button>
+          <button id="btnTheme"><svg class="i"><use href="#i-eye"/></svg>着せかえ（色・明るさ）</button>
           <button id="btnTour"><svg class="i"><use href="#i-help"/></svg>使い方ツアー（かんたん案内）</button>
         </div>
       </details>
@@ -261,6 +262,14 @@
       <div class="barrow jumps"><b>D.C. など</b> <select id="barJump"></select></div>
     </div>
     <div class="dlgfoot"><button id="barOk" class="tbtn primary">決定</button><button class="close tbtn">キャンセル</button></div>
+  </dialog>
+
+  <dialog id="dlgTheme">
+    <h3>着せかえ</h3>
+    <p class="hint">すきな色をえらんでください。このブラウザに覚えておきます。</p>
+    <div id="themeGrid" class="themegrid"></div>
+    <div class="barrow"><b>明るさ</b><span class="seg modeseg" id="modeSeg"><button class="mini" data-mode="auto">自動</button><button class="mini" data-mode="light">明るい</button><button class="mini" data-mode="dark">暗い</button></span></div>
+    <div class="dlgfoot"><button class="close tbtn primary">できた</button></div>
   </dialog>
 
   <dialog id="dlgShare">

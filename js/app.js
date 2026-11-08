@@ -779,6 +779,17 @@ function roundRect(g, x, y, w, h, r) {
   g.closePath();
 }
 let cssCache = null;
+// 色を明るく（amt>0）・暗く（amt<0）する
+const shadeCache = new Map();
+function shade(hex, amt) {
+  const key = hex + amt;
+  if (shadeCache.has(key)) return shadeCache.get(key);
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c) => Math.round(amt > 0 ? c + (255 - c) * amt : c * (1 + amt));
+  const out = `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  shadeCache.set(key, out);
+  return out;
+}
 function C(n) {
   if (!cssCache) cssCache = getComputedStyle(document.documentElement);
   return cssCache.getPropertyValue(n).trim();
@@ -890,9 +901,17 @@ function draw(playPos) {
       const w = n.l * k;
       if (x > W || x + w < LW || y > H || y + rh < RH) continue;
       const on = playing >= n.s && playing < n.s + n.l;
-      g2.fillStyle = PC_COLORS[n.p % 12];
-      roundRect(g2, x + 1.5, y + 1.5, w - 3, rh - 3, 5);
-      g2.fill();
+      {
+        const col = PC_COLORS[n.p % 12];
+        const gr = g2.createLinearGradient(0, y, 0, y + rh);
+        gr.addColorStop(0, shade(col, 0.28));
+        gr.addColorStop(1, col);
+        g2.fillStyle = gr;
+        if (on) { g2.shadowColor = col; g2.shadowBlur = 14; }
+        roundRect(g2, x + 1.5, y + 1.5, w - 3, rh - 3, 6);
+        g2.fill();
+        g2.shadowBlur = 0;
+      }
       g2.lineWidth = on ? 3 : 1;
       g2.strokeStyle = on ? '#fff' : 'rgba(0,0,0,.18)';
       g2.stroke();
@@ -958,7 +977,10 @@ function draw(playPos) {
   if (playPos != null) {
     g2.strokeStyle = C('--playhead');
     g2.lineWidth = 2;
+    g2.shadowColor = C('--playhead');
+    g2.shadowBlur = 10;
     g2.beginPath(); g2.moveTo(X(playPos), RH); g2.lineTo(X(playPos), H); g2.stroke();
+    g2.shadowBlur = 0;
   }
   g2.restore();
 
@@ -3862,7 +3884,7 @@ function init() {
   osc.addEventListener('scroll', () => drawOverview());
   new ResizeObserver(() => { resizeEditor(); draw(); drawOverview(); }).observe($('#editorWrap'));
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
-  if (mq.addEventListener) mq.addEventListener('change', () => { cssCache = null; draw(); drawOverview(); });
+  if (mq.addEventListener) mq.addEventListener('change', () => applyTheme());
 
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
@@ -3968,6 +3990,58 @@ function setupTouchTips() {
   document.addEventListener('contextmenu', (e) => { if (tip || (start && e.target.closest('[title], [aria-label]'))) e.preventDefault(); }, true);
 }
 setupTouchTips();
+
+/* ============================================================
+   着せかえ（色のテーマ・明るさ）
+   ============================================================ */
+const THEMES = [
+  ['lavender', 'ラベンダー', '#6d5dfc', '#b45cff'], ['ocean', 'オーシャン', '#2f7fe8', '#1fc8c1'], ['sakura', 'さくら', '#e3477f', '#ff8f73'],
+  ['mint', 'ミント', '#0f9f7a', '#5ccf9a'], ['sunset', 'サンセット', '#f2672a', '#f5b521'],
+];
+const lsGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* なし */ } };
+// 明るさ：CSS の「暗い画面用」の指定を、強制的に使う／使わないに切りかえる
+function applyMode(mode) {
+  for (const sh of document.styleSheets) {
+    let rules;
+    try { rules = sh.cssRules; } catch (e) { continue; }
+    for (const r of rules) {
+      if (!r.media) continue;
+      if (r._orig == null) { if (!/prefers-color-scheme:\s*dark/.test(r.media.mediaText)) continue; r._orig = r.media.mediaText; }
+      r.media.mediaText = mode === 'dark' ? 'all' : mode === 'light' ? 'not all' : r._orig;
+    }
+  }
+  document.documentElement.style.colorScheme = mode === 'auto' ? '' : mode;
+}
+function applyTheme() {
+  const t = lsGet('otsumiki-theme', 'lavender');
+  if (t === 'lavender') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  applyMode(lsGet('otsumiki-mode', 'auto'));
+  // マス目（キャンバス）で使う色は、ふつうの色の書き方で入れる
+  const th = THEMES.find((x) => x[0] === t) || THEMES[0];
+  const n = parseInt(th[2].slice(1), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
+  const mode = lsGet('otsumiki-mode', 'auto');
+  const dark = mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const st = document.documentElement.style;
+  st.setProperty('--sel', `rgba(${r},${g},${b},${dark ? 0.18 : 0.11})`);
+  st.setProperty('--sel-strong', `rgba(${r},${g},${b},${dark ? 0.32 : 0.22})`);
+  st.setProperty('--bar-shade', `rgba(${r},${g},${b},${dark ? 0.04 : 0.03})`);
+  const mix = (bg, k) => `rgb(${Math.round(bg[0] + (r - bg[0]) * k)},${Math.round(bg[1] + (g - bg[1]) * k)},${Math.round(bg[2] + (b - bg[2]) * k)})`;
+  st.setProperty('--row-tonic', dark ? mix([20, 22, 28], 0.12) : mix([255, 255, 255], 0.06));
+  cssCache = null;
+  try { draw(); drawOverview(); if (ui.view === 'score') renderScoreEdit(); } catch (e) { /* はじめは描かない */ }
+}
+function openTheme() {
+  const cur = lsGet('otsumiki-theme', 'lavender');
+  const mode = lsGet('otsumiki-mode', 'auto');
+  $('#themeGrid').innerHTML = THEMES.map(([id, name, a, b]) => `<button class="themebtn ${id === cur ? 'on' : ''}" data-t="${id}"><i style="background:linear-gradient(135deg,${a},${b})"></i>${name}</button>`).join('');
+  $$('#themeGrid .themebtn').forEach((b) => (b.onclick = () => { lsSet('otsumiki-theme', b.dataset.t); applyTheme(); openTheme(); }));
+  $$('#modeSeg button').forEach((b) => { b.classList.toggle('on', b.dataset.mode === mode); b.onclick = () => { lsSet('otsumiki-mode', b.dataset.mode); applyTheme(); openTheme(); }; });
+  if (!$('#dlgTheme').open) $('#dlgTheme').showModal();
+}
+$('#btnTheme').onclick = () => { closePops(); openTheme(); };
+applyTheme();
 
 /* ============================================================
    はじめての人への案内（使い方ツアー）

@@ -821,3 +821,108 @@ body.phone .mini-display { max-width: 460px; }
 @media (pointer: coarse) { .scorepal .mini { min-width: 36px; } }
 #editorTools .grp { flex-wrap: nowrap; flex-shrink: 0; }
 #editorTools { white-space: nowrap; }
+
+/* ============================================================
+   デザイン v3（おしゃれに・さわりたくなる）
+   - 着せかえ：アクセント色 5 種（html[data-theme]）＋明るさ（自動・明るい・暗い）
+   - やわらかいグラデーションの背景、うかんだカードのようなパネル
+   - 光る再生ボタン、音楽プレーヤーのようなミニディスプレイ
+   ============================================================ */
+:root { --accent: #6d5dfc; --accent2: #b45cff; --display: #191734; --display2: #2c2370; }
+:root[data-theme="ocean"] { --accent: #2f7fe8; --accent2: #1fc8c1; --display: #0f1f36; --display2: #12476b; }
+:root[data-theme="sakura"] { --accent: #e3477f; --accent2: #ff8f73; --display: #2f1424; --display2: #6b2448; }
+:root[data-theme="mint"] { --accent: #0f9f7a; --accent2: #5ccf9a; --display: #0f2622; --display2: #145243; }
+:root[data-theme="sunset"] { --accent: #f2672a; --accent2: #f5b521; --display: #2d1810; --display2: #6e3418; }
+:root {
+  --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent);
+  --accent-text: color-mix(in srgb, var(--accent) 82%, #000);
+  --grad: linear-gradient(135deg, var(--accent), var(--accent2));
+  --glow: 0 6px 18px color-mix(in srgb, var(--accent) 38%, transparent);
+  --radius: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-text: color-mix(in srgb, var(--accent) 55%, #fff);
+    --glow: 0 6px 22px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+}
+body {
+  background:
+    radial-gradient(1100px 520px at -5% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
+    radial-gradient(900px 480px at 105% -5%, color-mix(in srgb, var(--accent2) 9%, transparent), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+
+/* 上のバー：すりガラス */
+.topbar { background: color-mix(in srgb, var(--panel) 72%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); position: relative; z-index: 20; }
+/* ミニディスプレイ：音楽プレーヤーの画面 */
+.mini-display { background: linear-gradient(135deg, var(--display), var(--display2)); border-radius: 14px; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 14px color-mix(in srgb, var(--display2) 35%, transparent); }
+.mini-info b { color: #fff; text-shadow: 0 0 10px color-mix(in srgb, var(--accent2) 80%, transparent); }
+.mini-info { color: rgba(255,255,255,.62); }
+.mini-display .title { color: #fff; }
+/* 再生ボタン：グラデーションで光る。鳴っているあいだは波紋 */
+.transport { background: var(--panel); border-color: var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+.play { background: var(--grad) !important; box-shadow: var(--glow); border-radius: 10px; transition: transform .12s, box-shadow .2s; position: relative; }
+.play:hover { transform: translateY(-1px); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 48%, transparent); }
+.play.on::after { content: ''; position: absolute; inset: -3px; border-radius: 13px; border: 2px solid var(--accent); animation: ripple 1.4s ease-out infinite; pointer-events: none; }
+@keyframes ripple { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.25); } }
+.primary, .tbtn.primary { background: var(--grad); border-color: transparent; box-shadow: var(--glow); }
+/* ボタン：おすと少しへこむ */
+.tbtn, .mini, .pp-btn, .instbtn, .chordbtn, .tpl { transition: background .15s, color .15s, transform .08s, box-shadow .15s, border-color .15s; }
+.tbtn:active:not(:disabled), .mini:active:not(:disabled), .instbtn:active:not(:disabled) { transform: scale(.96); }
+/* 切りかえボタン：えらんだものが白くうき上がる */
+.otama .on, .seg .on, .scorepal .grp .on { background: var(--panel) !important; color: var(--accent-text) !important; box-shadow: 0 1px 3px rgba(16,24,40,.12), 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+@media (prefers-color-scheme: dark) { .otama .on, .seg .on, .scorepal .grp .on { background: color-mix(in srgb, var(--accent) 22%, var(--panel)) !important; } }
+.otama, .seg, .scorepal .grp { border-radius: 11px; border-color: transparent; background: color-mix(in srgb, var(--muted) 10%, transparent); }
+
+/* パソコン：パネルをうかんだカードに */
+body:not(.phone) .main { padding: 10px; gap: 10px; }
+body:not(.phone) .tracks { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); background: color-mix(in srgb, var(--panel) 92%, transparent); }
+body:not(.phone) .editor { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; background: var(--panel); }
+/* トラック */
+.track { border-radius: 12px; transition: background .15s; }
+.track::before { width: 4px; left: 4px; background: var(--tc); box-shadow: 0 0 10px color-mix(in srgb, var(--tc) 60%, transparent); }
+.track.sel { background: linear-gradient(90deg, color-mix(in srgb, var(--tc) 14%, transparent), color-mix(in srgb, var(--tc) 3%, transparent)); }
+.instbtn { border-radius: 10px; }
+.instbtn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ovtools b, .tracks h2 { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ダイアログ：ふわっと出る */
+dialog { border-radius: 20px; border-color: color-mix(in srgb, var(--border) 70%, transparent); }
+dialog[open] { animation: popIn .22s cubic-bezier(.2,.9,.3,1.2); }
+dialog::backdrop { background: color-mix(in srgb, var(--display) 45%, transparent); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+@keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(.97); } }
+.popbody, .dd { border-radius: 14px; animation: dropIn .14s ease-out; }
+@keyframes dropIn { from { opacity: 0; transform: translateY(-4px); } }
+.toast { border-radius: 999px; padding: 9px 18px; background: color-mix(in srgb, var(--display) 92%, transparent); backdrop-filter: blur(8px); color: #fff; }
+
+/* はじめの画面 */
+dialog.start > h3 { font-size: 22px; margin-bottom: 4px; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+dialog.start > h3::after { content: 'ひな形をえらぶと、すぐに音を置きはじめられます'; display: block; font-size: 13px; font-weight: 400; color: var(--muted); -webkit-text-fill-color: var(--muted); margin-top: 4px; }
+.tpl { border-radius: 16px; }
+.tpl:hover { transform: translateY(-3px); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tpl-ic { width: 44px; height: 44px; border-radius: 13px; color: #fff; background: linear-gradient(135deg, hsl(var(--h, 250) 85% 62%), hsl(calc(var(--h, 250) + 40) 85% 62%)); box-shadow: 0 6px 14px hsl(var(--h, 250) 80% 60% / .35); }
+.tpl:nth-child(1) .tpl-ic { --h: 250; } .tpl:nth-child(2) .tpl-ic { --h: 330; } .tpl:nth-child(3) .tpl-ic { --h: 160; }
+.tpl:nth-child(4) .tpl-ic { --h: 20; } .tpl:nth-child(5) .tpl-ic { --h: 200; } .tpl:nth-child(6) .tpl-ic { --h: 280; }
+
+/* スマホ */
+body.phone .phonenav { background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+body.phone .phonenav button.on { color: var(--accent-text); }
+body.phone .phonenav button.on .i { filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.pp-btn.on { background: var(--grad); color: #fff; border-color: transparent; box-shadow: var(--glow); }
+.pp-note { border-radius: 14px; }
+
+/* 着せかえ */
+.themegrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 8px 0 16px; }
+.themebtn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 14px; border: 2px solid transparent; background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer; }
+.themebtn i { width: 40px; height: 40px; border-radius: 50%; display: block; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.themebtn.on { border-color: var(--accent); background: var(--accent-soft); }
+.modeseg { display: inline-flex; }
+body.phone .themegrid { grid-template-columns: repeat(3, 1fr); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.play.on, #btnPlay.on { background: var(--grad) !important; color: #fff !important; }
+body:not(.phone) .tracks { width: 262px; }
+body:not(.phone) .main { padding: 8px; gap: 8px; }
