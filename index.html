@@ -180,7 +180,7 @@
               <label>たての大きさ <input id="rowZoom" type="range" min="14" max="40" value="22"></label>
               <label><input type="checkbox" id="ghost" checked> ほかのパートを点線で表示</label>
               <label><input type="checkbox" id="btnScorePanel"> オトグラフの下に楽譜を表示</label>
-              <label>指でなぞったとき <select id="touchMode"><option value="edit">音を置く・のばす</option><option value="scroll">画面をスクロール</option></select></label>
+              <label>指でなぞったとき <select id="touchMode"><option value="smart">おまかせ（タップで置く・なぞると移動・長おしで長い音）</option><option value="edit">いつも音を置く・のばす</option><option value="scroll">いつも画面を動かす</option></select></label>
               <label>音のドラッグ <select id="dragMode"><option value="auto">自動（右はし＝のばす）</option><option value="stretch">のばすだけ</option><option value="move">動かすだけ</option></select></label>
               <button id="btnMidiIn" class="mini" type="button" title="USBなどでつないだMIDI鍵盤で演奏・入力します"><svg class="i"><use href="#i-piano"/></svg>MIDI鍵盤をつなぐ</button>
             </div>
@@ -324,6 +324,7 @@
     </ul>
     <h4>スマホで使うとき</h4>
     <ul>
+      <li><b>マス目の指の使い方</b>：<b>タップ</b>で音を置く・消す、<b>なぞる</b>と画面が動く（いきおいよくはらうと流れます）、<b>長おししてからなぞる</b>と長い音。2本指でも動かせます（「表示」→「指でなぞったとき」で変えられます）。</li>
       <li><b>楽譜をサッと書く</b>：下のタブの「楽譜」をおすと、画面の下に入力パネルが出ます。<b>長さ（♩♪など）→ドレミ</b>の順におすだけで、音符がどんどん入ります。8va／8vb でオクターブ、♯♭、休符、⌫ で消す、… で記号・歌詞・コード。</li>
       <li>下のタブで「打ち込み・トラック・全体・楽譜・その他」を切りかえます。テンポ・メトロノーム・ルール・メニューは「⚙ その他」にあります。</li>
       <li>上のトラックの名前（チップ）をおすとパートが切りかわります。もう一度おすとトラックの設定が開きます。</li>

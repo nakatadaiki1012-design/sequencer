@@ -130,7 +130,7 @@ let song = newSong();
 let cur = 0;
 const ui = {
   zoom: 56, rh: 22, names: 'doremi', flat: false, grid: 24, startTick: 0, loopOn: false, metro: false,
-  loopRange: null, sel: { t: 0, b0: 0, b1: 0 }, selBar: 0, follow: true, ghost: true, touchEdit: true, dragMode: 'auto',
+  loopRange: null, sel: { t: 0, b0: 0, b1: 0 }, selBar: 0, follow: true, ghost: true, touchEdit: true, touchMode: 'smart', dragMode: 'auto',
   stepRec: false, inputTick: 0, kbOct: 4, showScore: false, view: 'grid', chromatic: false, keyMove: true,
   sc: { cursor: 0, sel: new Set(), dur: 48, dot: false, trip: false, input: true, clip: null, lastIns: null, zoom: 1 },
 };
@@ -1163,7 +1163,86 @@ function findNote(tr, tick, p) {
   }
   return null;
 }
+/* ---------- 指での操作（スマート）----------
+   タップ＝音を置く／消す、なぞる＝画面を動かす（いきおいで流れる・たてか横にそろえる）、
+   長おし（0.28秒）してからなぞる＝長い音を書く。音の上からさわると、今までどおり動かす・のばす */
+let pending = null;
+let fling = 0;
+function stopFling() { if (fling) { cancelAnimationFrame(fling); fling = 0; } }
+function startFling(vx, vy) {
+  stopFling();
+  const sc = $('#scroller');
+  let last = performance.now();
+  const step = (now) => {
+    const dt = Math.min(40, now - last);
+    last = now;
+    sc.scrollLeft -= vx * dt;
+    sc.scrollTop -= vy * dt;
+    const f = Math.pow(0.9955, dt);
+    vx *= f;
+    vy *= f;
+    fling = Math.hypot(vx, vy) > 0.03 ? requestAnimationFrame(step) : 0;
+  };
+  fling = requestAnimationFrame(step);
+}
 function onDown(e) {
+  stopFling();
+  if (e.button > 0 || pan || touchPts.size >= 2) return;
+  if (e.pointerType === 'touch' && ui.touchMode === 'smart') {
+    const h = hitInfo(e);
+    const tr = track();
+    const onNote = tr.type === 'melody' && h.row && h.tick >= 0 && findNote(tr, h.tick, h.row.p);
+    if (h.area === 'grid' && !onNote && !ui.stepRec) {
+      const sc = $('#scroller');
+      try { sc.setPointerCapture(e.pointerId); } catch (er) { /* なし */ }
+      pending = { e, x: e.clientX, y: e.clientY, sl: sc.scrollLeft, st: sc.scrollTop, mode: 'wait', axis: null, pts: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+      pending.timer = setTimeout(() => {
+        if (!pending || pending.mode !== 'wait') return;
+        pending.mode = 'draw';
+        if (navigator.vibrate) try { navigator.vibrate(10); } catch (er) { /* なし */ }
+        editDown(pending.e);
+      }, 280);
+      return;
+    }
+  }
+  editDown(e);
+}
+function pendingMove(e) {
+  const p = pending;
+  if (p.mode === 'draw') return false;
+  const dx = e.clientX - p.x;
+  const dy = e.clientY - p.y;
+  if (p.mode === 'wait') {
+    if (Math.hypot(dx, dy) < 8) return true;
+    clearTimeout(p.timer);
+    p.mode = 'pan';
+    // 横に大きく動いたら横だけ、たてなら たてだけ
+    p.axis = Math.abs(dx) > Math.abs(dy) * 1.6 ? 'x' : Math.abs(dy) > Math.abs(dx) * 1.6 ? 'y' : null;
+  }
+  const sc = $('#scroller');
+  if (p.axis !== 'y') sc.scrollLeft = p.sl - dx;
+  if (p.axis !== 'x') sc.scrollTop = p.st - dy;
+  p.pts.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+  if (p.pts.length > 6) p.pts.shift();
+  return true;
+}
+function pendingUp() {
+  const p = pending;
+  pending = null;
+  clearTimeout(p.timer);
+  if (p.mode === 'wait') { editDown(p.e); onUp(); return; } // タップ
+  if (p.mode === 'pan') {
+    const a = p.pts[0];
+    const z = p.pts[p.pts.length - 1];
+    const dt = z.t - a.t;
+    if (dt > 0 && performance.now() - z.t < 80) {
+      const vx = p.axis === 'y' ? 0 : (z.x - a.x) / dt;
+      const vy = p.axis === 'x' ? 0 : (z.y - a.y) / dt;
+      if (Math.hypot(vx, vy) > 0.15) startFling(vx, vy);
+    }
+  }
+}
+function editDown(e) {
   if (e.button > 0 || pan || touchPts.size >= 2) return;
   const h = hitInfo(e);
   const tr = track();
@@ -1184,10 +1263,10 @@ function onDown(e) {
     return;
   }
   if (h.tick < 0 || h.tick >= totalTicks() || !h.row) return;
-  if (e.pointerType === 'touch' && !ui.touchEdit) return; // スクロールモード
+  if (e.pointerType === 'touch' && ui.touchMode === 'scroll') return; // スクロールモード
   if (tr.type !== 'chord' && locked(tr)) { toast('このトラックはロックされています'); return; }
   e.preventDefault();
-  $('#scroller').setPointerCapture(e.pointerId);
+  try { $('#scroller').setPointerCapture(e.pointerId); } catch (er) { /* 指がもうはなれている（タップ） */ }
   const snap = snapshot();
   if (tr.type === 'melody') {
     const n = findNote(tr, h.tick, h.row.p);
@@ -1196,7 +1275,7 @@ function onDown(e) {
       let mode = nearEnd ? 'resize' : 'move';
       if (ui.dragMode === 'stretch') mode = 'resize';
       if (ui.dragMode === 'move') mode = 'move';
-      drag = { kind: mode, n, snap, off: h.cell - n.s, moved: false, label: mode === 'resize' ? '音の長さを変更' : '音を移動' };
+      drag = { kind: mode, n, snap, off: h.cell - n.s, moved: false, existing: true, touch: e.pointerType === 'touch', label: mode === 'resize' ? '音の長さを変更' : '音を移動' };
     } else {
       const nn = { s: h.cell, p: h.row.p, l: cellLen(h.cell) };
       tr.notes.push(nn);
@@ -1239,6 +1318,8 @@ function setCell(tr, id, t, v) {
   version++;
 }
 function onMove(e) {
+  if (pending && (pan || touchPts.size >= 2)) { clearTimeout(pending.timer); pending = null; }
+  if (pending && pendingMove(e)) return;
   if (pan) return;
   const h = hitInfo(e);
   const tr = track();
@@ -1291,6 +1372,7 @@ function onMove(e) {
   draw();
 }
 function onUp() {
+  if (pending) { pendingUp(); if (!drag) return; }
   if (!drag) return;
   const tr = track();
   const d = drag;
@@ -1309,7 +1391,8 @@ function onUp() {
     updateMini();
     return;
   }
-  if (d.kind === 'move' && !d.moved) { tr.notes.splice(tr.notes.indexOf(d.n), 1); d.label = '音を消す'; }
+  // 動かさずにはなしたら消す（指のときは、右はしをさわっても）
+  if ((d.kind === 'move' || (d.kind === 'resize' && d.existing && d.touch)) && !d.moved) { tr.notes.splice(tr.notes.indexOf(d.n), 1); d.label = '音を消す'; }
   if (tr.type === 'melody') {
     const seen = new Set();
     tr.notes = tr.notes.filter((n) => { const k = n.s + ':' + n.p; if (seen.has(k)) return false; seen.add(k); return true; });
@@ -1974,7 +2057,7 @@ function renderSettings() {
   $('#btnFlat').textContent = ui.flat ? '♭で表示中' : '♯で表示中';
   $('#ghost').checked = ui.ghost;
   $('#dragMode').value = ui.dragMode;
-  $('#touchMode').value = ui.touchEdit ? 'edit' : 'scroll';
+  $('#touchMode').value = ui.touchMode;
   $('#swing').value = song.swing;
   opt($('#swingUnit'), [[24, '8分音符'], [12, '16分音符']], song.swingUnit);
   $('#zoom').value = ui.zoom;
@@ -3410,6 +3493,7 @@ function centroid() {
 function panDown(e) {
   if (e.pointerType !== 'touch') return;
   touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touchPts.size === 2 && pending) { clearTimeout(pending.timer); pending = null; }
   if (touchPts.size === 2) {
     if (drag && drag.snap && drag.kind !== 'ruler') { song = JSON.parse(drag.snap); changed(); }
     drag = null;
@@ -4016,7 +4100,7 @@ function init() {
   $('#btnScorePanel').onchange = (e) => { ui.showScore = e.target.checked; renderScorePanel(); };
   $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };
   $('#dragMode').onchange = (e) => { ui.dragMode = e.target.value; };
-  $('#touchMode').onchange = (e) => { ui.touchEdit = e.target.value === 'edit'; $('#scroller').classList.toggle('touchedit', ui.touchEdit); };
+  $('#touchMode').onchange = (e) => { ui.touchMode = e.target.value; ui.touchEdit = ui.touchMode !== 'scroll'; $('#scroller').classList.toggle('touchedit', ui.touchEdit); try { localStorage.setItem('otsumiki-touch', ui.touchMode); } catch (er) { /* なし */ } };
   $('#miniInfo').onclick = () => { const d = isPhone ? $('#popRules') : $('#popKey'); d.open = !d.open; };
   // ポップアップ（ルール・メニュー・道具・表示）は外をおすと閉じる
   document.addEventListener('pointerdown', (e) => { if (e.target.closest('#miniInfo')) return; closePops(e.target.closest('details.pop')); });
@@ -4063,15 +4147,27 @@ function init() {
   $('#phoneMoreClose').onclick = () => $('#phoneMore').classList.remove('open');
   if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', applyPhone);
   applyPhone();
+  try { const tm = localStorage.getItem('otsumiki-touch'); if (tm) { ui.touchMode = tm; ui.touchEdit = tm !== 'scroll'; } } catch (er) { /* なし */ }
   sc.classList.toggle('touchedit', ui.touchEdit);
   renderSettings();
   sc.addEventListener('pointerdown', onDown);
   sc.addEventListener('pointermove', onMove);
   sc.addEventListener('pointerup', onUp);
-  sc.addEventListener('pointercancel', () => { drag = null; });
+  sc.addEventListener('pointercancel', () => { drag = null; if (pending) { clearTimeout(pending.timer); pending = null; } });
   sc.addEventListener('scroll', () => { if (!player.on) { draw(); drawOverview(); } });
   sc.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) { e.preventDefault(); ui.zoom = clamp(ui.zoom - Math.sign(e.deltaY) * 6, 12, 240); $('#zoom').value = ui.zoom; resizeEditor(); draw(); drawOverview(); }
+    if (e.ctrlKey) { e.preventDefault(); ui.zoom = clamp(ui.zoom - Math.sign(e.deltaY) * 6, 12, 240); $('#zoom').value = ui.zoom; resizeEditor(); draw(); drawOverview(); return; }
+    // 小節番号の行の上では、ホイールで横に動く
+    const r = sc.getBoundingClientRect();
+    if (e.clientY - r.top < RH && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); stopFling(); sc.scrollLeft += e.deltaY; }
+  }, { passive: false });
+  // キャンバスの上では、ホイールで横に動く
+  $('#ovScroller').addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.ctrlKey) return;
+    const o = $('#ovScroller');
+    if (o.scrollWidth <= o.clientWidth) return;
+    e.preventDefault();
+    o.scrollLeft += e.deltaY;
   }, { passive: false });
   const osc = $('#ovScroller');
   osc.addEventListener('pointerdown', ovDown);
