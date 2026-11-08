@@ -399,7 +399,12 @@ function ensureAudio() {
   if (!actx) {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     const comp = actx.createDynamicsCompressor();
-    comp.connect(actx.destination);
+    const an = actx.createAnalyser();
+    an.fftSize = 256;
+    an.smoothingTimeConstant = 0.78;
+    comp.connect(an);
+    an.connect(actx.destination);
+    actx._an = an;
     previewOut = actx.createGain();
     previewOut.gain.value = 0.8;
     previewOut.connect(comp);
@@ -670,7 +675,62 @@ function stop(silent = false) {
     draw();
     drawOverview();
     updateMini();
+    vizFade();
   }
+}
+/* ---------- ビジュアライザー（ミニディスプレイの中で、音に合わせて動く光の柱） ---------- */
+let vizBuf = null;
+let vizPeak = null;
+let vizFadeRaf = 0;
+function drawViz(fade) {
+  const cv = $('#viz');
+  if (!cv || !actx || !actx._an) return false;
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth;
+  const h = cv.clientHeight;
+  if (!w || !h) return false;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const an = actx._an;
+  if (!vizBuf) vizBuf = new Uint8Array(an.frequencyBinCount);
+  an.getByteFrequencyData(vizBuf);
+  const N = Math.max(12, Math.min(40, Math.floor(w / 7)));
+  if (!vizPeak || vizPeak.length !== N) vizPeak = new Float32Array(N);
+  const bw = w / N;
+  const cs = getComputedStyle(document.documentElement);
+  const c1 = cs.getPropertyValue('--accent').trim() || '#6d5dfc';
+  const c2 = cs.getPropertyValue('--accent2').trim() || '#b45cff';
+  const gr = g.createLinearGradient(0, h, 0, 0);
+  gr.addColorStop(0, c1);
+  gr.addColorStop(1, c2);
+  let any = false;
+  for (let i = 0; i < N; i++) {
+    // 低い音から高い音へ、耳に近い並び（対数）でひろう
+    const a = Math.floor(Math.pow(i / N, 1.7) * vizBuf.length * 0.7);
+    const z = Math.max(a + 1, Math.floor(Math.pow((i + 1) / N, 1.7) * vizBuf.length * 0.7));
+    let m = 0;
+    for (let j = a; j < z; j++) m = Math.max(m, vizBuf[j]);
+    let v = m / 255;
+    if (fade) v = Math.min(v, vizPeak[i] * 0.86);
+    vizPeak[i] = Math.max(v, vizPeak[i] * 0.93);
+    if (vizPeak[i] > 0.01) any = true;
+    const bh = Math.max(1.5, v * h * 0.95);
+    g.fillStyle = gr;
+    g.globalAlpha = 0.85;
+    g.fillRect(i * bw + 1, h - bh, bw - 2, bh);
+    g.globalAlpha = 1;
+    g.fillStyle = c2;
+    g.fillRect(i * bw + 1, h - vizPeak[i] * h * 0.95 - 2, bw - 2, 1.5);
+  }
+  return any;
+}
+// 止めたら、光の柱がすーっと下がって消える
+function vizFade() {
+  cancelAnimationFrame(vizFadeRaf);
+  const step = () => { vizFadeRaf = !player.on && drawViz(true) ? requestAnimationFrame(step) : 0; };
+  vizFadeRaf = requestAnimationFrame(step);
 }
 function playheadPlay() {
   if (!player.on || !actx) return null;
@@ -697,6 +757,7 @@ function anim() {
   draw(pos);
   drawOverview(pos);
   updateMini(pos);
+  drawViz();
   if (ui.view === 'score') highlightScore(pos);
   requestAnimationFrame(anim);
 }
@@ -1045,6 +1106,14 @@ function draw(playPos) {
     g2.beginPath(); g2.moveTo(x, RH); g2.lineTo(x, H); g2.stroke();
   }
   if (playPos != null) {
+    {
+      const px = X(playPos);
+      const tl = g2.createLinearGradient(px - 90, 0, px, 0);
+      tl.addColorStop(0, 'rgba(0,0,0,0)');
+      tl.addColorStop(1, C('--trail'));
+      g2.fillStyle = tl;
+      g2.fillRect(px - 90, RH, 90, H);
+    }
     g2.strokeStyle = C('--playhead');
     g2.lineWidth = 2;
     g2.shadowColor = C('--playhead');
@@ -4291,6 +4360,7 @@ setupTouchTips();
 const THEMES = [
   ['lavender', 'ラベンダー', '#6d5dfc', '#b45cff'], ['ocean', 'オーシャン', '#2f7fe8', '#1fc8c1'], ['sakura', 'さくら', '#e3477f', '#ff8f73'],
   ['mint', 'ミント', '#0f9f7a', '#5ccf9a'], ['sunset', 'サンセット', '#f2672a', '#f5b521'],
+  ['neon', 'ネオン', '#00d5ff', '#ff3cc7'],
 ];
 const lsGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* なし */ } };
@@ -4310,19 +4380,21 @@ function applyMode(mode) {
 function applyTheme() {
   const t = lsGet('otsumiki-theme', 'lavender');
   if (t === 'lavender') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
-  applyMode(lsGet('otsumiki-mode', 'auto'));
+  const NEON = t === 'neon';
+  applyMode(NEON ? 'dark' : lsGet('otsumiki-mode', 'auto'));
   // マス目（キャンバス）で使う色は、ふつうの色の書き方で入れる
   const th = THEMES.find((x) => x[0] === t) || THEMES[0];
   const n = parseInt(th[2].slice(1), 16);
   const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
   const mode = lsGet('otsumiki-mode', 'auto');
-  const dark = mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const dark = NEON || mode === 'dark' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   const st = document.documentElement.style;
+  st.setProperty('--trail', `rgba(${r},${g},${b},${dark ? 0.16 : 0.1})`);
   st.setProperty('--sel', `rgba(${r},${g},${b},${dark ? 0.18 : 0.11})`);
   st.setProperty('--sel-strong', `rgba(${r},${g},${b},${dark ? 0.32 : 0.22})`);
   st.setProperty('--bar-shade', `rgba(${r},${g},${b},${dark ? 0.04 : 0.03})`);
   const mix = (bg, k) => `rgb(${Math.round(bg[0] + (r - bg[0]) * k)},${Math.round(bg[1] + (g - bg[1]) * k)},${Math.round(bg[2] + (b - bg[2]) * k)})`;
-  st.setProperty('--row-tonic', dark ? mix([20, 22, 28], 0.12) : mix([255, 255, 255], 0.06));
+  st.setProperty('--row-tonic', dark ? mix(NEON ? [8, 11, 20] : [20, 22, 28], 0.12) : mix([255, 255, 255], 0.06));
   cssCache = null;
   try { draw(); drawOverview(); if (ui.view === 'score') renderScoreEdit(); } catch (e) { /* はじめは描かない */ }
 }
@@ -4331,6 +4403,8 @@ function openTheme() {
   const mode = lsGet('otsumiki-mode', 'auto');
   $('#themeGrid').innerHTML = THEMES.map(([id, name, a, b]) => `<button class="themebtn ${id === cur ? 'on' : ''}" data-t="${id}"><i style="background:linear-gradient(135deg,${a},${b})"></i>${name}</button>`).join('');
   $$('#themeGrid .themebtn').forEach((b) => (b.onclick = () => { lsSet('otsumiki-theme', b.dataset.t); applyTheme(); openTheme(); }));
+  $('#modeSeg').classList.toggle('dis', cur === 'neon');
+  $('#modeSeg').title = cur === 'neon' ? 'ネオンは、いつも暗い画面です' : '';
   $$('#modeSeg button').forEach((b) => { b.classList.toggle('on', b.dataset.mode === mode); b.onclick = () => { lsSet('otsumiki-mode', b.dataset.mode); applyTheme(); openTheme(); }; });
   if (!$('#dlgTheme').open) $('#dlgTheme').showModal();
 }

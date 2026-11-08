@@ -976,3 +976,58 @@ body.phone .track { padding-bottom: 10px; }
   body.phone .trackchips { padding-top: 3px; padding-bottom: 3px; }
   body.phone .tools { padding-top: 3px; padding-bottom: 3px; }
 }
+
+/* ============================================================
+   ハイテク感
+   - ミニディスプレイの中のビジュアライザー（音に合わせて光の柱が動く）
+   - 数字はデジタル表示の字で、ゆれない
+   - 再生の線に光のしっぽ
+   - テーマ「ネオン」：暗い画面＋光るふち＋うすい方眼
+   ============================================================ */
+.mini-display { isolation: isolate; }
+.mini-display > :not(.viz):not(.mini-note) { position: relative; z-index: 1; }
+.viz { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; border-radius: inherit; opacity: .38; mix-blend-mode: screen; }
+.mini-info b, .mini-info span, #bpm, .bpm, .tempo input { font-variant-numeric: tabular-nums; }
+.mini-info b { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; letter-spacing: .02em; }
+/* 上の細い光の線（ディスプレイの「画面」らしさ） */
+.mini-display::before { content: ''; position: absolute; left: 10%; right: 10%; top: 0; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent2) 80%, #fff), transparent); opacity: .55; z-index: 1; }
+:root { --trail: rgba(109, 93, 252, .1); }
+.seg.dis { opacity: .4; pointer-events: none; }
+
+/* ---------- テーマ「ネオン」 ---------- */
+:root[data-theme="neon"] {
+  --accent: #00d5ff; --accent2: #ff3cc7; --display: #050814; --display2: #0b1636;
+  --bg: #070a14; --panel: #0d1220; --panel-2: #121a2c; --text: #e2f3ff; --muted: #7d8db0;
+  --border: #1c2a44; --border-strong: #2a3d63;
+  --grid-bg: #0a0f1c; --row-a: #0a0f1c; --row-b: #0d1324; --row-out: #060912; --row-hl: #12304a;
+  --line-step: #131c2e; --line-beat: #1e2c48; --line-bar: #2f5d8a;
+  --label-bg: #0d1324; --ruler: #0b1222; --loopbar: #16233d; --playhead: #ff3cc7;
+  --accent-text: #6fe6ff;
+  --glow: 0 0 18px rgba(0, 213, 255, .45);
+  --shadow: 0 0 0 1px rgba(0, 213, 255, .08), 0 8px 24px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+:root[data-theme="neon"] body {
+  background:
+    radial-gradient(900px 500px at 0% -10%, rgba(0, 213, 255, .13), transparent 60%),
+    radial-gradient(800px 480px at 100% 0%, rgba(255, 60, 199, .11), transparent 60%),
+    linear-gradient(rgba(0, 213, 255, .045) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, rgba(0, 213, 255, .045) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--bg);
+  background-attachment: fixed;
+}
+:root[data-theme="neon"] .topbar { background: rgba(7, 10, 20, .72); border-bottom-color: rgba(0, 213, 255, .22); box-shadow: 0 1px 0 rgba(0, 213, 255, .08), 0 6px 24px rgba(0, 0, 0, .4); }
+:root[data-theme="neon"] .mini-display { border: 1px solid rgba(0, 213, 255, .35); box-shadow: 0 0 18px rgba(0, 213, 255, .18), inset 0 0 22px rgba(0, 213, 255, .08); }
+:root[data-theme="neon"] .mini-display::after { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px); }
+:root[data-theme="neon"] .viz { opacity: .55; }
+:root[data-theme="neon"] .mini-info b { color: #6fe6ff; text-shadow: 0 0 8px rgba(0, 213, 255, .9); }
+:root[data-theme="neon"] body:not(.phone) .tracks,
+:root[data-theme="neon"] body:not(.phone) .editor { border-color: rgba(0, 213, 255, .22); box-shadow: 0 0 0 1px rgba(0, 213, 255, .05), 0 0 24px rgba(0, 213, 255, .07), 0 10px 30px rgba(0, 0, 0, .45); background: rgba(13, 18, 32, .9); }
+:root[data-theme="neon"] .transport { border-color: rgba(0, 213, 255, .25); }
+:root[data-theme="neon"] .play { box-shadow: 0 0 16px rgba(0, 213, 255, .55), 0 0 32px rgba(255, 60, 199, .25); }
+:root[data-theme="neon"] .tbtn:hover:not(:disabled) { border-color: rgba(0, 213, 255, .5); box-shadow: 0 0 10px rgba(0, 213, 255, .25); }
+:root[data-theme="neon"] .track.sel { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tc) 45%, transparent), 0 0 14px color-mix(in srgb, var(--tc) 22%, transparent); }
+:root[data-theme="neon"] dialog { background: #0d1220; border-color: rgba(0, 213, 255, .3); box-shadow: 0 0 40px rgba(0, 213, 255, .15), 0 20px 60px rgba(0, 0, 0, .6); }
+:root[data-theme="neon"] .toast { border: 1px solid rgba(0, 213, 255, .4); box-shadow: 0 0 18px rgba(0, 213, 255, .3); }
+:root[data-theme="neon"] .ovtools b, :root[data-theme="neon"] .tracks h2 { filter: drop-shadow(0 0 6px rgba(0, 213, 255, .5)); }
+@media (prefers-reduced-motion: reduce) { .viz { display: none; } }
