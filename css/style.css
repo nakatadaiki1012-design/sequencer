@@ -956,3 +956,23 @@ dialog.export { width: 380px; max-width: 92vw; }
 .expbar { height: 10px; border-radius: 10px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--border); }
 .expbar i { display: block; height: 100%; width: 0; background: var(--grad); border-radius: 10px; transition: width .2s; }
 dialog.export .dlgfoot { justify-content: space-between; align-items: center; }
+
+/* スマホのトラック画面：中身の帯 */
+.tstrip { display: none; }
+body.phone .tstrip { display: block; margin: 8px -2px 0; overflow-x: auto; scrollbar-width: none; border-radius: 10px; }
+body.phone .tstrip::-webkit-scrollbar { display: none; }
+.tstrip svg { display: block; }
+.tstrip .sb { fill: var(--panel-2); stroke: var(--border); stroke-width: 1; }
+.tstrip .sb.sel { fill: color-mix(in srgb, var(--tc) 14%, var(--panel)); stroke: var(--tc); }
+.tstrip .bn { font-size: 9px; fill: var(--muted); }
+.tstrip .cn { font-size: 12px; font-weight: 700; fill: var(--text); }
+body.phone .track { padding-bottom: 10px; }
+/* 横向きのスマホ：たてがせまいので、上下のバーを細く */
+@media (max-height: 500px) {
+  body.phone .topbar { padding: 3px 8px; }
+  body.phone .mini-display { padding: 2px 8px; }
+  body.phone .mini-info { display: none; }
+  body.phone .phonenav button { flex-direction: row; gap: 6px; padding: 4px 0; font-size: 12px; justify-content: center; }
+  body.phone .trackchips { padding-top: 3px; padding-bottom: 3px; }
+  body.phone .tools { padding-top: 3px; padding-bottom: 3px; }
+}

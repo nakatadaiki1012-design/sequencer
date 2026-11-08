@@ -2014,7 +2014,7 @@ function renderTracks() {
         </div></details></div>
       <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${tr.type === 'drum' ? PIC('kit', tr.kit) : PIC('inst', tr.inst)}<span class="instname">${escapeHtml(instLabel)}</span>${badge}${I('chevron')}</button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
-    d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details')) selectTrack(i); });
+    d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details') && !ev.target.closest('.tstrip')) selectTrack(i); });
     d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); };
     d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); };
     d.querySelector('.instbtn').onclick = (ev) => { ev.stopPropagation(); openInstPicker(i); };
@@ -2039,9 +2039,70 @@ function renderTracks() {
     const vol = d.querySelector('.vol');
     vol.oninput = (ev) => { tr.vol = +ev.target.value; liveVolume(tr); };
     vol.onchange = () => changed();
+    if (isPhone) {
+      // スマホ：トラックの中身を、小節ごとの帯で見せる（タップでその小節を打ち込みへ）
+      const strip = document.createElement('div');
+      strip.className = 'tstrip';
+      strip.innerHTML = trackStrip(tr, i);
+      strip.onclick = (ev) => {
+        const svg = strip.querySelector('svg');
+        const r = svg.getBoundingClientRect();
+        const b = clamp(Math.floor((ev.clientX - r.left) / stripBW()), 0, song.bars - 1);
+        selectTrack(i, false);
+        selectBars(i, b, b);
+        ui.startTick = barStart(b);
+        setPhoneView('edit');
+        $('#scroller').scrollLeft = barStart(b) * ppt();
+        draw(); drawOverview(); updateMini();
+      };
+      strip.onscroll = () => { stripScroll = strip.scrollLeft; list.querySelectorAll('.tstrip').forEach((x) => { if (x !== strip && Math.abs(x.scrollLeft - stripScroll) > 1) x.scrollLeft = stripScroll; }); };
+      d.appendChild(strip);
+    }
     list.appendChild(d);
   });
+  if (isPhone) list.querySelectorAll('.tstrip').forEach((x) => { x.scrollLeft = stripScroll; });
   renderChips();
+}
+// トラックの中身の帯（スマホのトラック画面）
+let stripScroll = 0;
+function stripBW() {
+  const w = ($('#trackList').clientWidth || innerWidth) - 40;
+  return Math.max(30, Math.floor(w / Math.min(song.bars, 8)));
+}
+function trackStrip(tr, i) {
+  const BW = stripBW();
+  const H = 44;
+  const W = BW * song.bars;
+  const col = TRACK_COLORS[i % TRACK_COLORS.length];
+  const xOf = (t) => { const b = barOf(Math.max(0, t)); return (b + (t - barStart(b)) / barLen(b)) * BW; };
+  let o = '';
+  for (let b = 0; b < song.bars; b++) {
+    const sel = i === cur && b >= ui.sel.b0 && b <= ui.sel.b1;
+    o += `<rect x="${b * BW + 1}" y="1" width="${BW - 2}" height="${H - 2}" rx="6" class="${sel ? 'sb sel' : 'sb'}"/>`;
+    if (b % 4 === 0) o += `<text x="${b * BW + 5}" y="11" class="bn">${b + 1}</text>`;
+  }
+  if (tr.type === 'melody' && tr.notes.length) {
+    const ps = tr.notes.map((n) => n.p);
+    const lo = Math.min(...ps) - 1;
+    const hi = Math.max(...ps) + 1;
+    const span = Math.max(8, hi - lo);
+    for (const n of tr.notes) {
+      if (n.s >= totalTicks()) continue;
+      const x = xOf(n.s);
+      const w = Math.max(2, xOf(Math.min(n.s + n.l, totalTicks())) - x - 1);
+      const y = 13 + ((hi - n.p) / span) * (H - 19);
+      o += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="3.2" rx="1.6" fill="${PC_COLORS[n.p % 12]}"/>`;
+    }
+  } else if (tr.type === 'chord') {
+    tr.chords.forEach((c, b) => { if (c && b < song.bars) o += `<text x="${b * BW + BW / 2}" y="${H / 2 + 7}" text-anchor="middle" class="cn">${escapeHtml(chordName(c))}</text>`; });
+  } else if (tr.type === 'drum') {
+    const ids = Object.keys(tr.grid);
+    ids.forEach((id, k) => {
+      const y = 15 + (k % 6) * 4.6;
+      for (const s in tr.grid[id]) { if (+s < totalTicks()) o += `<rect x="${xOf(+s).toFixed(1)}" y="${y}" width="2" height="3.4" rx="1" fill="${col}" opacity="${tr.grid[id][s] === 2 ? 1 : 0.65}"/>`; }
+    });
+  }
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
 }
 function moveTrack(i, dir) {
   const j = i + dir;
@@ -3336,7 +3397,7 @@ function openStart(first) {
 /* ============================================================
    スマホ用の画面
    ============================================================ */
-const phoneMQ = window.matchMedia('(max-width: 700px), (max-width: 900px) and (orientation: portrait)');
+const phoneMQ = window.matchMedia('(max-width: 700px), (max-width: 900px) and (orientation: portrait), (max-height: 500px) and (pointer: coarse)');
 let isPhone = false;
 const movedEls = [];
 // 指2本でスクロール（1本目で置きかけた音は取り消す）
@@ -3383,7 +3444,7 @@ function setPhoneView(v) {
   $('#phoneMore').classList.remove('open');
   document.body.dataset.view = v;
   $$('#phoneNav button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
-  requestAnimationFrame(() => { resizeEditor(); draw(); drawOverview(); });
+  requestAnimationFrame(() => { resizeEditor(); draw(); drawOverview(); if (v === 'tracks') renderTracks(); });
 }
 function applyPhone() {
   const on = phoneMQ.matches;
