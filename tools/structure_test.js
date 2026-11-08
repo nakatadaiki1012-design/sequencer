@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
   const p = await b.newPage({ viewport: { width: 1300, height: 900 } });
   const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   p.on('dialog', (d) => d.accept());
-  await p.goto('http://localhost:8765/'); await p.evaluate(() => localStorage.clear()); await p.reload(); await p.waitForTimeout(900);
+  await p.goto('http://localhost:8765/?notour'); await p.evaluate(() => localStorage.clear()); await p.reload(); await p.waitForTimeout(900);
   await p.evaluate(() => { const d = document.querySelector('#dlgStart'); if (d && d.open) d.close(); });
   const r = {};
   Object.assign(r, await p.evaluate(() => {

@@ -1,7 +1,7 @@
 const { chromium, devices } = require('playwright');
 (async () => { const SP=process.argv[2]; const b = await chromium.launch(); const p = await b.newPage({ viewport:{width:1440,height:900} });
 const errs=[]; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d=>{ errs.push('DIALOG '+d.message()); d.accept(); });
-await p.goto('http://localhost:8765/'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(1000);
+await p.goto('http://localhost:8765/?notour'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(1000);
 const first = () => p.evaluate(() => [song.key, song.scale, song.tracks[0].notes[0].p, song.tracks[2].chords[0].r]);
 console.log('start', await first());
 await p.click('#keySum'); await p.waitForTimeout(200);
@@ -30,7 +30,7 @@ console.log('high preset', await p.evaluate(() => JSON.stringify(trackRange(trac
 await p.mouse.click(700, 700);
 await p.screenshot({ path: SP + '/k3.png' });
 const m = await (await b.newContext({ ...devices['iPhone 13'] })).newPage(); m.on('pageerror', e => errs.push('PHONE '+e.message));
-await m.goto('http://localhost:8765/'); await m.waitForTimeout(1000); await m.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
+await m.goto('http://localhost:8765/?notour'); await m.waitForTimeout(1000); await m.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
 await m.locator('.phonenav [data-view="more"]').tap(); await m.waitForTimeout(300); await m.locator('#keySum').tap(); await m.waitForTimeout(300);
 await m.screenshot({ path: SP + '/k4-phone.png' });
 console.log('errors', errs); await b.close(); })();

@@ -1,7 +1,7 @@
 const { chromium } = require('playwright');
 (async () => { const SP=process.argv[2]; const b = await chromium.launch({args:['--autoplay-policy=no-user-gesture-required']}); const p = await b.newPage({ viewport:{width:1440,height:950} });
 const errs=[]; p.on('pageerror', e => errs.push(e.message+' '+(e.stack||'').split('\n')[1])); p.on('dialog', d=>d.accept(d.type()==='prompt'?'さ':undefined));
-await p.goto('http://localhost:8765/'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(1000);
+await p.goto('http://localhost:8765/?notour'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(1000);
 await p.click('#viewSeg [data-v="score"]'); await p.waitForTimeout(400);
 await p.screenshot({ path: SP + '/f1.png' });
 // キーボードで入力：新しいトラックに

@@ -926,3 +926,12 @@ body.phone .themegrid { grid-template-columns: repeat(3, 1fr); }
 .play.on, #btnPlay.on { background: var(--grad) !important; color: #fff !important; }
 body:not(.phone) .tracks { width: 262px; }
 body:not(.phone) .main { padding: 8px; gap: 8px; }
+
+/* ショートカット一覧 */
+.keycols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; }
+.keycols h4 { margin: 10px 0 6px; font-size: 13px; color: var(--accent-text); }
+.keycols table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.keycols td { padding: 5px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.keycols td:first-child { white-space: nowrap; padding-right: 12px; }
+kbd { display: inline-block; min-width: 20px; padding: 1px 6px; margin: 0 1px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 6px; font: 600 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; text-align: center; background: var(--panel-2); color: var(--text); }
+body.phone .keycols { grid-template-columns: 1fr; }

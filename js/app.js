@@ -341,20 +341,29 @@ function restore(json) {
   changed(true);
 }
 function undo() {
-  if (!undoStack.length) return;
+  if (!undoStack.length) return toast('もどせる操作はありません');
   const e = undoStack.pop();
   redoStack.push({ snap: snapshot(), label: e.label });
   restore(e.snap);
+  toast(`↶ 「${e.label}」を元に戻しました`);
+  updateUndoButtons();
 }
 function redo() {
-  if (!redoStack.length) return;
+  if (!redoStack.length) return toast('やり直せる操作はありません');
   const e = redoStack.pop();
   undoStack.push({ snap: snapshot(), label: e.label });
   restore(e.snap);
+  toast(`↷ 「${e.label}」をやり直しました`);
+  updateUndoButtons();
 }
+// ボタンの説明に「次に何が戻るか」を出す
 function updateUndoButtons() {
-  $('#btnUndo').disabled = !undoStack.length;
-  $('#btnRedo').disabled = !redoStack.length;
+  const u = undoStack[undoStack.length - 1];
+  const r = redoStack[redoStack.length - 1];
+  $('#btnUndo').disabled = !u;
+  $('#btnRedo').disabled = !r;
+  $('#btnUndo').title = u ? `元に戻す：「${u.label}」（Ctrl+Z）` : '元に戻す（Ctrl+Z）';
+  $('#btnRedo').title = r ? `やり直す：「${r.label}」（Ctrl+Y）` : 'やり直す（Ctrl+Y）';
 }
 let autosaveTimer = null;
 let scoreTimer = null;
@@ -2567,6 +2576,7 @@ function setView(v) {
     renderScoreEdit();
   } else { resizeEditor(); draw(); }
   renderPhonePad();
+  if (v === 'score') tourFirstTime('score');
 }
 function scoreEditIds() {
   return song.tracks.filter((t) => t.type === 'melody' || (t.type === 'drum' && Object.keys(t.grid).length) || (t.type === 'chord' && scoreSettings().accomp && t.chords.some(Boolean))).map((t) => t.id);
@@ -3889,6 +3899,7 @@ function init() {
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (e.key === '?' && !$$('dialog').some((d) => d.open)) { e.preventDefault(); openKeys(); return; }
     if (ui.view === 'score' && !$$('dialog').some((d) => d.open) && scoreKey(e)) return;
     if (e.ctrlKey || e.metaKey) {
       if (e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
@@ -4065,13 +4076,36 @@ const TOUR_PHONE = [
   ['#phoneNav [data-view="more"]', 'その他', '保存・書き出し（MP3・MIDI・楽譜）・調や拍子の設定はここです。'],
   [null, 'ヒント', 'ボタンを長おしすると、そのボタンの説明が出ます。このツアーは「その他 → 使い方ツアー」でいつでも見られます。'],
 ];
-function tourFirstTime() {
+const TOUR_SCORE_PC = [
+  ['#scoreEditView', '楽譜で入力', '五線をクリックした高さに音符が入ります。音符をクリックするとえらべます（Shift で範囲、Ctrl で追加）。'],
+  ['#scorePal [data-m="1"]', '入力 ⇔ 選択', '「入力」はクリックで音符を置く、「選択」はクリックでえらぶだけ。キー N でも切りかえられます。'],
+  ['#scorePal .grp:has(.sdur)', '音の長さ', '先に長さをえらんでから音を入れます。キー 1〜6 でも（4＝4分音符、3＝8分音符）。音符をえらんでから押すと、その音符の長さが変わります。'],
+  ['#scorePal .grp:has(.snote)', 'ドレミで入れる', 'キーボードの A〜G（C＝ド）でも入ります。Shift をおしながらだと和音になります。0 または R で休符。'],
+  ['#scorePal .grp:has(#scSharp)', '高さを直す', '♯・♭・↑↓ で、えらんだ音符の高さを変えます。Ctrl＋↑↓ でオクターブ。'],
+  ['#scorePal .grp:has(#scVoice)', '声部・拍子・D.C.', '1つの段に2つのメロディ（声部）、とちゅうの拍子・調の変化、D.C.・コーダもここから。'],
+  [null, 'ショートカット', '「?」キーで、使えるキーの一覧がいつでも出ます。'],
+];
+const TOUR_SCORE_PHONE = [
+  ['#scoreEditView', '楽譜で入力', '下のパネルで、長さ → ドレミ の順におすだけで音符が入っていきます。音符をタップするとえらべます。'],
+  ['#phonePad .pp-durs', '音の長さ', '先に長さをえらびます。音符をえらんでからおすと、その音符の長さが変わります。'],
+  ['#phonePad .pp-notes', 'ドレミ', 'おすと、カーソルの所に音符が入り、次へ進みます。'],
+  ['#phonePad .pp-tools', '直す', 'オクターブ・♯♭・休符・前後へ移動・消す。'],
+  ['#phonePad .pp-more > summary', 'もっと', '記号・強弱・歌詞・コード・くり返し・声部・拍子や調の変化・D.C. はここ。'],
+];
+const NO_TOUR = /[?&]notour\b/.test(location.search);
+function tourFirstTime(kind = 'main') {
+  if (NO_TOUR) return;
+  const key = kind === 'score' ? 'otsumiki-tour-score' : 'otsumiki-tour';
   let done = false;
-  try { done = !!localStorage.getItem('otsumiki-tour'); } catch (e) { /* なし */ }
-  if (!done) setTimeout(startTour, 700);
+  try { done = !!localStorage.getItem(key); } catch (e) { /* なし */ }
+  if (done || document.querySelector('.tour')) return;
+  setTimeout(() => startTour(kind), 700);
 }
-function startTour() {
-  const steps = (isPhone ? TOUR_PHONE : TOUR_PC).filter(([sel]) => {
+function startTour(kind = 'main') {
+  if (document.querySelector('.tour')) return;
+  const flag = kind === 'score' ? 'otsumiki-tour-score' : 'otsumiki-tour';
+  const list = kind === 'score' ? (isPhone ? TOUR_SCORE_PHONE : TOUR_SCORE_PC) : isPhone ? TOUR_PHONE : TOUR_PC;
+  const steps = list.filter(([sel]) => {
     if (!sel) return true;
     const el = document.querySelector(sel);
     if (!el) return false;
@@ -4079,7 +4113,7 @@ function startTour() {
     return r.width > 0 && r.height > 0;
   });
   closePops();
-  if (isPhone) setPhoneView('edit');
+  if (isPhone && kind === 'main') setPhoneView('edit');
   let k = 0;
   const ov = document.createElement('div');
   ov.className = 'tour';
@@ -4087,7 +4121,7 @@ function startTour() {
   document.body.appendChild(ov);
   const hole = ov.querySelector('.tour-hole');
   const card = ov.querySelector('.tour-card');
-  const end = () => { ov.remove(); removeEventListener('resize', place); try { localStorage.setItem('otsumiki-tour', '1'); } catch (e) { /* なし */ } };
+  const end = () => { ov.remove(); removeEventListener('resize', place); try { localStorage.setItem(flag, '1'); } catch (e) { /* なし */ } };
   function place() {
     const [sel, title, text] = steps[k];
     ov.querySelector('.tour-step').textContent = `${k + 1} / ${steps.length}`;
@@ -4126,5 +4160,7 @@ function startTour() {
   place();
   ov.querySelector('.tour-next').focus();
 }
-$('#btnTour').onclick = () => { closePops(); startTour(); };
+$('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
+$('#btnKeys').onclick = () => { closePops(); openKeys(); };
+function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
 init();

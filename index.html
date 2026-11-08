@@ -125,6 +125,7 @@
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
           <button id="btnHelp"><svg class="i"><use href="#i-help"/></svg>使い方</button>
           <button id="btnTheme"><svg class="i"><use href="#i-eye"/></svg>着せかえ（色・明るさ）</button>
+          <button id="btnKeys"><svg class="i"><use href="#i-keys"/></svg>キーボードのショートカット（? キー）</button>
           <button id="btnTour"><svg class="i"><use href="#i-help"/></svg>使い方ツアー（かんたん案内）</button>
         </div>
       </details>
@@ -272,6 +273,15 @@
     <div class="dlgfoot"><button class="close tbtn primary">できた</button></div>
   </dialog>
 
+  <dialog id="dlgKeys" class="wide keys">
+    <h3>キーボードのショートカット</h3>
+    <div class="keycols">
+      <section><h4>どこでも</h4><table><tr><td><kbd>Space</kbd></td><td>再生・停止</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Z</kbd></td><td>元に戻す</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Y</kbd> / <kbd>Ctrl</kbd>＋<kbd>Shift</kbd>＋<kbd>Z</kbd></td><td>やり直す</td></tr><tr><td><kbd>?</kbd></td><td>この一覧を出す</td></tr><tr><td><kbd>Ctrl</kbd>＋ホイール</td><td>マス目を横に大きく・小さく</td></tr></table><h4>マス目（オトグラフ）</h4><table><tr><td><kbd>A</kbd><kbd>W</kbd><kbd>S</kbd>… <kbd>K</kbd></td><td>パソコンのキーボードを鍵盤にして鳴らす（A＝ド、W＝ド♯ …）</td></tr><tr><td><kbd>Z</kbd> / <kbd>X</kbd></td><td>鍵盤のオクターブを下げる・上げる</td></tr><tr><td>「鍵盤入力」オンで <kbd>←</kbd><kbd>→</kbd></td><td>1マスずつ進む・もどる</td></tr><tr><td>「鍵盤入力」オンで <kbd>Backspace</kbd></td><td>1つ前の音を消す</td></tr></table></section>
+      <section><h4>楽譜で編集</h4><table><tr><td><kbd>A</kbd>〜<kbd>G</kbd></td><td>音名で入力（C＝ド）。<kbd>Shift</kbd>をおしながらで和音</td></tr><tr><td><kbd>1</kbd>〜<kbd>6</kbd></td><td>長さ（6＝全、5＝2分、4＝4分、3＝8分、2＝16分、1＝32分）</td></tr><tr><td><kbd>.</kbd></td><td>付点</td></tr><tr><td><kbd>T</kbd></td><td>3連符</td></tr><tr><td><kbd>0</kbd> / <kbd>R</kbd></td><td>休符</td></tr><tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>高さを1音上げる・下げる（<kbd>Ctrl</kbd>でオクターブ）</td></tr><tr><td><kbd>←</kbd><kbd>→</kbd></td><td>となりへ（<kbd>Shift</kbd>でえらぶ範囲を広げる）</td></tr><tr><td><kbd>Delete</kbd></td><td>消す</td></tr><tr><td><kbd>N</kbd></td><td>入力 ⇔ 選択</td></tr><tr><td><kbd>V</kbd></td><td>声部1 ⇔ 声部2</td></tr><tr><td><kbd>S</kbd></td><td>スラー</td></tr><tr><td><kbd>+</kbd></td><td>タイ</td></tr><tr><td><kbd>L</kbd></td><td>歌詞</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>C</kbd> / <kbd>V</kbd></td><td>コピー・貼りつけ</td></tr><tr><td><kbd>Esc</kbd></td><td>えらんだのをやめる</td></tr></table></section>
+    </div>
+    <div class="dlgfoot"><button class="close tbtn primary">閉じる</button></div>
+  </dialog>
+
   <dialog id="dlgShare">
     <h3>この曲を共有する</h3>
     <p>下のURLを送ると、相手も同じ曲を開けます（曲のデータがURLの中に入っています）。学習支援ソフトの課題やチャットにはりつけて使えます。</p>
@@ -332,6 +342,8 @@
     </ul>
     <h4>べんりな機能</h4>
     <ul>
+      <li><b>キーボードのショートカット</b>：<kbd>?</kbd> キーかメニューから一覧が出ます。</li>
+      <li><b>元に戻す</b>：ボタンにマウスをのせると、次に何が戻るかが出ます。戻したときも「◯◯を元に戻しました」と出ます。</li>
       <li><b>使い方ツアー</b>：メニュー → 使い方ツアー。スマホやタブレットでは、ボタンを<b>長おし</b>すると説明が出ます。</li>
       <li><b>MP3で書き出し</b>：メニュー → 音声ファイル（MP3）。WAV は高音質ですがファイルが大きくなります。</li>
       <li><b>印刷</b>：楽譜は A4 のページに分けて表示・印刷します（段のとちゅうでは切れません）。</li>

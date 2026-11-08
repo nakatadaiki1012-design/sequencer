@@ -6,7 +6,7 @@ const fs = require('fs');
   const R = {};
   const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const errs = [];
-  const page = async (opts) => { const p = await b.newPage(opts); p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept(d.type()==='prompt'?'80':undefined)); await p.goto('http://localhost:8765/'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(900); return p; };
+  const page = async (opts) => { const p = await b.newPage(opts); p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept(d.type()==='prompt'?'80':undefined)); await p.goto('http://localhost:8765/?notour'); await p.evaluate(()=>localStorage.clear()); await p.reload(); await p.waitForTimeout(900); return p; };
 
   // ---------- UI のスッキリ感 ----------
   for (const [name, vp] of [['PC', { width: 1440, height: 900 }], ['iPad横', { width: 1180, height: 820 }]]) {
@@ -142,7 +142,7 @@ const fs = require('fs');
   {
     const ctx = await b.newContext({ ...devices['iPad (gen 7) landscape'] });
     const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept());
-    await p.goto('http://localhost:8765/'); await p.waitForTimeout(900); await p.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
+    await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(900); await p.evaluate(()=>{ if (document.querySelector('#dlgStart').open) document.querySelector('#dlgStart').close(); });
     const box = await p.locator('#scroller').boundingBox();
     const n0 = await p.evaluate(() => song.tracks[0].notes.length);
     await p.touchscreen.tap(box.x + 82 + 28 * 5 + 5, box.y + 30 + 22 * 3 + 5);

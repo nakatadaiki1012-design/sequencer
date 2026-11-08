@@ -1,7 +1,7 @@
 const { chromium } = require('playwright');
 (async () => { const b = await chromium.launch(); const p = await b.newPage({ viewport:{width:1300,height:900} });
 const errs=[]; p.on('pageerror', e => errs.push(e.message));
-await p.goto('http://localhost:8765/'); await p.waitForTimeout(800);
+await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(800);
 const R = await p.evaluate(() => {
   const res = {};
   const cnt = (svg, nm) => svg.split(Glyphs.g[nm].d).length - 1;

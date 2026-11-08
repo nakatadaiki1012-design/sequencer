@@ -13,7 +13,7 @@ const SIZES = [
     await ctx.addInitScript(() => { try { localStorage.setItem('otsumiki-tour', '1'); } catch (e) {} });
     const p = await ctx.newPage();
     const errs = []; p.on('pageerror', (e) => errs.push(e.message));
-    await p.goto('http://localhost:8765/'); await p.waitForTimeout(1200);
+    await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(1200);
     await p.evaluate(() => { const d = document.querySelector('#dlgStart'); if (d.open) d.close(); });
     await p.waitForTimeout(300);
     const measure = () => p.evaluate(() => {
