@@ -1031,3 +1031,20 @@ body.phone .track { padding-bottom: 10px; }
 :root[data-theme="neon"] .toast { border: 1px solid rgba(0, 213, 255, .4); box-shadow: 0 0 18px rgba(0, 213, 255, .3); }
 :root[data-theme="neon"] .ovtools b, :root[data-theme="neon"] .tracks h2 { filter: drop-shadow(0 0 6px rgba(0, 213, 255, .5)); }
 @media (prefers-reduced-motion: reduce) { .viz { display: none; } }
+
+/* マス目の大きさ：右下の －／ぴったり／＋ と、変えている間の表示 */
+.scroller, .scroller.touchedit { touch-action: none; }
+.zoombox { position: absolute; right: 12px; bottom: 12px; z-index: 5; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0,0,0,.14);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: .78; transition: opacity .15s; }
+.zoombox:hover, .zoombox:focus-within { opacity: 1; }
+.zoombox button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--text); font-size: 16px; font-weight: 700; cursor: pointer; padding: 0; }
+.zoombox button:hover { background: var(--accent-soft); color: var(--accent-text); }
+.zoombox button:active { transform: scale(.92); }
+.zoombox button.on { background: var(--grad); color: #fff; }
+body.phone .zoombox { right: 10px; bottom: 10px; }
+body.phone .zoombox button { width: 36px; height: 36px; }
+.zoomhud { position: absolute; left: 50%; top: 42px; transform: translateX(-50%); z-index: 6; pointer-events: none; padding: 5px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--display) 88%, transparent); color: #fff; font: 600 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity .25s; white-space: nowrap; }
+.zoomhud.show { opacity: .92; }

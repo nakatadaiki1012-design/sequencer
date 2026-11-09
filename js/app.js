@@ -182,7 +182,8 @@ const scalePcs = () => {
   for (const b in song.keys || {}) { const k = song.keys[b]; for (const x of SCALES[k.minor ? 'minor' : 'major'].steps) set.add((x + k.key) % 12); }
   return set;
 };
-const ppt = () => Math.max(ui.zoom / TPQ, 18 / ui.grid);
+const MIN_CELL = 6; // 1マスの最小のはば（px）
+const ppt = () => Math.max(ui.zoom / TPQ, MIN_CELL / ui.grid);
 const isMinor = () => MINORISH.includes(song.scale);
 const locked = (tr) => !!(tr && tr.locked);
 
@@ -1135,6 +1136,8 @@ function draw(playPos) {
     g2.fillRect(X(barStart(ui.loopRange[0])), 0, (barStart(ui.loopRange[1]) - barStart(ui.loopRange[0])) * k, 9);
   }
   g2.textBaseline = 'middle';
+  let nStep = 1;
+  while (nStep < 16 && barLen(0) * k * nStep < 26) nStep *= 2;
   for (let b = barOf(t0); b < song.bars && barStart(b) < t1; b++) {
     const x = X(barStart(b));
     const bt = barLen(b);
@@ -1144,9 +1147,12 @@ function draw(playPos) {
     if (b > 0 && song.meters && song.meters[b]) chg.push(song.meters[b].join('/'));
     if (b > 0 && song.keys && song.keys[b]) chg.push(keyLabel(song.keys[b].key, song.keys[b].minor));
     if (chg.length) { g2.fillStyle = C('--accent'); g2.font = 'bold 10px sans-serif'; g2.fillText(chg.join(' '), x + 22, 6); }
-    g2.fillStyle = C('--text');
-    g2.font = 'bold 12px sans-serif';
-    g2.fillText(String(b + 1), x + 5, RH / 2 + 4);
+    // 小節番号：大きくしたときは左はしにくっついて見え続ける。小さくしたときは間引く
+    if (b % nStep === 0) {
+      g2.fillStyle = C('--text');
+      g2.font = 'bold 12px sans-serif';
+      g2.fillText(String(b + 1), Math.max(x + 5, Math.min(LW + 5, x + bt * k - 22)), RH / 2 + 4);
+    }
     if (song.tempos[b]) { g2.fillStyle = C('--accent'); g2.font = '11px sans-serif'; g2.fillText('♩=' + song.tempos[b], x + 24, RH / 2 + 4); }
     g2.strokeStyle = C('--line-bar');
     g2.lineWidth = 1;
@@ -1257,6 +1263,13 @@ function startFling(vx, vy) {
 function onDown(e) {
   stopFling();
   if (e.button > 0 || pan || touchPts.size >= 2) return;
+  if (e.pointerType === 'touch' && ui.touchMode === 'scroll') {
+    if (hitInfo(e).area !== 'grid') return;
+    const sc = $('#scroller');
+    try { sc.setPointerCapture(e.pointerId); } catch (er) { /* なし */ }
+    pending = { e, x: e.clientX, y: e.clientY, sl: sc.scrollLeft, st: sc.scrollTop, mode: 'wait', axis: null, scrollOnly: true, pts: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+    return;
+  }
   if (e.pointerType === 'touch' && ui.touchMode === 'smart') {
     const h = hitInfo(e);
     const tr = track();
@@ -1299,7 +1312,7 @@ function pendingUp() {
   const p = pending;
   pending = null;
   clearTimeout(p.timer);
-  if (p.mode === 'wait') { editDown(p.e); onUp(); return; } // タップ
+  if (p.mode === 'wait') { if (!p.scrollOnly) { editDown(p.e); onUp(); } return; } // タップ
   if (p.mode === 'pan') {
     const a = p.pts[0];
     const z = p.pts[p.pts.length - 1];
@@ -3567,7 +3580,10 @@ function panDown(e) {
     if (drag && drag.snap && drag.kind !== 'ruler') { song = JSON.parse(drag.snap); changed(); }
     drag = null;
     const sc = $('#scroller');
-    pan = { sx: sc.scrollLeft, sy: sc.scrollTop, c: centroid() };
+    const ps = [...touchPts.values()];
+    const c = centroid();
+    const a = zoomAnchor(c.x, c.y);
+    pan = { sx: sc.scrollLeft, sy: sc.scrollTop, c, dx0: Math.abs(ps[0].x - ps[1].x), dy0: Math.abs(ps[0].y - ps[1].y), z0: ui.zoom, rh0: ui.rh, a };
   }
 }
 function panMove(e) {
@@ -3575,13 +3591,20 @@ function panMove(e) {
   touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (!pan) return;
   const c = centroid();
-  const sc = $('#scroller');
-  sc.scrollLeft = pan.sx - (c.x - pan.c.x);
-  sc.scrollTop = pan.sy - (c.y - pan.c.y);
+  const ps = [...touchPts.values()];
+  if (ps.length < 2) return;
+  const dx = Math.abs(ps[0].x - ps[1].x);
+  const dy = Math.abs(ps[0].y - ps[1].y);
+  // 指の向きに合わせて：横にならんだ指＝横の大きさ、たてにならんだ指＝たての大きさ（ななめなら両方）
+  const useX = pan.dx0 > 40 && pan.dx0 > pan.dy0 * 0.45;
+  const useY = pan.dy0 > 40 && pan.dy0 > pan.dx0 * 0.45 && track().type !== 'chord';
+  const z = useX ? pan.z0 * dx / pan.dx0 : pan.z0;
+  const rh = useY ? pan.rh0 * dy / pan.dy0 : pan.rh0;
+  applyZoom(z, rh, pan.a, c.x, c.y, true);
 }
 function panUp(e) {
   touchPts.delete(e.pointerId);
-  if (touchPts.size < 2 && pan) { pan = null; drag = null; }
+  if (touchPts.size < 2 && pan) { pan = null; drag = null; saveZoom(); }
 }
 
 function setPhoneView(v) {
@@ -3598,6 +3621,112 @@ function setPhoneView(v) {
   document.body.dataset.view = v;
   $$('#phoneNav button').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
   requestAnimationFrame(() => { resizeEditor(); draw(); drawOverview(); if (v === 'tracks') renderTracks(); });
+}
+/* ---------- マス目の大きさ（ピアノロールのズーム） ----------
+   ・2本指でつまむ／ひろげる（横にならべた指＝横、たて＝たて、ななめ＝両方）
+   ・Ctrl＋ホイール／トラックパッドのつまむ操作（鍵盤の列の上・Alt つきは たて）
+   ・右下の －／ぴったり／＋、キーボードの － ＝ 0
+   どれも、指やマウスの所がずれないように大きさを変えます。大きさはおぼえておきます */
+const ZOOM_MIN = 8;
+const ZOOM_MAX = 480;
+const RH_MIN = 10;
+const RH_MAX = 64;
+// ある画面上の点が、曲のどこ（何tick・何行目）にあたるか
+function zoomAnchor(cx, cy) {
+  const sc = $('#scroller');
+  const r = sc.getBoundingClientRect();
+  if (cx == null) cx = r.left + LW + (r.width - LW) / 2;
+  if (cy == null) cy = r.top + RH + (r.height - RH) / 2;
+  const px = clamp(cx - r.left, LW, r.width);
+  const py = clamp(cy - r.top, RH, r.height);
+  return { tick: (px + sc.scrollLeft - LW) / ppt(), row: (py + sc.scrollTop - RH) / rowH(track()), cx, cy };
+}
+let zoomHudT = 0;
+let fitState = null;
+function applyZoom(z, rh, a, cx, cy, keepFit) {
+  const sc = $('#scroller');
+  const r = sc.getBoundingClientRect();
+  const zMin = Math.max(ZOOM_MIN, (MIN_CELL / ui.grid) * TPQ);
+  ui.zoom = Math.round(clamp(z, zMin, ZOOM_MAX) * 10) / 10;
+  ui.rh = Math.round(clamp(rh, RH_MIN, RH_MAX) * 10) / 10;
+  $('#zoom').value = ui.zoom;
+  $('#rowZoom').value = ui.rh;
+  resizeEditor();
+  if (a) {
+    const px = clamp((cx == null ? a.cx : cx) - r.left, LW, r.width);
+    const py = clamp((cy == null ? a.cy : cy) - r.top, RH, r.height);
+    sc.scrollLeft = a.tick * ppt() - px + LW;
+    sc.scrollTop = a.row * rowH(track()) - py + RH;
+  }
+  if (!keepFit) fitState = null;
+  draw();
+  drawOverview();
+  showZoomHud();
+  if (!pan) saveZoomSoon();
+}
+function zoomDefaults() { return isPhone ? [72, 30] : [56, 22]; }
+function showZoomHud() {
+  const h = $('#zoomHud');
+  const [z0, r0] = zoomDefaults();
+  h.textContent = `↔ ${Math.round((ppt() * TPQ / z0) * 100)}%　↕ ${Math.round((ui.rh / r0) * 100)}%`;
+  h.classList.add('show');
+  clearTimeout(zoomHudT);
+  zoomHudT = setTimeout(() => h.classList.remove('show'), 900);
+  $('#zFit').classList.toggle('on', !!fitState);
+}
+function zoomStep(dir) {
+  const a = zoomAnchor();
+  const base = Math.max(ui.zoom, ppt() * TPQ); // 限度に当たっていても、すぐ反応するように
+  applyZoom(base * (dir > 0 ? 1.3 : 1 / 1.3), ui.rh * (dir > 0 ? 1.1 : 1 / 1.1), a);
+  saveZoom();
+}
+// ぴったり：曲全体を横いっぱいに、使っている音の高さをたていっぱいに。もう一度おすと元にもどる
+function zoomFit() {
+  const sc = $('#scroller');
+  if (fitState) {
+    const p = fitState.prev;
+    fitState = null;
+    applyZoom(p.z, p.rh, null);
+    sc.scrollLeft = p.sl;
+    sc.scrollTop = p.st;
+    draw(); drawOverview(); saveZoom();
+    toast('元の大きさにもどしました');
+    return;
+  }
+  const prev = { z: ui.zoom, rh: ui.rh, sl: sc.scrollLeft, st: sc.scrollTop };
+  const w = sc.clientWidth - LW - 12;
+  const h = sc.clientHeight - RH - 6;
+  const z = (w / totalTicks()) * TPQ;
+  const tr = track();
+  const rows = rowsFor(tr);
+  let i0 = 0;
+  let i1 = rows.length - 1;
+  if (tr.type === 'melody' && tr.notes.length) {
+    const idx = tr.notes.map((n) => rows.findIndex((r) => r.p === n.p)).filter((i) => i >= 0);
+    if (idx.length) { i0 = Math.max(0, Math.min(...idx) - 1); i1 = Math.min(rows.length - 1, Math.max(...idx) + 1); }
+  }
+  const rh = tr.type === 'chord' ? ui.rh : Math.min(RH_MAX, Math.max(14, h / (i1 - i0 + 1)));
+  applyZoom(z, rh, null);
+  sc.scrollLeft = 0;
+  sc.scrollTop = i0 * rowH(tr);
+  fitState = { prev };
+  draw(); drawOverview(); showZoomHud(); saveZoom();
+  toast(ppt() * TPQ > z + 0.5 ? '入るだけ小さくしました（もう一度で元にもどる）' : '曲の全体を表示（もう一度で元にもどる）');
+}
+let zoomSaveT = 0;
+function saveZoomSoon() { clearTimeout(zoomSaveT); zoomSaveT = setTimeout(saveZoom, 400); }
+function saveZoom() {
+  try {
+    const all = JSON.parse(localStorage.getItem('otsumiki-zoom') || '{}');
+    all[isPhone ? 'phone' : 'pc'] = [ui.zoom, ui.rh];
+    localStorage.setItem('otsumiki-zoom', JSON.stringify(all));
+  } catch (e) { /* なし */ }
+}
+function loadZoom() {
+  try {
+    const v = JSON.parse(localStorage.getItem('otsumiki-zoom') || '{}')[isPhone ? 'phone' : 'pc'];
+    if (v) { ui.zoom = clamp(+v[0] || 56, ZOOM_MIN, ZOOM_MAX); ui.rh = clamp(+v[1] || 22, RH_MIN, RH_MAX); $('#zoom').value = ui.zoom; $('#rowZoom').value = ui.rh; }
+  } catch (e) { /* なし */ }
 }
 function applyPhone() {
   const on = phoneMQ.matches;
@@ -3619,6 +3748,7 @@ function applyPhone() {
     OV_RH = 30;
     if (ui.rh === 22) { ui.rh = 30; $('#rowZoom').value = 30; }
     if (ui.zoom === 56) { ui.zoom = 72; $('#zoom').value = 72; }
+    loadZoom();
     if (!document.body.dataset.view) document.body.dataset.view = 'edit';
   } else {
     for (const [el, mark] of movedEls.splice(0)) { mark.parentNode.insertBefore(el, mark); mark.parentNode.removeChild(mark); }
@@ -3627,6 +3757,7 @@ function applyPhone() {
     OV_RH = 20;
     if (ui.rh === 30) { ui.rh = 22; $('#rowZoom').value = 22; }
     if (ui.zoom === 72) { ui.zoom = 56; $('#zoom').value = 56; }
+    loadZoom();
     document.body.dataset.view = '';
     $('#phoneMore').classList.remove('open');
   }
@@ -4120,16 +4251,12 @@ function init() {
   $('#btnFlat').onclick = () => { ui.flat = !ui.flat; renderSettings(); draw(); };
   $('#swing').oninput = guardRules((e) => { song.swing = +e.target.value; version++; });
   $('#swingUnit').onchange = guardRules((e) => { song.swingUnit = +e.target.value; version++; });
-  $('#zoom').oninput = (e) => {
-    const sc = $('#scroller');
-    const tk = sc.scrollLeft / ppt();
-    ui.zoom = +e.target.value;
-    resizeEditor();
-    sc.scrollLeft = tk * ppt();
-    draw();
-    drawOverview();
-  };
-  $('#rowZoom').oninput = (e) => { ui.rh = +e.target.value; resizeEditor(); draw(); };
+  $('#zoom').oninput = (e) => applyZoom(+e.target.value, ui.rh, zoomAnchor());
+  $('#rowZoom').oninput = (e) => applyZoom(ui.zoom, +e.target.value, zoomAnchor());
+  $('#zOut').onclick = () => zoomStep(-1);
+  $('#zIn').onclick = () => zoomStep(1);
+  $('#zFit').onclick = () => zoomFit();
+  for (const id of ['#zoom', '#rowZoom']) $(id).onchange = () => saveZoom();
 
   $('#btnPlay').onclick = () => (player.on ? stop() : play());
   $('#btnStop').onclick = () => {
@@ -4216,6 +4343,7 @@ function init() {
   $('#phoneMoreClose').onclick = () => $('#phoneMore').classList.remove('open');
   if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', applyPhone);
   applyPhone();
+  loadZoom();
   try { const tm = localStorage.getItem('otsumiki-touch'); if (tm) { ui.touchMode = tm; ui.touchEdit = tm !== 'scroll'; } } catch (er) { /* なし */ }
   sc.classList.toggle('touchedit', ui.touchEdit);
   renderSettings();
@@ -4225,7 +4353,18 @@ function init() {
   sc.addEventListener('pointercancel', () => { drag = null; if (pending) { clearTimeout(pending.timer); pending = null; } });
   sc.addEventListener('scroll', () => { if (!player.on) { draw(); drawOverview(); } });
   sc.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) { e.preventDefault(); ui.zoom = clamp(ui.zoom - Math.sign(e.deltaY) * 6, 12, 240); $('#zoom').value = ui.zoom; resizeEditor(); draw(); drawOverview(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      e.preventDefault();
+      stopFling();
+      const d = clamp(e.deltaY || e.deltaX, -60, 60) * (e.deltaMode === 1 ? 20 : 1);
+      const f = Math.exp(-clamp(d, -60, 60) * 0.004);
+      const rr = sc.getBoundingClientRect();
+      const vert = e.altKey || e.shiftKey || e.clientX - rr.left < LW;
+      const a = zoomAnchor(e.clientX, e.clientY);
+      if (vert) applyZoom(ui.zoom, ui.rh * f, a, e.clientX, e.clientY);
+      else applyZoom(ui.zoom * f, ui.rh, a, e.clientX, e.clientY);
+      return;
+    }
     // 小節番号の行の上では、ホイールで横に動く
     const r = sc.getBoundingClientRect();
     if (e.clientY - r.top < RH && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); stopFling(); sc.scrollLeft += e.deltaY; }
@@ -4268,6 +4407,11 @@ function init() {
       toast(`鍵盤の高さ：C${ui.kbOct} から`);
       if (inPicker && picker.type !== 'drum') renderPicker();
       return;
+    }
+    if (ui.view !== 'score' && !inPicker) {
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomStep(-1); return; }
+      if (e.key === '=' || e.key === '+' || e.key === '^') { e.preventDefault(); zoomStep(1); return; }
+      if (e.key === '0' && !ui.stepRec) { e.preventDefault(); zoomFit(); return; }
     }
     if (ui.stepRec && !inPicker) {
       if (e.key === 'ArrowRight') { e.preventDefault(); advanceCursor(1); return; }

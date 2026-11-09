@@ -177,8 +177,8 @@
             <div class="popbody">
               <label>音名 <select id="names"></select></label>
               <label>♯／♭ <button id="btnFlat" class="mini" type="button" title="♯と♭の表記を切りかえます（音は変わりません）">♯で表示</button></label>
-              <label>横の大きさ <input id="zoom" type="range" min="12" max="240" value="56"></label>
-              <label>たての大きさ <input id="rowZoom" type="range" min="14" max="40" value="22"></label>
+              <label>横の大きさ <input id="zoom" type="range" min="8" max="480" step="any" value="56"></label>
+              <label>たての大きさ <input id="rowZoom" type="range" min="10" max="64" step="any" value="22"></label>
               <label><input type="checkbox" id="ghost" checked> ほかのパートを点線で表示</label>
               <label><input type="checkbox" id="btnScorePanel"> オトグラフの下に楽譜を表示</label>
               <label>指でなぞったとき <select id="touchMode"><option value="smart">おまかせ（タップで置く・なぞると移動・長おしで長い音）</option><option value="edit">いつも音を置く・のばす</option><option value="scroll">いつも画面を動かす</option></select></label>
@@ -191,6 +191,12 @@
       <div id="editorWrap" class="editorwrap">
         <canvas id="cv"></canvas>
         <div id="scroller" class="scroller"><div id="spacer"></div></div>
+        <div class="zoombox" title="マス目の大きさ（2本指でつまむ・ひろげる、Ctrl＋ホイールでも）">
+          <button id="zOut" aria-label="小さく">－</button>
+          <button id="zFit" aria-label="ぴったり（曲全体）" title="曲全体がちょうど入る大きさ（もう一度おすと元にもどる）"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
+          <button id="zIn" aria-label="大きく">＋</button>
+        </div>
+        <div id="zoomHud" class="zoomhud" aria-live="polite"></div>
       </div>
       <div id="scoreEdit" class="scoreedit" hidden>
         <div id="scorePal" class="scorepal"></div>
@@ -278,7 +284,7 @@
   <dialog id="dlgKeys" class="wide keys">
     <h3>キーボードのショートカット</h3>
     <div class="keycols">
-      <section><h4>どこでも</h4><table><tr><td><kbd>Space</kbd></td><td>再生・停止</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Z</kbd></td><td>元に戻す</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Y</kbd> / <kbd>Ctrl</kbd>＋<kbd>Shift</kbd>＋<kbd>Z</kbd></td><td>やり直す</td></tr><tr><td><kbd>?</kbd></td><td>この一覧を出す</td></tr><tr><td><kbd>Ctrl</kbd>＋ホイール</td><td>マス目を横に大きく・小さく</td></tr></table><h4>マス目（オトグラフ）</h4><table><tr><td><kbd>A</kbd><kbd>W</kbd><kbd>S</kbd>… <kbd>K</kbd></td><td>パソコンのキーボードを鍵盤にして鳴らす（A＝ド、W＝ド♯ …）</td></tr><tr><td><kbd>Z</kbd> / <kbd>X</kbd></td><td>鍵盤のオクターブを下げる・上げる</td></tr><tr><td>「鍵盤入力」オンで <kbd>←</kbd><kbd>→</kbd></td><td>1マスずつ進む・もどる</td></tr><tr><td>「鍵盤入力」オンで <kbd>Backspace</kbd></td><td>1つ前の音を消す</td></tr></table></section>
+      <section><h4>どこでも</h4><table><tr><td><kbd>Space</kbd></td><td>再生・停止</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Z</kbd></td><td>元に戻す</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>Y</kbd> / <kbd>Ctrl</kbd>＋<kbd>Shift</kbd>＋<kbd>Z</kbd></td><td>やり直す</td></tr><tr><td><kbd>?</kbd></td><td>この一覧を出す</td></tr></table><h4>マス目（オトグラフ）</h4><table><tr><td><kbd>A</kbd><kbd>W</kbd><kbd>S</kbd>… <kbd>K</kbd></td><td>パソコンのキーボードを鍵盤にして鳴らす（A＝ド、W＝ド♯ …）</td></tr><tr><td><kbd>Z</kbd> / <kbd>X</kbd></td><td>鍵盤のオクターブを下げる・上げる</td></tr><tr><td>「鍵盤入力」オンで <kbd>←</kbd><kbd>→</kbd></td><td>1マスずつ進む・もどる</td></tr><tr><td>「鍵盤入力」オンで <kbd>Backspace</kbd></td><td>1つ前の音を消す</td></tr><tr><td><kbd>Ctrl</kbd>＋ホイール（トラックパッドはつまむ）</td><td>マウスの所を中心に、横に大きく・小さく</td></tr><tr><td><kbd>Alt</kbd>＋ホイール／鍵盤の列の上で <kbd>Ctrl</kbd>＋ホイール</td><td>たてに大きく・小さく</td></tr><tr><td><kbd>-</kbd> / <kbd>=</kbd></td><td>小さく・大きく</td></tr><tr><td><kbd>0</kbd></td><td>曲全体がちょうど入る大きさ（もう一度で元にもどる）</td></tr><tr><td>スマホ：2本指でつまむ・ひろげる</td><td>横にならべた指で横、たてにならべた指でたての大きさ</td></tr></table></section>
       <section><h4>楽譜で編集</h4><table><tr><td><kbd>A</kbd>〜<kbd>G</kbd></td><td>音名で入力（C＝ド）。<kbd>Shift</kbd>をおしながらで和音</td></tr><tr><td><kbd>1</kbd>〜<kbd>6</kbd></td><td>長さ（6＝全、5＝2分、4＝4分、3＝8分、2＝16分、1＝32分）</td></tr><tr><td><kbd>.</kbd></td><td>付点</td></tr><tr><td><kbd>T</kbd></td><td>3連符</td></tr><tr><td><kbd>0</kbd> / <kbd>R</kbd></td><td>休符</td></tr><tr><td><kbd>↑</kbd><kbd>↓</kbd></td><td>高さを1音上げる・下げる（<kbd>Ctrl</kbd>でオクターブ）</td></tr><tr><td><kbd>←</kbd><kbd>→</kbd></td><td>となりへ（<kbd>Shift</kbd>でえらぶ範囲を広げる）</td></tr><tr><td><kbd>Delete</kbd></td><td>消す</td></tr><tr><td><kbd>N</kbd></td><td>入力 ⇔ 選択</td></tr><tr><td><kbd>V</kbd></td><td>声部1 ⇔ 声部2</td></tr><tr><td><kbd>S</kbd></td><td>スラー</td></tr><tr><td><kbd>+</kbd></td><td>タイ</td></tr><tr><td><kbd>L</kbd></td><td>歌詞</td></tr><tr><td><kbd>Ctrl</kbd>＋<kbd>C</kbd> / <kbd>V</kbd></td><td>コピー・貼りつけ</td></tr><tr><td><kbd>Esc</kbd></td><td>えらんだのをやめる</td></tr></table></section>
     </div>
     <div class="dlgfoot"><button class="close tbtn primary">閉じる</button></div>
