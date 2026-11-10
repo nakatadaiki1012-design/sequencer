@@ -1231,3 +1231,6 @@ body.present .toast { top: 84px; bottom: auto; }
 body.phone .beatdots { display: none; }
 body.phone.present .beatdots { display: inline-flex; }
 body.present .beatdots i { width: 12px; height: 12px; }
+
+/* メニューが長くても、画面の中でスクロールできるように */
+.menu details.dropdown .dd { max-height: calc(100vh - 100px); max-height: calc(100dvh - 100px); overflow-y: auto; overscroll-behavior: contain; }
