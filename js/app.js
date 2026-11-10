@@ -177,6 +177,8 @@ function sanitizeSong(s) {
   out.meter = Array.isArray(s.meter) && s.meter.length === 2 && s.meter.every((x) => Number.isInteger(x) && x > 0 && x <= 32) ? s.meter : [4, 4];
   for (const k of ['tempos', 'meters', 'keys', 'jumps', 'eq', 'metro', 'locks']) out[k] = obj(s[k]);
   for (const b in out.tempos) if (!Number.isFinite(+out.tempos[b])) delete out.tempos[b];
+  out.ramps = obj(s.ramps);
+  for (const b in out.ramps) { const r = out.ramps[b]; if (!(r && (r.type === 'rit' || r.type === 'acc') && Number.isInteger(r.n) && r.n > 0 && r.n <= 16)) delete out.ramps[b]; }
   for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
@@ -406,7 +408,9 @@ function tickAtSec(sec) {
 function swingSec(tick) {
   if (!song.swing) return 0;
   const u = song.swingUnit;
-  if (tick % (u * 2) !== u) return 0;
+  const bi = playBarOf(tick);
+  const inBar = tick - playStarts()[bi];
+  if (inBar % (u * 2) !== u) return 0;
   const { spt, n } = timeTable();
   return (song.swing * u / 3) * spt[clamp(playBarOf(tick), 0, n - 1)];
 }
@@ -427,7 +431,10 @@ function pushUndo(snap, label) {
 }
 function edit(fn, label = '編集') {
   const snap = snapshot();
+  const nTr = song.tracks.length;
+  const trId = track() && track().id;
   fn();
+  if (song.tracks.length !== nTr || (track() && track().id) !== trId) { nsel.clear(); updateSelBar(); }
   if (snapshot() !== snap) pushUndo(snap, label);
   changed();
 }
@@ -597,9 +604,11 @@ function chordEvents(tr) {
     const c0 = tr.chords[b];
     if (!c0) continue;
     const bs = beatAt(b);
-    const hs = c0.h ? chordHalf(b) : barLen(b);
-    prev = chordPart(tr, ev, c0, barStart(b), hs, bs, prev);
-    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b) + hs, barLen(b) - hs, bs, prev);
+    const bl = barLen(b);
+    const hs = c0.h ? chordHalf(b) : bl;
+    // 伴奏の形は「小節の」リズムで作り、前半・後半それぞれの区切りの中だけ鳴らす（2つのコードでも速くならない）
+    prev = chordPart(tr, ev, c0, barStart(b), bl, 0, hs, bs, prev);
+    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b), bl, hs, bl, bs, prev);
   }
   return ev;
 }
@@ -622,64 +631,66 @@ function voiceLead(tones, prev) {
   }
   return best;
 }
-function chordPart(tr, ev, c, o, bt, bs, prev) {
-  {
-    let root = 48 + ((c.r % 12) + 12) % 12;
-    if (root > 54) root -= 12;
-    const tones = voiceLead(CHORD_Q[c.q].iv.map((x) => root + 12 + x), prev);
-    const bass = root - 12 + (root < 43 ? 12 : 0);
-    const push = (s, p, l, v = 0.7) => { if (s < bt) ev.push({ s: o + s, p, l: Math.min(l, bt - s), v }); }; // 区切りの外には出さない
-    const pat = tr.pattern;
-    if (pat === 'whole') {
-      tones.forEach((p) => push(0, p, bt, 0.6));
-      if (tr.bassOn) push(0, bass, bt, 0.8);
-    } else if (pat === 'beat') {
-      for (let s = 0; s < bt; s += bs) {
-        tones.forEach((p) => push(s, p, bs * 0.9, s === 0 ? 0.65 : 0.5));
-        if (tr.bassOn) push(s, bass, bs * 0.9, 0.75);
-      }
-    } else if (pat === 'arp' || pat === 'alberti') {
-      const seq = pat === 'arp' ? [tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1]] : [tones[0], tones[2], tones[1], tones[2]];
-      let i = 0;
-      for (let s = 0; s < bt; s += 24) push(s, seq[i++ % seq.length], pat === 'arp' ? 40 : 22, 0.55);
-      if (tr.bassOn) push(0, bass, bt, 0.7);
-    } else if (pat === 'pop8') {
-      // 8分音符できざむ。拍の頭を少し強く、ベースは1・3拍
-      for (let s = 0, k = 0; s < bt; s += 24, k++) tones.forEach((p) => push(s, p, 20, k % 2 ? 0.38 : 0.5));
-      if (tr.bassOn) for (let s = 0; s < bt; s += bs * 2) push(s, bass, bs * 1.8, 0.8);
-    } else if (pat === 'strum') {
-      // ギター：下・下上・上下・上（D-DU-UDU）を、弦を少しずつずらして
-      const hits = [[0, 1, 0.6], [48, 1, 0.5], [72, -1, 0.4], [120, -1, 0.4], [144, 1, 0.5], [168, -1, 0.4]];
-      const gtr = [tones[0] - 12, tones[2] - 12, tones[0], tones[1], tones[2]];
-      for (const [st, dir, v] of hits) {
-        const s = (st / 192) * bt;
-        if (s >= bt) continue;
-        const order = dir > 0 ? gtr : [...gtr].reverse().slice(0, 4);
-        order.forEach((p, i) => push(s + i * 1.5, p, Math.max(12, Math.min(48, bt - s) * 0.9), v));
-      }
-      if (tr.bassOn) push(0, bass, bs * 1.5, 0.75);
-    } else if (pat === 'bossa') {
-      // ボサノバ：ベースは 1拍・3拍の前（ルートと5度）、和音はシンコペーション
-      const fifth = bass + 7;
-      if (tr.bassOn) { push(0, bass, bs * 1.4, 0.8); push(bs * 1.5, fifth, bs * 0.45, 0.6); push(bs * 2, fifth, bs * 1.4, 0.75); push(bs * 3.5, bass, bs * 0.45, 0.6); }
-      for (const st of [0, 72, 144]) { const s = (st / 192) * bt; if (s < bt) tones.forEach((p) => push(s, p, 30, 0.42)); }
-      for (const st of [24 + 96]) { const s = (st / 192) * bt; if (s < bt) tones.forEach((p) => push(s, p, 20, 0.35)); }
-    } else if (pat === 'ballad') {
-      // 1小節で、ベース→和音を上り下り（8分音符）
-      const seq = [bass + 12, tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1], tones[0]];
-      let i = 0;
-      for (let s = 0; s < bt; s += 24) push(s, seq[i++ % seq.length], 60, i === 1 ? 0.55 : 0.42);
-      if (tr.bassOn) push(0, bass, bt, 0.6);
-    } else if (pat === 'waltz' || pat === 'march') {
-      for (let s = 0, k = 0; s < bt; s += bs, k++) {
-        const first = pat === 'waltz' ? k % 3 === 0 : k % 2 === 0;
-        if (first) { if (tr.bassOn) push(s, bass, bs * 0.9, 0.85); else push(s, tones[0], bs * 0.9, 0.6); } else tones.forEach((p) => push(s, p, bs * 0.6, 0.45));
-      }
+function chordPart(tr, ev, c, o, bl, from, to, bs, prev) {
+  let root = 48 + ((c.r % 12) + 12) % 12;
+  if (root > 54) root -= 12;
+  const iv = CHORD_Q[c.q].iv;
+  const tones = voiceLead(iv.map((x) => root + 12 + x), prev);
+  const top = tones[tones.length - 1];
+  const bass = root - 12 + (root < 43 ? 12 : 0);
+  const fifth = bass + (iv[2] != null ? iv[2] : 7); // 和音の5度（減・増でも正しく）
+  let bassed = false;
+  // s は小節の頭からの位置。区切り（from〜to）の外の音は鳴らさない
+  const push = (s, p, l, v = 0.7, isBass = false) => {
+    if (s < from || s >= to) return;
+    ev.push({ s: o + s, p, l: Math.max(1, Math.min(l, to - s)), v });
+    if (isBass) bassed = true;
+  };
+  const pat = tr.pattern;
+  if (pat === 'whole') {
+    tones.forEach((p) => push(from, p, to - from, 0.6));
+    if (tr.bassOn) push(from, bass, to - from, 0.8, true);
+  } else if (pat === 'beat') {
+    for (let s = 0; s < bl; s += bs) {
+      tones.forEach((p) => push(s, p, bs * 0.9, s === 0 ? 0.65 : 0.5));
+      if (tr.bassOn) push(s, bass, bs * 0.9, 0.75, true);
     }
-    return tones;
+  } else if (pat === 'arp' || pat === 'alberti') {
+    // 7の和音は4つの音ぜんぶを使う
+    const seq = pat === 'arp' ? (tones.length > 3 ? [tones[0], tones[1], tones[2], tones[3], tones[2], tones[1]] : [tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1]]) : [tones[0], top, tones[1], top];
+    for (let s = 0, i = 0; s < bl; s += 24, i++) push(s, seq[i % seq.length], pat === 'arp' ? 40 : 22, 0.55);
+    if (tr.bassOn) push(from, bass, to - from, 0.7, true);
+  } else if (pat === 'pop8') {
+    for (let s = 0, k = 0; s < bl; s += 24, k++) tones.forEach((p) => push(s, p, 20, k % 2 ? 0.38 : 0.5));
+    if (tr.bassOn) for (let s = 0; s < bl; s += bs * 2) push(s, bass, bs * 1.8, 0.8, true);
+  } else if (pat === 'strum') {
+    // ギター：下・下上・上下・上（8分音符の位置で。3拍子・2拍子でもずれない）
+    const hits = [[0, 1, 0.6], [48, 1, 0.5], [72, -1, 0.4], [120, -1, 0.4], [144, 1, 0.5], [168, -1, 0.4]];
+    const gtr = [tones[0] - 12, tones[tones.length > 3 ? 2 : 2] - 12, ...tones];
+    for (const [st, dir, v] of hits) {
+      if (st >= bl) continue;
+      const order = dir > 0 ? gtr : [...gtr].reverse().slice(0, 4);
+      order.forEach((p, i) => push(st + i * 1.5, p, 40, v));
+    }
+    if (tr.bassOn) push(from, bass, bs * 1.5, 0.75, true);
+  } else if (pat === 'bossa') {
+    if (tr.bassOn) { push(0, bass, bs * 1.4, 0.8, true); push(bs * 1.5, fifth, bs * 0.45, 0.6, true); push(bs * 2, fifth, bs * 1.4, 0.75, true); push(bs * 3.5, bass, bs * 0.45, 0.6, true); }
+    for (const st of [0, 72, 144]) if (st < bl) tones.forEach((p) => push(st, p, 30, 0.42));
+    if (120 < bl) tones.forEach((p) => push(120, p, 20, 0.35));
+  } else if (pat === 'ballad') {
+    const seq = [bass + 12, tones[0], tones[1], tones[2], tones.length > 3 ? tones[3] : tones[0] + 12, tones[2], tones[1], tones[0]];
+    for (let s = 0, i = 0; s < bl; s += 24, i++) push(s, seq[i % seq.length], 60, i === 0 ? 0.55 : 0.42);
+    if (tr.bassOn) push(from, bass, to - from, 0.6, true);
+  } else if (pat === 'waltz' || pat === 'march') {
+    for (let s = 0, k = 0; s < bl; s += bs, k++) {
+      const first = pat === 'waltz' ? k % 3 === 0 : k % 2 === 0;
+      if (first) { if (tr.bassOn) push(s, bass, bs * 0.9, 0.85, true); else push(s, tones[0], bs * 0.9, 0.6); } else tones.forEach((p) => push(s, p, bs * 0.6, 0.45));
+    }
   }
+  // 後半のコードでベースがひとつも鳴らないときは、区切りの頭にベース
+  if (tr.bassOn && !bassed && from > 0) push(from, bass, Math.min(bs, to - from) * 0.9, 0.75, true);
+  return tones;
 }
-
 // 再生する出来事（ノート・打楽器・メトロノーム）を時間順に並べる
 let evCache = { v: -1, list: [] };
 function eventList() {
@@ -847,6 +858,12 @@ function scheduleEvent(ctx, graph, e, when, withMetro) {
 
 const player = { on: false, timer: null, graph: null, idx: 0, seg: null, segs: [], stopping: false, stopAt: 0, lastT: -1, ver: -1 };
 function loopBounds() {
+  if (ui.loopRange) {
+    const a = clamp(ui.loopRange[0], 0, song.bars);
+    const z = clamp(ui.loopRange[1], 0, song.bars);
+    if (z <= a) { ui.loopRange = null; ui.loopOn = false; const bl = $('#btnLoop'); if (bl) bl.classList.remove('on'); }
+    else ui.loopRange = [a, z];
+  }
   if (ui.loopOn && ui.loopRange) return [barStart(ui.loopRange[0]), Math.min(barStart(ui.loopRange[1]), totalTicks())];
   return [0, playTotal()];
 }
@@ -2544,7 +2561,7 @@ function openBarDialog(b) {
       song.keys = song.keys || {};
       if (b === 0) {
         song.bpm = clamp(Math.round(+$('#barTempo').value) || song.bpm, 30, 240);
-        delete song.tempos[0];
+        if (!(ramp && ramp !== '-')) delete song.tempos[0];
         song.meter = nm;
         delete song.meters[0];
       } else {
@@ -2594,6 +2611,7 @@ function copyBars(src, b0, b1, dst, to) {
 function shiftBarMarks(fromBar, n) {
   const mv = (obj) => { const o = {}; for (const b in obj) { const bi = +b; if (bi >= fromBar) { if (bi + n >= fromBar) o[bi + n] = obj[b]; } else if (n > 0 || bi < fromBar + n) o[bi] = obj[b]; } return o; };
   song.tempos = mv(song.tempos || {});
+  song.ramps = mv(song.ramps || {});
   song.meters = mv(song.meters || {});
   song.keys = mv(song.keys || {});
   const R = song.repeats || { start: [], end: [], volta: {} };
@@ -2662,9 +2680,10 @@ function deleteBars() {
 /* ============================================================
    コード（和音）
    ============================================================ */
-function diatonic() {
-  const k = song.key;
-  const list = isMinor()
+function diatonic(at) {
+  const ka = at != null ? keyAt(at) : null;
+  const k = ka ? ka.key : song.key;
+  const list = (ka ? ka.minor : isMinor())
     ? [[0, 'm', 'Ⅰm'], [5, 'm', 'Ⅳm'], [7, 'm', 'Ⅴm'], [7, '7', 'Ⅴ7'], [8, 'M', '♭Ⅵ'], [10, 'M', '♭Ⅶ'], [3, 'M', '♭Ⅲ'], [2, 'dim', 'Ⅱdim']]
     : [[0, 'M', 'Ⅰ'], [5, 'M', 'Ⅳ'], [7, 'M', 'Ⅴ'], [7, '7', 'Ⅴ7'], [9, 'm', 'Ⅵm'], [2, 'm', 'Ⅱm'], [4, 'm', 'Ⅲm'], [0, 'M7', 'ⅠM7']];
   return list.map(([iv, q, deg]) => ({ r: (k + iv) % 12, q, deg }));
@@ -2817,7 +2836,9 @@ const rec = { on: false, snap: null, open: new Map(), n: 0 };
 function recTick() {
   const t = playheadTick();
   if (t == null) return null;
-  return clamp(Math.round(t / ui.grid) * ui.grid, 0, totalTicks() - 1);
+  let q = Math.round(t / ui.grid) * ui.grid;
+  if (ui.loopOn && ui.loopRange) { const [a, z] = [barStart(ui.loopRange[0]), barStart(ui.loopRange[1])]; if (q >= z) q = a; }
+  return clamp(q, 0, totalTicks() - 1);
 }
 function recNoteOn(midi, drumId) {
   if (!rec.on || !player.on) return;
@@ -3064,8 +3085,9 @@ function renderTracks() {
       }
     }));
     const vol = d.querySelector('.vol');
+    vol.onpointerdown = vol.onfocus = () => { vol._snap = snapshot(); };
     vol.oninput = (ev) => { tr.vol = +ev.target.value; liveVolume(tr); };
-    vol.onchange = () => changed();
+    vol.onchange = () => { if (vol._snap && snapshot() !== vol._snap) pushUndo(vol._snap, '音量'); changed(); };
     if (isPhone) {
       // スマホ：トラックの中身を、小節ごとの帯で見せる（タップでその小節を打ち込みへ）
       const strip = document.createElement('div');
@@ -3412,12 +3434,14 @@ function openPalette() {
   box.querySelectorAll('.mixch input[data-p]').forEach((inp) => {
     const set = (v) => { const t = song.tracks[+inp.dataset.p]; t.pan = Math.abs(v) < 0.05 ? 0 : v; inp.value = t.pan; if (player.graph && player.graph.pans[t.id]) player.graph.pans[t.id].pan.setTargetAtTime(t.pan, actx.currentTime, 0.02); };
     inp.oninput = () => set(+inp.value);
-    inp.onchange = () => autosaveSoon();
-    inp.ondblclick = () => { set(0); autosaveSoon(); };
+    inp.onpointerdown = inp.onfocus = () => { inp._snap = snapshot(); };
+    inp.onchange = () => { if (inp._snap && snapshot() !== inp._snap) pushUndo(inp._snap, '左右の位置'); inp._snap = snapshot(); autosaveSoon(); };
+    inp.ondblclick = () => { const sn = snapshot(); set(0); if (snapshot() !== sn) pushUndo(sn, '左右の位置'); autosaveSoon(); };
   });
   box.querySelectorAll('.mixch input[data-i]').forEach((inp) => {
     inp.oninput = () => { const t = song.tracks[+inp.dataset.i]; t.vol = +inp.value; liveVolume(t); };
-    inp.onchange = () => { renderTracks(); autosaveSoon(); };
+    inp.onpointerdown = inp.onfocus = () => { inp._snap = snapshot(); };
+    inp.onchange = () => { if (inp._snap && snapshot() !== inp._snap) pushUndo(inp._snap, '音量'); inp._snap = snapshot(); renderTracks(); autosaveSoon(); };
   });
   $('#mMaster').oninput = (e) => { song.master = +e.target.value; if (player.graph) player.graph.out.gain.value = song.master; };
   $('#mMaster').onchange = () => autosaveSoon();
@@ -3933,7 +3957,8 @@ function applyProgression(i) {
 function harmonize(halves = true) {
   const mels = song.tracks.filter((t) => t.type === 'melody' && t.notes.length);
   if (!mels.length) return null;
-  const cands = diatonic().filter((c) => c.q !== 'M7' && c.q !== 'dim');
+  const candsAt = (b) => diatonic(b).filter((c) => c.q !== 'M7' && c.q !== 'dim');
+  let cands = candsAt(0);
   const tonesOf = (c) => new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12));
   const weights = (a, z) => {
     const w = new Array(12).fill(0);
@@ -3977,6 +4002,7 @@ function harmonize(halves = true) {
   let prev = null;
   const lastBar = (() => { let lb = 0; for (const t of mels) for (const n of t.notes) lb = Math.max(lb, barOf(Math.min(n.s, totalTicks() - 1))); return lb; })();
   for (let b = 0; b < song.bars; b++) {
+    cands = candsAt(b);
     const a = barStart(b);
     const z = barStart(b + 1);
     const last = b === lastBar;
@@ -4411,8 +4437,11 @@ function changeKey(nk, minor, move, d) {
       for (const t of song.tracks) {
         if (t.locked) continue;
         if (t.type === 'melody') for (const n of t.notes) n.p = clamp(n.p + semis, 21, 108);
-        if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: (((c.r + semis) % 12) + 12) % 12 } : c));
+        const tr12 = (r) => (((r + semis) % 12) + 12) % 12;
+        if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: tr12(c.r), ...(c.h ? { h: { ...c.h, r: tr12(c.h.r) } } : {}) } : c));
       }
+      // とちゅうの調の変化も、いっしょに動かす
+      for (const b in song.keys || {}) song.keys[b] = { ...song.keys[b], key: (((song.keys[b].key + semis) % 12) + 12) % 12 };
     }
   }, move && semis ? `${keyLabel(song.key, minor)}に移調` : '調');
   renderSettings();
@@ -4895,15 +4924,18 @@ function keepSong(sg) {
   const stamp = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
   let name = sg.title || 'むだいの曲';
   if (all[name]) name = `${name}（${stamp}）`;
+  for (let i = 2; all[name]; i++) name = `${sg.title || 'むだいの曲'}（${stamp}・${i}）`;
   all[name] = { t: Date.now(), song: sg, auto: true };
   // 自動でしまったものは、新しい20曲まで
   const autos = Object.keys(all).filter((n) => all[n].auto).sort((a, b) => all[b].t - all[a].t);
+  // 同じ名前でも上書きしない（同じ分に何曲あっても）
   for (const n of autos.slice(20)) delete all[n];
   for (const n of autos.slice(3)) if (all[n] && all[n].song && all[n].song.voice) delete all[n].song.voice; // 録った声は大きいので、新しい3曲ぶんだけ
   try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); return name; } catch (e) { return null; }
 }
 function loadSong(s, opts = {}) {
   stop();
+  if (opts.keep !== false && opts.own) studentOpen = false;
   if (!s || !Array.isArray(s.tracks)) throw new Error('曲データの形式がちがいます');
   s = sanitizeSong(migrate(JSON.parse(JSON.stringify(s)))); // ここでだめなら、今の曲はそのまま
   // 自分で作った・開いた曲だけしまう（はじめのサンプルなどは、しまわない）
@@ -5042,7 +5074,7 @@ function compareTrack(i) {
   const rt = refTrackFor(i);
   if (!rt) return null;
   const mine = new Map(tr.notes.map((n) => [n.s + ':' + n.p, n]));
-  const theirs = new Map(rt.notes.filter((n) => n.s < totalTicks()).map((n) => [n.s + ':' + n.p, n]));
+  const theirs = new Map(rt.notes.map((n) => [n.s + ':' + n.p, n]));
   let ok = 0;
   let len = 0;
   const missing = [];
@@ -5131,6 +5163,7 @@ function scoreAgainst(ref, sg) {
   });
   return { pct: total ? Math.round((ok / total) * 100) : 0, ok, total, wrong, missing: total - ok };
 }
+let studentOpen = false; // まとめて採点から生徒の曲を開いているあいだ
 function batchCompare() {
   if (!refSong) return toast('先に「お手本とくらべる」で、お手本をえらんでね');
   const inp = document.createElement('input');
@@ -5156,7 +5189,8 @@ function batchCompare() {
       if (e.type === 'keydown' && e.key !== 'Enter') return;
       const r = rows[+tr.dataset.i];
       const keep = refSong;
-      loadSong(r.sg, { own: true });
+      loadSong(r.sg, { keep: !studentOpen }); // はじめの1回だけ、自分の曲をしまう（生徒の曲はしまわない）
+      studentOpen = true;
       refSong = keep;
       updateCompare(); draw();
       $('#dlgBatch').close();
@@ -5415,7 +5449,7 @@ function midiBytes() {
     } else {
       if (ch === 9) ch++;
       const c = ch++ & 15;
-      ev.push({ t: 0, o: 0, d: [0xc0 | c, Sound.GM[tr.inst] || 0] }, { t: 0, o: 0, d: [0xb0 | c, 7, Math.round(tr.vol * 127)] });
+      ev.push({ t: 0, o: 0, d: [0xc0 | c, Sound.GM[tr.inst] || 0] }, { t: 0, o: 0, d: [0xb0 | c, 7, Math.round(tr.vol * 127)] }, { t: 0, o: 0, d: [0xb0 | c, 10, clamp(Math.round(((+tr.pan || 0) + 1) * 63.5), 0, 127)] });
       const notes = tr.type === 'melody' ? tr.notes.map((n) => ({ ...n, v: 0.8 * (n.vel || 1) })) : chordEvents(tr);
       for (const n of notes) {
         if (n.s >= totalTicks()) continue;
@@ -5457,6 +5491,8 @@ function importMidi(buf, fname) {
   const chans = new Map();
   const drums = [];
   const tempoEv = []; // [tick, bpm]（とちゅうのテンポ）
+  let midiKey = null;
+  const keyEv = [];
   const meterEv = []; // [tick, [n, d]]（とちゅうの拍子）
   const prog = {}; // チャンネル → 楽器番号
   for (let t = 0; t < ntr && p < buf.length; t++) {
@@ -5477,6 +5513,12 @@ function importMidi(buf, fname) {
         const data = buf.slice(p, p + l);
         p += l;
         if (type === 0x51 && l >= 3) { const v = Math.round(60000000 / ((data[0] << 16) | (data[1] << 8) | data[2] || 1)); if (tick === 0) bpm = v; else tempoEv.push([tick, v]); }
+        if (type === 0x59 && l >= 2) {
+          const sf = data[0] > 127 ? data[0] - 256 : data[0];
+          const mi = data[1] === 1;
+          const k = ((((sf * 7) % 12) + 12) % 12 + (mi ? 9 : 0)) % 12; // ♯の数 → 主音（短調は平行調）
+          if (tick === 0) midiKey = { key: k, minor: mi }; else keyEv.push([tick, { key: k, minor: mi }]);
+        }
         if (type === 0x58 && l >= 2) { const m = [data[0], Math.pow(2, data[1])]; if (tick === 0) meter = m; else meterEv.push([tick, m]); }
         if (type === 0x03) tname = new TextDecoder().decode(data);
         continue;
@@ -5489,6 +5531,7 @@ function importMidi(buf, fname) {
       const b = cmd === 0xc0 || cmd === 0xd0 ? 0 : buf[p++];
       const key = chn + ':' + a;
       if (cmd === 0xc0) { prog[t + ':' + chn] = a; prog['c' + chn] = a; continue; }
+      if (cmd === 0xb0 && a === 10) { prog['pan' + chn] = b; continue; } // 左右の位置
       if (cmd === 0x90 && b > 0) on.set(key, { s: tick, v: b });
       else if (cmd === 0x80 || (cmd === 0x90 && b === 0)) {
         const o = on.get(key);
@@ -5538,6 +5581,9 @@ function importMidi(buf, fname) {
   // とちゅうのテンポ：小節ごと（小節のとちゅうなら、その小節から）
   s.tempos = {};
   for (const [tk, v] of tempoEv) { const b = barOfTick(tk * scale); if (b > 0) s.tempos[b] = clamp(v, 30, 240); }
+  if (midiKey) { s.key = midiKey.key; s.scale = midiKey.minor ? 'minor' : 'major'; }
+  s.keys = {};
+  for (const [tk, kk] of keyEv) { const b = barOfTick(tk * scale); if (b > 0) s.keys[b] = kk; }
   // 楽器番号 → いちばん近い楽器（同じ番号、なければ同じなかま）
   const instFor = (pg) => {
     if (pg == null) return null;
@@ -5550,7 +5596,8 @@ function importMidi(buf, fname) {
     const avg = c.notes.reduce((x, n) => x + n.p, 0) / c.notes.length;
     const rg = avg < 50 ? 'bass' : avg < 60 ? 'tenor' : 'soprano';
     const inst = instFor(prog[c.key] != null ? prog[c.key] : prog['c' + c.chn]) || (avg < 50 ? 'ebass' : 'piano');
-    s.tracks.push(newTrack('melody', { name: (c.name || 'パート' + (s.tracks.length + 1)).slice(0, 20), inst, range: rg, notes: c.notes }));
+    const pv = prog['pan' + c.chn];
+    s.tracks.push(newTrack('melody', { name: (c.name || 'パート' + (s.tracks.length + 1)).slice(0, 20), inst, range: rg, notes: c.notes, ...(pv != null && Math.abs(pv - 64) > 2 ? { pan: Math.round(((pv / 63.5) - 1) * 10) / 10 } : {}) }));
     for (const n of c.notes) maxT = Math.max(maxT, n.s + n.l);
   }
   if (drums.length) {
@@ -5659,8 +5706,9 @@ function init() {
   };
   $$('#countSeg button').forEach((b) => (b.onclick = () => { ui.countIn = +b.dataset.c; lsSet('otsumiki-countin', String(ui.countIn)); practiceUi(); }));
   $('#speedRange').oninput = (e) => { ui.speed = +e.target.value; practiceUi(); };
-  $('#speedRange').onchange = () => { if (player.on) play(); };
-  $$('#speedPre button').forEach((b) => (b.onclick = () => { ui.speed = +b.dataset.s; practiceUi(); if (player.on) play(); }));
+  const replayHere = () => { if (!player.on) return; const t = playheadTick(); if (t != null) ui.startTick = cellStart(Math.max(0, t)); play(); };
+  $('#speedRange').onchange = replayHere;
+  $$('#speedPre button').forEach((b) => (b.onclick = () => { ui.speed = +b.dataset.s; practiceUi(); replayHere(); }));
   practiceUi();
   $('#btnUndo').onclick = undo;
   $('#btnRedo').onclick = redo;

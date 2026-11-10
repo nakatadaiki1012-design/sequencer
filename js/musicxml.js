@@ -350,7 +350,7 @@ const MusicXMLImport = (() => {
     const firstTime = (parts.find((p) => p.info.time) || { info: {} }).info.time || [4, 4];
     let meterD = Math.round(firstTime[1]);
     if (![2, 4, 8].includes(meterD)) meterD = 4;
-    const meter = [clamp(Math.round(firstTime[0]), 1, 6), meterD];
+    const meter = [clamp(Math.round(firstTime[0]), 1, 12), meterD];
     const barTicks = (meter[0] * 192) / meter[1];
     const keyInfo = (parts.find((p) => p.info.key && !p.isPerc) || parts.find((p) => p.info.key) || { info: {} }).info.key || { fifths: 0, mode: 'major' };
     const minor = /minor|aeolian/i.test(keyInfo.mode || '');
