@@ -4470,6 +4470,19 @@ function scoreKey(e) {
   if (k === '0' || k === 'r' || k === 'R') { e.preventDefault(); scInsert([]); return true; }
   if (k === 'n' || k === 'N') { ui.sc.input = !ui.sc.input; renderScorePal(); toast(ui.sc.input ? '入力モード' : '選択モード'); return true; }
   if (k === '+') { scTie(); return true; }
+  // 強弱：[ で弱く、] で強く（カーソルか、えらんだ所の記号を1段ずつ）。< > でクレッシェンド・デクレッシェンド
+  if (k === '[' || k === ']') {
+    e.preventDefault();
+    if (!scEditable()) return true;
+    const r = selRange(tr); const t = r ? r.s : ui.sc.cursor;
+    const lv = DYNS.filter((d) => d !== 'sf');
+    const before = (tr.dyn || []).filter((d) => d.t <= t).sort((a, b) => b.t - a.t)[0];
+    const i0 = before ? lv.indexOf(before.v) : lv.indexOf('mf');
+    const i = clamp((i0 < 0 ? lv.indexOf('mf') : i0) + (k === ']' ? 1 : -1), 0, lv.length - 1);
+    scDynamic(lv[i]); toast('強弱：' + lv[i]);
+    return true;
+  }
+  if (k === '<' || k === '>') { e.preventDefault(); scHairpin(k === '<' ? 'cresc' : 'dim'); return true; }
   if (k === 's' || k === 'S') { scSlur(); return true; }
   if (k === 'l' || k === 'L') { scLyric(); return true; }
   if (k === 'v' || k === 'V') { scToggleVoice(); return true; }
