@@ -24,7 +24,8 @@ const { chromium, devices } = require('playwright');
   // タップで音を置く
   await T('touchStart', [{ x: x0, y: y0 }]); await p.waitForTimeout(60); await T('touchEnd', []); await p.waitForTimeout(200);
   r['タップ後の音の数'] = (await sl()).n;
-  // 同じ所をもう一度タップ → 消える
+  // 同じ所をもう一度タップ → 消える（すぐのダブルタップは消さないので、少しまつ）
+  await p.waitForTimeout(500);
   await T('touchStart', [{ x: x0, y: y0 }]); await p.waitForTimeout(60); await T('touchEnd', []); await p.waitForTimeout(200);
   r['もう一度タップ'] = (await sl()).n;
   // 長おししてから右へ → 長い音

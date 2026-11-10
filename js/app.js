@@ -377,6 +377,10 @@ function pushUndo(snap, label) {
   songOwn = true;
   undoStack.push({ snap, label });
   if (undoStack.length > 300) undoStack.shift();
+  // 大きな曲で記憶がふくらみすぎないように（全部で約2000万文字まで。少なくとも30回はもどれる）
+  let total = 0;
+  for (const u of undoStack) total += u.snap.length;
+  while (total > 2e7 && undoStack.length > 30) total -= undoStack.shift().snap.length;
   redoStack.length = 0;
   updateUndoButtons();
 }
@@ -1875,7 +1879,9 @@ function onUp() {
   }
   if (d.kind === 'gmove' && !d.moved) { nsel.clear(); nsel.add(d.n); updateSelBar(); draw(); return; }
   // 動かさずにはなしたら消す（指のときは、右はしをさわっても）
-  if ((d.kind === 'move' || (d.kind === 'resize' && d.existing && d.touch)) && !d.moved) { tr.notes.splice(tr.notes.indexOf(d.n), 1); d.label = '音を消す'; }
+  // （置いたばかりの音を、すぐもう一度タップ＝ダブルタップのときは消さない）
+  const justPut = d.touch && fxNotes.has(d.n) && performance.now() - fxNotes.get(d.n) < 400;
+  if ((d.kind === 'move' || (d.kind === 'resize' && d.existing && d.touch)) && !d.moved && !justPut) { tr.notes.splice(tr.notes.indexOf(d.n), 1); d.label = '音を消す'; }
   if (tr.type === 'melody') {
     const seen = new Set();
     tr.notes = tr.notes.filter((n) => { const k = n.s + ':' + n.p; if (seen.has(k)) return false; seen.add(k); return true; });
