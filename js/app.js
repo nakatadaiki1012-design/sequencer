@@ -1900,6 +1900,17 @@ function setupSelBar() {
   $('#selPaste').onclick = () => selPaste();
   $('#selDup').onclick = () => selDuplicate();
   $('#selQuant').onclick = () => selQuantize();
+  $('#selLoop').onclick = () => {
+    const ns = prSel();
+    if (!ns.length) return;
+    const [a, z] = selSpan(ns);
+    ui.loopRange = [barOf(a), barOf(Math.max(a, z - 1)) + 1];
+    ui.loopOn = true;
+    $('#btnLoop').classList.add('on');
+    ui.startTick = barStart(ui.loopRange[0]);
+    draw(); drawOverview();
+    toast(`${ui.loopRange[0] + 1}〜${ui.loopRange[1]}小節をくり返します（▶で再生）`);
+  };
   $('#selLoud').onclick = () => selVelocity(1);
   $('#selSoft').onclick = () => selVelocity(-1);
   $('#selUp').onclick = () => selMove(0, 1, 0);
@@ -5888,6 +5899,8 @@ if (lsGet('otsumiki-kids', '0') === '1') setKids(true);
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
   $$('dialog').forEach((d, i) => { const h = d.querySelector('h3'); if (h && !d.hasAttribute('aria-labelledby')) { if (!h.id) h.id = 'dlgTitle' + i; d.setAttribute('aria-labelledby', h.id); } });
 }
+// MIDI鍵盤が使えないブラウザ（iPad の Safari など）では、ボタンを出さない
+if (!navigator.requestMIDIAccess && $('#btnMidiIn')) $('#btnMidiIn').hidden = true;
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
