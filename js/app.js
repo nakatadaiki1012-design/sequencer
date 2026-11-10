@@ -3925,8 +3925,18 @@ function scInsert(pitches, chordAdd) {
   const t = chordAdd ? last.t : ui.sc.cursor;
   const d = chordAdd ? last.d : scDur();
   edit(() => {
+    // 挿入：カーソルからうしろの音を、入れる長さだけうしろへずらす（上書きしない）
+    if (ui.sc.insert && !chordAdd) {
+      const v2 = scVoice() === 2;
+      const mine = (n) => (n.v === 2) === v2;
+      const lastEnd = Math.max(t, ...tr.notes.filter((n) => mine(n) && n.s >= t).map((n) => n.s + n.l));
+      ensureLength(lastEnd + d);
+      for (const n of tr.notes) if (mine(n) && n.s >= t) n.s += d;
+      for (const k of ['dyn']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
+      for (const k of ['hairpins', 'slurs']) for (const x of tr[k] || []) { if (x.s >= t) x.s += d; if (x.e >= t) x.e += d; }
+    }
     ensureLength(t + d);
-    if (!chordAdd) clearRange(tr, t, t + d);
+    if (!chordAdd && !ui.sc.insert) clearRange(tr, t, t + d);
     for (const p of pitches) if (!tr.notes.some((n) => n.s === t && n.p === p)) tr.notes.push({ s: t, p: clamp(p, 21, 108), l: d, ...(scVoice() === 2 ? { v: 2 } : {}) });
   }, pitches.length ? '楽譜で音符を入力' : '楽譜で休符を入力');
   if (pitches.length) { preview(tr, pitches[pitches.length - 1]); showMini(pitches[pitches.length - 1]); }
@@ -4300,6 +4310,7 @@ function renderScorePal() {
       <span class="seg"><button class="mini ${ui.sc.input ? 'on' : ''}" data-m="1" title="クリックで音符を置く（キー N で切りかえ）">${I('pencil')}<span>入力</span></button><button class="mini ${ui.sc.input ? '' : 'on'}" data-m="0" title="クリックで音符をえらぶ">${I('pointer')}<span>選択</span></button></span>
       <span class="grp">${durBtns}<button class="mini ${ui.sc.dot ? 'on' : ''}" id="scDot" title="付点（キー .）">付点</button><button class="mini ${ui.sc.trip ? 'on' : ''}" id="scTrip" title="3連符（キー T）">3連</button></span>
       <button class="mini" id="scRest" title="休符を入れる（キー 0 または R）"><span class="ic">𝄽</span> 休符</button>
+      <button class="mini ${ui.sc.insert ? 'on' : ''}" id="scIns" title="挿入：入れた音のうしろを、ずらしていく（上書きしない）・キー I">挿入</button>
       <span class="grp">${['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'].map((n, i) => `<button class="mini snote" data-l="${i}" title="${'CDEFGAB'[i]} キー（Shift で和音に足す）">${n}</button>`).join('')}</span>
       <span class="grp"><button class="mini" id="scSharp" title="半音上げる">♯</button><button class="mini" id="scFlat" title="半音下げる">♭</button><button class="mini" id="scNat" title="調号の音にもどす">♮</button><button class="mini" id="scUp" title="1音上げる（↑）">↑</button><button class="mini" id="scDn" title="1音下げる（↓）">↓</button><button class="mini" id="scOct" title="オクターブ上げる（Ctrl+↑）">8va</button></span>
     </div>
@@ -4324,6 +4335,7 @@ function renderScorePal() {
   $('#scDot').onclick = () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); };
   $('#scTrip').onclick = () => { ui.sc.trip = !ui.sc.trip; renderScorePal(); };
   $('#scRest').onclick = () => scInsert([]);
+  $('#scIns').onclick = () => { ui.sc.insert = !ui.sc.insert; renderScorePal(); toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); };
   pal.querySelectorAll('.snote').forEach((b) => (b.onclick = (e) => { const tr = track(); if (tr.type !== 'melody') return scEditable(); scInsert([letterPitch(+b.dataset.l, refPitch(tr))], e.shiftKey); }));
   $('#scSharp').onclick = () => scAccidental('#');
   $('#scFlat').onclick = () => scAccidental('b');
@@ -4428,6 +4440,7 @@ function scoreKey(e) {
   const k = e.key;
   const tr = track();
   const ctrl = e.ctrlKey || e.metaKey;
+  if (!ctrl && (k === 'i' || k === 'I') && !e.shiftKey) { e.preventDefault(); ui.sc.insert = !ui.sc.insert; renderScorePal(); toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); return true; }
   // ♯・♭（えらんだ音符を半音上げる・下げる）
   if (!ctrl && (k === '#' || k === '-')) { e.preventDefault(); scAccidental(k === '#' ? '#' : 'b'); return true; }
   if (ctrl) {
@@ -4597,6 +4610,7 @@ function renderPhonePad() {
       <button class="pp-btn" data-x="right" title="次へ">→</button>
       <button class="pp-btn danger" data-x="del" title="消す">⌫</button>
       <details class="pop pp-more" data-pop="ppmore"><summary class="pp-btn" title="記号・歌詞・コードなど">${I('more')}</summary><div class="popbody">
+        <div class="btnrow"><button class="mini ${ui.sc.insert ? 'on' : ''}" data-x="insert">${ui.sc.insert ? '✓ ' : ''}挿入（うしろの音をずらして入れる）</button></div>
         <div class="sub">いくつかの音をえらぶ（スラー・クレシェンド・コピー用）</div>
         <div class="btnrow"><button class="mini ${ui.sc.rangeTap ? 'on' : ''}" data-x="range">${ui.sc.rangeTap ? '✓ ' : ''}はんい：1つめの音をタップ → さいごの音をタップ</button></div>
         <div class="sub">記号（えらんだ音符に）</div>
@@ -4624,6 +4638,7 @@ function renderPhonePad() {
   }));
   const act = {
     dot: () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); },
+    insert: () => { ui.sc.insert = !ui.sc.insert; toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); },
     range: () => { ui.sc.rangeTap = !ui.sc.rangeTap; if (ui.sc.rangeTap) ui.sc.sel = new Set(); toast(ui.sc.rangeTap ? 'はんい：1つめの音、さいごの音の順にタップしてね' : 'はんいをやめました'); },
     trip: () => { ui.sc.trip = !ui.sc.trip; },
     'oct+': () => phoneOct(12),
