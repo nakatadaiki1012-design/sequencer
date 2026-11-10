@@ -1287,3 +1287,13 @@ body.phone .mission { position: fixed; }
 /* キャンバスの長い説明は、マウスをのせたときだけ（場所をとらない） */
 body:not(.phone) .ovtools .hint { opacity: 0; transition: opacity .2s; }
 body:not(.phone) .canvas-area:hover .ovtools .hint { opacity: 1; }
+/* スマホ：はじめの画面を1画面に（ひな形のカードを小さく） */
+body.phone .tpl { padding: 10px 10px 9px; gap: 4px; min-height: 0; }
+body.phone .tpl .tpl-ic { width: 34px; height: 34px; border-radius: 10px; }
+body.phone .tpl .tpl-ic .i { width: 18px; height: 18px; }
+body.phone .tpl b { font-size: 14px; }
+body.phone .tpl small { font-size: 11px; line-height: 1.35; }
+body.phone .tpl-grid { gap: 8px; }
+body.phone .tpl-opts { padding: 8px 10px; gap: 6px 10px; }
+body.phone .tpl-links { gap: 4px; }
+body.phone dialog.start > h3 { font-size: 19px; margin: 0 0 2px; }
