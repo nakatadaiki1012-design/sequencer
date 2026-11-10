@@ -6311,7 +6311,8 @@ $('#kidsMode').onchange = (e) => setKids(e.target.checked);
 if (lsGet('otsumiki-kids', '0') === '1') setKids(true);
 // 読み上げソフトのために：on のボタンは「おされている」、ダイアログには見出しの名前
 {
-  const sync = (b) => { if (b.classList.contains('toggle') || b.closest('.seg, .otama, .realtoggle, .halfseg') || b.id === 'btnRec' || b.id === 'btnStepRec') b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); };
+  // 切りかえボタン（いちど「on」になったことのあるボタンも）に、おされている状態をつける
+  const sync = (b) => { if (b.classList.contains('toggle') || b.closest('.seg, .otama, .realtoggle, .halfseg') || b.id === 'btnRec' || b.id === 'btnStepRec' || b.classList.contains('on') || b.hasAttribute('aria-pressed')) b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); };
   $$('button').forEach(sync);
   new MutationObserver((ms) => {
     for (const m of ms) {
