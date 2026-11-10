@@ -4895,6 +4895,7 @@ function keepSong(sg) {
   // 自動でしまったものは、新しい20曲まで
   const autos = Object.keys(all).filter((n) => all[n].auto).sort((a, b) => all[b].t - all[a].t);
   for (const n of autos.slice(20)) delete all[n];
+  for (const n of autos.slice(3)) if (all[n] && all[n].song && all[n].song.voice) delete all[n].song.voice; // 録った声は大きいので、新しい3曲ぶんだけ
   try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); return name; } catch (e) { return null; }
 }
 function loadSong(s, opts = {}) {
