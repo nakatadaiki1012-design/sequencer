@@ -197,6 +197,20 @@
           <button id="zIn" aria-label="大きく">＋</button>
         </div>
         <div id="zoomHud" class="zoomhud" aria-live="polite"></div>
+        <div id="selBar" class="selbar" hidden role="toolbar" aria-label="えらんだ音">
+          <b id="selCount">0個</b>
+          <button id="selAll" title="ぜんぶえらぶ（Ctrl+A）">ぜんぶ</button>
+          <button id="selCopy" data-need="sel" title="コピー（Ctrl+C）"><svg class="i"><use href="#i-copy"/></svg><span>コピー</span></button>
+          <button id="selCut" data-need="sel" title="切り取り（Ctrl+X）">切り取り</button>
+          <button id="selPaste" title="再生の印（▼）の所に貼りつけ（Ctrl+V）"><svg class="i"><use href="#i-paste"/></svg><span>貼りつけ</span></button>
+          <button id="selDup" data-need="sel" title="すぐうしろに複製（Ctrl+D）">複製</button>
+          <button id="selUp" data-need="sel" title="1つ上の音へ（↑、Shift+↑でオクターブ）">↑</button>
+          <button id="selDn" data-need="sel" title="1つ下の音へ（↓、Shift+↓でオクターブ）">↓</button>
+          <button id="selLeft" data-need="sel" title="1マス前へ（←）">←</button>
+          <button id="selRight" data-need="sel" title="1マスうしろへ（→）">→</button>
+          <button id="selDel" data-need="sel" title="消す（Delete）"><svg class="i"><use href="#i-trash"/></svg></button>
+          <button id="selClose" title="えらぶのをやめる（Esc）"><svg class="i"><use href="#i-x"/></svg></button>
+        </div>
       </div>
       <div id="scoreEdit" class="scoreedit" hidden>
         <div id="scorePal" class="scorepal"></div>

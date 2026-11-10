@@ -1048,3 +1048,19 @@ body.phone .zoombox button { width: 36px; height: 36px; }
   background: color-mix(in srgb, var(--display) 88%, transparent); color: #fff; font: 600 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums;
   opacity: 0; transition: opacity .25s; white-space: nowrap; }
 .zoomhud.show { opacity: .92; }
+
+/* えらんだ音の操作バー（マス目の上に出る） */
+.selbar { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); max-width: calc(100% - 16px); overflow-x: auto; scrollbar-width: none; animation: dropIn .14s ease-out; }
+.selbar[hidden] { display: none; }
+.selbar b { padding: 0 8px; font-size: 12px; color: var(--accent-text); white-space: nowrap; }
+.selbar button { display: inline-flex; align-items: center; gap: 4px; height: 32px; min-width: 32px; padding: 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.selbar button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-text); }
+.selbar button:disabled { opacity: .35; cursor: default; }
+.selbar .i { width: 16px; height: 16px; }
+body.phone .selbar { top: 34px; }
+body.phone .selbar button { height: 38px; min-width: 38px; padding: 0 7px; }
+body.phone .selbar button span { display: none; }
+body.phone .selbar { flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100% - 16px); overflow: visible; row-gap: 2px; }
+body.phone #selCut, body.phone #selCount { display: none; }
