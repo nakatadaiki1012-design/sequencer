@@ -721,6 +721,8 @@ const Notation = (() => {
             const cxx = xAt(cb, edit.cursor - bS(cb));
             const grandH = st.grand ? staffH(st) : 0;
             o.push(`<rect class="cursor" pointer-events="none" x="${cxx - 7}" y="${stTop - 12}" width="${Math.max(14, (edit.curLen || 0) ? 14 : 14)}" height="${4 * SP + 24 + grandH}" rx="4" fill="${SELC}" fill-opacity=".14" stroke="${SELC}" stroke-width="1.2"/>`);
+            // いま入れる長さを、カーソルの上に小さく
+            if (edit.curLabel) o.push(`<text pointer-events="none" x="${cxx}" y="${stTop - 15}" text-anchor="middle" font-size="13" fill="${SELC}">${esc(edit.curLabel)}</text>`);
           }
         }
       });

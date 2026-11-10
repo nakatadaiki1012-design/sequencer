@@ -3004,6 +3004,7 @@ async function connectMidi() {
    ============================================================ */
 let miniTimer = null;
 function showMini(midi) {
+  if (isPhone && ui.view === 'score') return; // スマホの楽譜画面では、上のボタンをかくさない（音符はそのまま見える）
   const box = $('#miniNote');
   box.innerHTML = `${Notation.single(midi, song.key, isMinor())}<div><b>${noteName(midi)}</b><small>${sciName(midi)}</small></div>`;
   box.classList.add('show');
@@ -3871,7 +3872,7 @@ function renderScoreEditNow() {
   const o = scoreOpts(scoreEditIds(), true);
   scoreParts = o.partTracks;
   const pi = scoreParts.indexOf(track());
-  o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel, color: C('--accent') };
+  o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel, color: C('--accent'), curLabel: ui.sc.input ? ((SC_DURS.find((d) => d[0] === ui.sc.dur) || [0, '', ''])[2] + (ui.sc.dot ? '.' : '') + (ui.sc.trip ? '³' : '')) : '' };
   o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
@@ -4427,6 +4428,8 @@ function scoreKey(e) {
   const k = e.key;
   const tr = track();
   const ctrl = e.ctrlKey || e.metaKey;
+  // ♯・♭（えらんだ音符を半音上げる・下げる）
+  if (!ctrl && (k === '#' || k === '-')) { e.preventDefault(); scAccidental(k === '#' ? '#' : 'b'); return true; }
   if (ctrl) {
     const kl = k.toLowerCase();
     if (kl === 'c') { e.preventDefault(); scCopy(false); return true; }
@@ -4469,6 +4472,13 @@ function scoreKey(e) {
 function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
   $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; scoreClick(e); });
+  // Ctrl＋ホイールで楽譜を大きく・小さく
+  $('#scoreEditView').addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    ui.sc.zoom = clamp(Math.round((ui.sc.zoom * Math.exp(-clamp(e.deltaY, -60, 60) * 0.004)) * 100) / 100, 0.6, 2);
+    renderScoreEdit();
+  }, { passive: false });
   new ResizeObserver(() => renderScoreEdit()).observe($('#scoreEditView'));
 }
 
