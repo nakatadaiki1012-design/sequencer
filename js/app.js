@@ -766,6 +766,7 @@ function tick() {
   }
 }
 function stop(silent = false) {
+  if (rec.on && !silent) recStop();
   if (ui.view === 'score') setTimeout(() => highlightScore(null), 0);
   if (player.timer) clearInterval(player.timer);
   player.timer = null;
@@ -2472,6 +2473,61 @@ function applyRhythm(tr, key) {
 const KEYMAP = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16 };
 const held = new Map();
 let chordAnchor = null;
+/* ---------- 録音（再生しながらひくと、そのまま音が入る） ---------- */
+const rec = { on: false, snap: null, open: new Map(), n: 0 };
+function recTick() {
+  const t = playheadTick();
+  if (t == null) return null;
+  return clamp(Math.round(t / ui.grid) * ui.grid, 0, totalTicks() - 1);
+}
+function recNoteOn(midi, drumId) {
+  if (!rec.on || !player.on) return;
+  const tr = track();
+  if (locked(tr) || tr.type === 'chord') return;
+  const t = recTick();
+  if (t == null) return; // カウント中
+  if (tr.type === 'drum') { setCell(tr, drumId, t, 1); rec.n++; return; }
+  tr.notes = tr.notes.filter((n) => !(n.s === t && n.p === midi));
+  const n = { s: t, p: midi, l: ui.grid };
+  tr.notes.push(n);
+  rec.open.set(midi, { n, t0: playheadTick() });
+  rec.n++;
+  version++;
+}
+function recNoteOff() {
+  if (!rec.open.size) return;
+  const still = new Set([...held.values()]);
+  const now = playheadTick();
+  for (const [m, o] of [...rec.open]) {
+    if (still.has(m)) continue;
+    rec.open.delete(m);
+    if (now != null && now > o.t0) o.n.l = Math.max(ui.grid, Math.round((now - o.n.s) / ui.grid) * ui.grid);
+    version++;
+  }
+}
+function recStart() {
+  const tr = track();
+  if (tr.type === 'chord') return toast('コード伴奏のトラックには録音できません。メロディかリズムをえらんでね');
+  if (locked(tr)) return toast('このトラックはロックされています');
+  rec.on = true;
+  rec.snap = snapshot();
+  rec.n = 0;
+  rec.open.clear();
+  $('#btnRec').classList.add('on');
+  const keep = ui.countIn;
+  if (!ui.countIn) ui.countIn = 1; // 録音のときは、かならずカウント
+  play();
+  ui.countIn = keep;
+  toast(isPhone ? '録音中：カウントのあと、鍵盤をひいてね' : '録音中：カウントのあと、キーボード（A〜K）やMIDI鍵盤でひいてね', 3500);
+}
+function recStop() {
+  if (!rec.on) return;
+  rec.on = false;
+  rec.open.clear();
+  $('#btnRec').classList.remove('on');
+  if (rec.snap && snapshot() !== rec.snap) { pushUndo(rec.snap, '録音'); changed(); toast(`${rec.n}個の音を録音しました（ずれたら「えらぶ」→「そろえる」）`, 3500); }
+  rec.snap = null;
+}
 function noteOn(midi, keyIndex) {
   const tr = track();
   if (tr.type === 'drum') {
@@ -2479,6 +2535,7 @@ function noteOn(midi, keyIndex) {
     const i = keyIndex != null ? keyIndex : (((midi - 36) % ids.length) + ids.length) % ids.length;
     const id = ids[ids.length - 1 - (i % ids.length)];
     preview(tr, id);
+    recNoteOn(null, id);
     highlightRow = id;
     draw();
     if (ui.stepRec && !locked(tr)) {
@@ -2490,6 +2547,7 @@ function noteOn(midi, keyIndex) {
   }
   if (tr.type === 'chord') { preview({ ...tr, type: 'melody' }, midi); return; }
   preview(tr, midi, 0.5);
+  recNoteOn(midi);
   showMini(midi);
   highlightRow = midi;
   draw();
@@ -2500,6 +2558,7 @@ function noteOn(midi, keyIndex) {
   }
 }
 function noteOff() {
+  recNoteOff();
   if (held.size) return;
   highlightRow = null;
   if (ui.stepRec && chordAnchor != null) { chordAnchor = null; advanceCursor(1); }
@@ -4393,7 +4452,7 @@ function renderPhoneKbd() {
   const release = (key) => () => { if (held.delete(key)) noteOff(); };
   el.querySelectorAll('.pk').forEach((b) => {
     const m = +b.dataset.m;
-    b.onpointerdown = press('p' + m, () => noteOn(m));
+    b.onpointerdown = (e) => { e.preventDefault(); if (held.has('p' + m)) return; held.set('p' + m, m); noteOn(m); };
     b.onpointerup = b.onpointercancel = b.onpointerleave = release('p' + m);
   });
   el.querySelectorAll('.pkpad').forEach((b) => {
@@ -5027,6 +5086,7 @@ function init() {
   for (const id of ['#zoom', '#rowZoom']) $(id).onchange = () => saveZoom();
 
   $('#btnPlay').onclick = () => (player.on ? stop() : play());
+  $('#btnRec').onclick = () => (rec.on ? stop() : recStart());
   $('#btnStop').onclick = () => {
     const wasOn = player.on;
     stop();

@@ -1162,3 +1162,9 @@ body.kids .solo::after { content: '🎧'; font-size: 15px; }
 body.kids .tbtn, body.kids .mini, body.kids summary.mini { min-height: 40px; }
 body.kids .phonenav button, body.kids #phoneNav button { font-size: 12.5px; }
 body.kids .mini-info { font-size: 13px; }
+
+/* 録音ボタン */
+.tbtn.rec .recdot { width: 13px; height: 13px; border-radius: 50%; background: #e03131; display: block; box-shadow: 0 0 0 2px color-mix(in srgb, #e03131 25%, transparent); }
+.tbtn.rec.on { background: color-mix(in srgb, #e03131 14%, transparent); }
+.tbtn.rec.on .recdot { animation: recBlink 1s steps(2, start) infinite; }
+@keyframes recBlink { to { opacity: .25; } }
