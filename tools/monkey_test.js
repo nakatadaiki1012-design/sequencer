@@ -4,7 +4,7 @@ const N = +(process.argv[2] || 300);
 (async () => {
   const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const out = {};
-  for (const [name, opt, seed0] of [['pc', { viewport: { width: 1366, height: 820 } }, 7], ['phone', devices['iPhone 13'], 42], ['pc2', { viewport: { width: 1024, height: 700 } }, 99]]) {
+  for (const [name, opt, seed0] of [['pc', { viewport: { width: 1366, height: 820 } }, +(process.argv[3] || 7)], ['phone', devices['iPhone 13'], +(process.argv[3] || 42) + 1], ['pc2', { viewport: { width: 1024, height: 700 } }, +(process.argv[3] || 99) + 2]]) {
     const ctx = await b.newContext(opt);
     const p = await ctx.newPage();
     const errs = [];
