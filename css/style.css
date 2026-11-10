@@ -1152,3 +1152,13 @@ body.phone.present .presentexit { top: auto; bottom: 12px; }
 .cmpbar.perfect b::after { content: ' 🎉'; }
 body.phone .cmpbar { bottom: 58px; max-width: calc(100% - 20px); font-size: 12px; }
 @media (max-width: 1500px) { body:not(.phone) #btnSelTool span { display: none; } }
+
+/* こどもモード */
+body.kids rt { font-size: 9px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+body.kids ruby { ruby-position: over; }
+body.kids .mute, body.kids .solo { font-size: 0 !important; }
+body.kids .mute::after { content: '🔇'; font-size: 15px; }
+body.kids .solo::after { content: '🎧'; font-size: 15px; }
+body.kids .tbtn, body.kids .mini, body.kids summary.mini { min-height: 40px; }
+body.kids .phonenav button, body.kids #phoneNav button { font-size: 12.5px; }
+body.kids .mini-info { font-size: 13px; }

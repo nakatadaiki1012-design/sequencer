@@ -70,7 +70,7 @@
       <canvas id="viz" class="viz" aria-hidden="true"></canvas>
       <input id="title" class="title" maxlength="40" aria-label="曲の名前">
       <span id="saveMark" class="savemark" data-st="saved" title="このブラウザに自動で保存しています"></span>
-      <button class="mini-info" id="miniInfo" title="ルール（調・拍子など）を変える"><span id="miniTitle" hidden></span><b id="miniPos"></b><span id="miniKey"></span><span id="miniMeter"></span><span id="miniBpm"></span></button>
+      <button class="mini-info noruby" id="miniInfo" title="ルール（調・拍子など）を変える"><span id="miniTitle" hidden></span><b id="miniPos"></b><span id="miniKey"></span><span id="miniMeter"></span><span id="miniBpm"></span></button>
       <div id="miniNote" class="mini-note"></div>
     </div>
     <details class="pop" id="popRules" data-pop="rules">
@@ -192,6 +192,7 @@
               <label>♯／♭ <button id="btnFlat" class="mini" type="button" title="♯と♭の表記を切りかえます（音は変わりません）">♯で表示</button></label>
               <label>横の大きさ <input id="zoom" type="range" min="8" max="480" step="any" value="56"></label>
               <label>たての大きさ <input id="rowZoom" type="range" min="10" max="64" step="any" value="22"></label>
+              <label><input type="checkbox" id="kidsMode"> こどもモード（ふりがな・大きなボタン）</label>
               <label><input type="checkbox" id="ghost" checked> ほかのパートを点線で表示</label>
               <label><input type="checkbox" id="btnScorePanel"> オトグラフの下に楽譜を表示</label>
               <label>指でなぞったとき <select id="touchMode"><option value="smart">おまかせ（タップで置く・なぞると移動・長おしで長い音）</option><option value="edit">いつも音を置く・のばす</option><option value="scroll">いつも画面を動かす</option></select></label>

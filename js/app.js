@@ -5365,6 +5365,69 @@ document.addEventListener('fullscreenchange', () => { if (!document.fullscreenEl
 $('#btnCompare').onclick = () => { closePops(); startCompare(); };
 $('#cmpClose').onclick = () => stopCompare();
 $('#cmpOther').onclick = () => startCompare();
+/* ---------- こどもモード：むずかしい漢字にふりがな、M/S を絵に、ボタンを大きく ---------- */
+const RUBY = [
+  ['使い方', 'つかいかた'], ['新しい', 'あたらしい'], ['打ち込み', 'うちこみ'], ['元に戻す', 'もとにもどす'], ['戻す', 'もどす'],
+  ['小節', 'しょうせつ'], ['伴奏', 'ばんそう'], ['拍子', 'ひょうし'], ['楽譜', 'がくふ'], ['五線', 'ごせん'], ['再生', 'さいせい'], ['停止', 'ていし'],
+  ['音符', 'おんぷ'], ['休符', 'きゅうふ'], ['楽器', 'がっき'], ['音量', 'おんりょう'], ['音色', 'ねいろ'], ['保存', 'ほぞん'], ['共有', 'きょうゆう'],
+  ['練習', 'れんしゅう'], ['表示', 'ひょうじ'], ['設定', 'せってい'], ['鍵盤', 'けんばん'], ['入力', 'にゅうりょく'], ['選択', 'せんたく'],
+  ['削除', 'さくじょ'], ['音階', 'おんかい'], ['和音', 'わおん'], ['半音', 'はんおん'], ['全体', 'ぜんたい'], ['発表', 'はっぴょう'],
+  ['先生', 'せんせい'], ['複製', 'ふくせい'], ['移動', 'いどう'], ['範囲', 'はんい'], ['曲名', 'きょくめい'], ['調', 'ちょう'], ['曲', 'きょく'],
+  ['全画面', 'ぜんがめん'], ['画面', 'がめん'], ['速さ', 'はやさ'], ['長さ', 'ながさ'], ['高さ', 'たかさ'], ['音', 'おと'], ['前半', 'ぜんはん'], ['後半', 'こうはん'],
+  ['自動', 'じどう'], ['作曲', 'さっきょく'], ['機能', 'きのう'], ['書き出し', 'かきだし'], ['読み込み', 'よみこみ'], ['開く', 'ひらく'], ['送る', 'おくる'],
+];
+const RUBY_RE = new RegExp(RUBY.map(([w]) => w).join('|'), 'g');
+const RUBY_MAP = Object.fromEntries(RUBY);
+const RUBY_SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'RUBY', 'RT', 'CANVAS', 'KBD', 'TITLE']);
+function rubyNode(root) {
+  if (!document.body.classList.contains('kids')) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      for (let e = n.parentNode; e && e !== document.body; e = e.parentNode) { if (RUBY_SKIP.has(e.nodeName) || (e.namespaceURI && e.namespaceURI !== 'http://www.w3.org/1999/xhtml') || (e.classList && e.classList.contains('noruby'))) return NodeFilter.FILTER_REJECT; }
+      RUBY_RE.lastIndex = 0;
+      return RUBY_RE.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const list = [];
+  while (walker.nextNode()) list.push(walker.currentNode);
+  for (const n of list) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    const t = n.nodeValue;
+    t.replace(RUBY_RE, (w, at) => {
+      if (at > last) frag.appendChild(document.createTextNode(t.slice(last, at)));
+      const r = document.createElement('ruby');
+      r.append(w);
+      const rt = document.createElement('rt');
+      rt.textContent = RUBY_MAP[w];
+      r.appendChild(rt);
+      frag.appendChild(r);
+      last = at + w.length;
+      return w;
+    });
+    if (last < t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+    n.parentNode.replaceChild(frag, n);
+  }
+}
+let rubyObs = null;
+function setKids(on) {
+  document.body.classList.toggle('kids', on);
+  lsSet('otsumiki-kids', on ? '1' : '0');
+  $('#kidsMode').checked = on;
+  if (on) {
+    rubyNode(document.body);
+    if (!rubyObs) {
+      rubyObs = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) { if (n.nodeType === 1) rubyNode(n); else if (n.nodeType === 3 && n.parentNode) rubyNode(n.parentNode); } });
+    }
+    rubyObs.observe(document.body, { childList: true, subtree: true });
+  } else {
+    if (rubyObs) rubyObs.disconnect();
+    $$('ruby').forEach((r) => { const rt = r.querySelector('rt'); if (rt) rt.remove(); r.replaceWith(document.createTextNode(r.textContent)); });
+    document.body.normalize();
+  }
+}
+$('#kidsMode').onchange = (e) => setKids(e.target.checked);
+if (lsGet('otsumiki-kids', '0') === '1') setKids(true);
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
