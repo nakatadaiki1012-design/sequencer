@@ -180,6 +180,20 @@ function sanitizeSong(s) {
   out.ramps = obj(s.ramps);
   for (const b in out.ramps) { const r = out.ramps[b]; if (!(r && (r.type === 'rit' || r.type === 'acc') && Number.isInteger(r.n) && r.n > 0 && r.n <= 16)) delete out.ramps[b]; }
   for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
+  if (!SCALES[out.scale]) out.scale = 'major';
+  out.master = num(s.master, 0.9, 0, 1.5);
+  out.reverb = num(s.reverb, 0.25, 0, 1);
+  out.swing = num(s.swing, 0, 0, 1);
+  if (s.swingUnit != null && ![12, 24].includes(s.swingUnit)) out.swingUnit = 24;
+  for (const k of ['low', 'mid', 'high']) if (k in out.eq) out.eq[k] = num(out.eq[k], 0, -24, 24);
+  if ('vol' in out.metro) out.metro.vol = num(out.metro.vol, 0.7, 0, 1.5);
+  for (const b in out.keys) { const k = out.keys[b]; if (!(k && Number.isInteger(k.key) && k.key >= 0 && k.key < 12)) delete out.keys[b]; else out.keys[b] = { key: k.key, minor: !!k.minor }; }
+  {
+    const R = obj(s.repeats);
+    const ints = (a) => (Array.isArray(a) ? a.filter((x) => Number.isInteger(x) && x >= 0 && x < 128) : []);
+    out.repeats = { start: ints(R.start), end: ints(R.end), volta: obj(R.volta) };
+  }
+  out.pickup = Math.max(0, Math.round(num(s.pickup, 0, 0, 192 * 4)));
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
   out.tracks = s.tracks.filter((t) => t && typeof t === 'object' && ['melody', 'drum', 'chord'].includes(t.type)).map((t) => {
@@ -187,7 +201,7 @@ function sanitizeSong(s) {
     if (t.type === 'melody') {
       tr.notes = (Array.isArray(t.notes) ? t.notes : []).filter((n) => n && Number.isFinite(+n.s) && Number.isFinite(+n.p) && Number.isFinite(+n.l) && +n.l > 0 && +n.s >= 0)
         .map((n) => { const o = { ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) }; if (n.vel != null) { const v = Number(n.vel); if (Number.isFinite(v) && v !== 1) o.vel = clamp(v, 0.1, 1.5); else delete o.vel; } return o; });
-      for (const k of ['dyn', 'hairpins', 'slurs']) if (!Array.isArray(tr[k])) tr[k] = [];
+      for (const k of ['dyn', 'hairpins', 'slurs']) tr[k] = (Array.isArray(tr[k]) ? tr[k] : []).filter((x) => x && typeof x === 'object' && (k === 'dyn' ? Number.isFinite(+x.t) && typeof x.v === 'string' : Number.isFinite(+x.s) && Number.isFinite(+x.e)));
     } else if (t.type === 'drum') {
       const g = {};
       for (const id in obj(t.grid)) {
@@ -5104,7 +5118,18 @@ function keepSong(sg) {
   // 同じ名前でも上書きしない（同じ分に何曲あっても）
   for (const n of autos.slice(20)) delete all[n];
   for (const n of autos.slice(3)) if (all[n] && all[n].song && all[n].song.voice) delete all[n].song.voice; // 録った声は大きいので、新しい3曲ぶんだけ
-  try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); return name; } catch (e) { return null; }
+  // 保存の場所がいっぱいなら、古い「自動でしまった曲」と録った声から消して、やりなおす
+  for (let tries = 0; tries < 30; tries++) {
+    try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); return name; } catch (e) {
+      const olds = Object.keys(all).filter((n) => all[n].auto && n !== name).sort((a, b) => all[a].t - all[b].t);
+      const withVoice = Object.keys(all).find((n) => all[n].song && all[n].song.voice);
+      if (withVoice) delete all[withVoice].song.voice;
+      else if (olds.length) delete all[olds[0]];
+      else break;
+    }
+  }
+  warnSaveFailed();
+  return null;
 }
 function loadSong(s, opts = {}) {
   stop();
@@ -5114,6 +5139,9 @@ function loadSong(s, opts = {}) {
   // 自分で作った・開いた曲だけしまう（はじめのサンプルなどは、しまわない）
   const prevSnap = opts.keep === false || !songOwn || !song || !song.tracks ? null : snapshot();
   const kept = prevSnap ? keepSong(JSON.parse(prevSnap)) : null;
+  // うまく開けなかったときに、前の曲にもどすため
+  const back = { song, cur, undo: undoStack.slice(), redo: redoStack.slice() };
+  try {
   const base = newSong();
   song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
   song.tracks = s.tracks.slice(0, MAX_TRACKS).map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
@@ -5138,6 +5166,12 @@ function loadSong(s, opts = {}) {
   // 「元に戻す」で、前の曲にもどれる
   if (prevSnap && songHasContent(JSON.parse(prevSnap))) pushUndo(prevSnap, '別の曲を開く');
   changed(true);
+  } catch (err) {
+    song = back.song; cur = back.cur;
+    undoStack.length = 0; undoStack.push(...back.undo); redoStack.length = 0; redoStack.push(...back.redo);
+    try { changed(true); } catch (e2) { /* 何もしない */ }
+    throw err;
+  }
   scrollToNotes();
   draw();
   preloadSamples();
@@ -5716,11 +5750,13 @@ function importMidi(buf, fname) {
       const key = chn + ':' + a;
       if (cmd === 0xc0) { prog[t + ':' + chn] = a; prog['c' + chn] = a; continue; }
       if (cmd === 0xb0 && a === 10) { prog['pan' + chn] = b; continue; } // 左右の位置
-      if (cmd === 0x90 && b > 0) on.set(key, { s: tick, v: b });
+      // 同じ高さの音がかさなっても（声部2など）、先に鳴った音から順に止める
+      if (cmd === 0x90 && b > 0) { if (!on.has(key)) on.set(key, []); on.get(key).push({ s: tick, v: b }); }
       else if (cmd === 0x80 || (cmd === 0x90 && b === 0)) {
-        const o = on.get(key);
+        const q = on.get(key);
+        const o = q && q.shift();
         if (!o) continue;
-        on.delete(key);
+        if (!q.length) on.delete(key);
         if (chn === 9) drums.push({ s: Math.round(o.s * scale), n: a, v: o.v });
         else {
           if (!chans.has(t + ':' + chn)) chans.set(t + ':' + chn, { name: tname, notes: [], key: t + ':' + chn, chn });
@@ -5787,12 +5823,18 @@ function importMidi(buf, fname) {
   if (drums.length) {
     const rev = {};
     for (const k of ['kick', 'snare', 'hihat', 'ohat', 'tomL', 'tomH', 'ride', 'crash', 'clap', 'cowbell', 'tamb', 'maracas', 'triangle']) rev[Sound.DRUMS[k].gm] = k;
+    for (const k in Sound.DRUMS) if (Sound.DRUMS[k].gm != null && !(Sound.DRUMS[k].gm in rev)) rev[Sound.DRUMS[k].gm] = k; // ほかの打楽器も
     const tr = newTrack('drum', { name: 'ドラム' });
     for (const d of drums) { const k = rev[d.n] || 'snare'; (tr.grid[k] = tr.grid[k] || {})[d.s] = d.v > 100 ? 2 : 1; maxT = Math.max(maxT, d.s + 1); }
+    // いちばん多く入っているセットをえらぶ
+    const ids = Object.keys(tr.grid);
+    let best = null; let bc = 0;
+    for (const kt of Sound.KITS) { const c = ids.filter((id) => kt.list.includes(id)).length; if (c > bc) { bc = c; best = kt; } }
+    if (best) tr.kit = best.id;
     s.tracks.push(tr);
   }
   if (!s.tracks.length) s.tracks.push(newTrack('melody'));
-  s.bars = clamp(Math.ceil(maxT / bt), 1, 128);
+  s.bars = clamp(barOfTick(Math.max(0, maxT - 1)) + 1, 1, 128); // とちゅうで拍子が変わっても、さいごの音まで
   return s;
 }
 
@@ -6079,6 +6121,11 @@ function init() {
     try { loadSong(await unpackSong(m[1])); toast('共有された曲を開きました'); } catch (e) { alert('共有URLの曲を読み込めませんでした'); }
   });
   window.addEventListener('beforeunload', () => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } });
+  // iPad・スマホは beforeunload が来ないことがあるので、かくれたときにも保存。テンポやミキサーを変えたときも保存
+  const saveNow = () => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } };
+  window.addEventListener('pagehide', saveNow);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
+  document.addEventListener('change', () => autosaveSoon(), true);
 
   (async () => {
     const m = location.hash.match(/#song=(.+)$/);
