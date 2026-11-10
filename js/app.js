@@ -2820,15 +2820,16 @@ function clearTrack(tr) {
 }
 function range(a, b, st) { const r = []; for (let i = a; i < b; i += Math.max(1, st)) r.push(i); return r; }
 const RHYTHM_PRESETS = {
-  basic: { name: '8ビート', kit: 'drums', f: (bt) => ({ kick: [0, 96], snare: [48, 144], hihat: range(0, bt, 24) }) },
-  rock16: { name: '16ビート', kit: 'drums', f: (bt) => ({ kick: [0, 72, 96], snare: [48, 144], hihat: range(0, bt, 12) }) },
-  march: { name: 'マーチ（音楽室）', kit: 'school', f: (bt, b) => ({ odaiko: range(0, bt, 96), kodaiko: range(48, bt, 96), awase: b % 4 === 0 ? [0] : [] }) },
+  // 拍子に合わせる：強い拍（1拍目など）にバスドラム、弱い拍にスネア
+  basic: { name: '8ビート', kit: 'drums', f: (bt, b, B) => ({ kick: B.strong, snare: B.weak, hihat: range(0, bt, 24) }) },
+  rock16: { name: '16ビート', kit: 'drums', f: (bt, b, B) => ({ kick: [...B.strong, ...(B.n === 4 ? [72] : [])], snare: B.weak, hihat: range(0, bt, 12) }) },
+  march: { name: 'マーチ（音楽室）', kit: 'school', f: (bt, b, B) => ({ odaiko: B.strong, kodaiko: B.weak, awase: b % 4 === 0 ? [0] : [] }) },
   waltz: { name: 'ワルツ', kit: 'drums', f: (bt) => ({ kick: [0], hihat: range(48, bt, 48), snare: range(48, bt, 48) }) },
   samba: { name: 'サンバ', kit: 'perc2', f: (bt) => ({ maracas: range(0, bt, 12), agogoH: [0, 72, 144], agogoL: [24, 96, 168], clave: [0, 36, 96, 120, 168] }) },
   latin: { name: 'ボサノバ', kit: 'perc1', f: () => ({ congaL: [0, 96], congaH: [72, 168], congaM: [48, 144], woodH: [0, 72, 144] }) },
   matsuri: { name: 'お祭り（和太鼓）', kit: 'wa', f: (bt, b) => ({ chodaiko: [0, 48, 72, 96, 144], shime: range(0, bt, 24), kane: [0, 48, 96, 144], hyoshigi: b % 4 === 3 ? [144] : [] }) },
-  edm: { name: '4つ打ち（EDM）', kit: 'edm', f: (bt) => ({ kick808: range(0, bt, 48), clapE: [48, 144], ohatE: [24, 72, 120, 168], hihatE: range(0, bt, 12) }) },
-  clap: { name: '手拍子', kit: 'perc2', f: (bt) => ({ clap: range(0, bt, 48) }) },
+  edm: { name: '4つ打ち（EDM）', kit: 'edm', f: (bt, b, B) => ({ kick808: B.all, clapE: B.weak, ohatE: B.all.map((x) => x + B.beat / 2), hihatE: range(0, bt, 12) }) },
+  clap: { name: '手拍子', kit: 'perc2', f: (bt, b, B) => ({ clap: B.all }) },
 };
 function applyRhythm(tr, key) {
   const pre = RHYTHM_PRESETS[key];
@@ -2837,7 +2838,14 @@ function applyRhythm(tr, key) {
   const bt = barTicks();
   for (let b = 0; b < song.bars; b++) {
     const bt = barLen(b);
-    const pat = pre.f(bt, b);
+    // 拍の位置：6/8 などは付点4分が1拍
+    const m = meterAt(b);
+    const beat = m[1] === 8 && m[0] % 3 === 0 && m[0] > 3 ? 72 : beatAt(b);
+    const n = Math.max(1, Math.round(bt / beat));
+    const all = Array.from({ length: n }, (_, i) => i * beat);
+    const strong = n === 3 ? [0] : all.filter((_, i) => i % 2 === 0);
+    const weak = n === 3 ? [beat, beat * 2] : all.filter((_, i) => i % 2 === 1);
+    const pat = pre.f(bt, b, { beat, n, all, strong, weak });
     for (const id in pat) for (const s of pat[id]) {
       if (s >= bt) continue;
       (tr.grid[id] = tr.grid[id] || {})[barStart(b) + s] = s === 0 ? 2 : 1;
