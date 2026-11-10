@@ -4390,11 +4390,12 @@ function scoreClick(e) {
     const s0 = +nh.dataset.s;
     const p0 = +nh.dataset.p;
     if (track().type !== 'melody') { ui.sc.cursor = s0; renderScoreEdit(); return; }
-    if (e.shiftKey && ui.sc.sel.size) {
+    if ((e.shiftKey || ui.sc.rangeTap) && ui.sc.sel.size) {
       const ss = [...ui.sc.sel].map((k) => +k.split(':')[0]);
       const a = Math.min(...ss, s0);
       const z = Math.max(...ss, s0);
       ui.sc.sel = new Set(track().notes.filter((n) => n.s >= a && n.s <= z).map((n) => n.s + ':' + n.p));
+      if (ui.sc.rangeTap) { ui.sc.rangeTap = false; toast(`${ui.sc.sel.size}個の音をえらびました（「…」からスラーなど）`); renderPhonePad(); }
     } else if (e.ctrlKey || e.metaKey) {
       const k = s0 + ':' + p0;
       if (ui.sc.sel.has(k)) ui.sc.sel.delete(k); else ui.sc.sel.add(k);
@@ -4586,6 +4587,8 @@ function renderPhonePad() {
       <button class="pp-btn" data-x="right" title="次へ">→</button>
       <button class="pp-btn danger" data-x="del" title="消す">⌫</button>
       <details class="pop pp-more" data-pop="ppmore"><summary class="pp-btn" title="記号・歌詞・コードなど">${I('more')}</summary><div class="popbody">
+        <div class="sub">いくつかの音をえらぶ（スラー・クレシェンド・コピー用）</div>
+        <div class="btnrow"><button class="mini ${ui.sc.rangeTap ? 'on' : ''}" data-x="range">${ui.sc.rangeTap ? '✓ ' : ''}はんい：1つめの音をタップ → さいごの音をタップ</button></div>
         <div class="sub">記号（えらんだ音符に）</div>
         <div class="btnrow">${ARTS.map(([a, ic, t]) => `<button class="mini" data-art="${a}">${ic} ${t.split('（')[0]}</button>`).join('')}</div>
         <div class="btnrow"><button class="mini" data-x="tie">タイ</button><button class="mini" data-x="slur">スラー</button><button class="mini" data-x="cresc">cresc.</button><button class="mini" data-x="dim">dim.</button></div>
@@ -4611,6 +4614,7 @@ function renderPhonePad() {
   }));
   const act = {
     dot: () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); },
+    range: () => { ui.sc.rangeTap = !ui.sc.rangeTap; if (ui.sc.rangeTap) ui.sc.sel = new Set(); toast(ui.sc.rangeTap ? 'はんい：1つめの音、さいごの音の順にタップしてね' : 'はんいをやめました'); },
     trip: () => { ui.sc.trip = !ui.sc.trip; },
     'oct+': () => phoneOct(12),
     'oct-': () => phoneOct(-12),
