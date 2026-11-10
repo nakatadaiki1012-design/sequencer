@@ -302,6 +302,7 @@
     <p class="hint">曲のとちゅうで、テンポ・拍子・調を変えられます。チェックを入れたものだけ変わります。</p>
     <div class="barform">
       <label class="barrow"><input type="checkbox" id="barTempoOn"> <b>テンポ</b> <span>♩=</span><input type="number" id="barTempo" min="30" max="240" step="1"></label>
+      <label class="barrow"><b>だんだん</b> <select id="barRamp"><option value="">変えない</option><option value="rit:2">だんだん遅く（rit.）2小節で</option><option value="rit:4">だんだん遅く（rit.）4小節で</option><option value="acc:2">だんだん速く（accel.）2小節で</option><option value="acc:4">だんだん速く（accel.）4小節で</option><option value="-">だんだんをやめる</option></select></label>
       <label class="barrow"><input type="checkbox" id="barMeterOn"> <b>拍子</b> <select id="barMeterN"></select><span>/</span><select id="barMeterD"></select></label>
       <label class="barrow"><input type="checkbox" id="barKeyOn"> <b>調</b> <select id="barKey"></select></label>
       <p class="hint" id="barKeyHint">調を変えると、楽譜の調号が変わります（音の高さはそのままです）。</p>

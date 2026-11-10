@@ -2435,6 +2435,7 @@ function openBarDialog(b) {
   for (let i = 0; i < 12; i++) keys.push([i + ':1', keyLabel(i, true) + '（' + keyEn(i, true) + '）']);
   opt($('#barKey'), keys, k.key + ':' + (k.minor ? 1 : 0));
   $('#barTempo').value = (b === 0 ? song.bpm : song.tempos[b]) || bpmAt(b);
+  $('#barRamp').value = '';
   $('#barTempoOn').checked = b === 0 || !!song.tempos[b];
   $('#barMeterOn').checked = b === 0 || !!(song.meters || {})[b];
   $('#barKeyOn').checked = b === 0 || !!(song.keys || {})[b];
@@ -2450,7 +2451,21 @@ function openBarDialog(b) {
     const nm = [+$('#barMeterN').value, +$('#barMeterD').value];
     const [kk, mm] = $('#barKey').value.split(':').map(Number);
     const jump = $('#barJump').value;
+    const ramp = $('#barRamp').value;
     edit(() => {
+      // だんだん遅く／速く：小節ごとにテンポを少しずつ変える（楽譜には rit. / accel. と書く）
+      song.ramps = song.ramps || {};
+      if (ramp === '-') {
+        const r0 = song.ramps[b];
+        if (r0) { for (let i = 0; i < r0.n; i++) delete song.tempos[b + i]; delete song.ramps[b]; }
+      } else if (ramp) {
+        const [type, n0] = ramp.split(':');
+        const n = Math.min(+n0, song.bars - b);
+        const from = bpmAt(Math.max(0, b - 1));
+        const to = Math.round(from * (type === 'rit' ? 0.7 : 1.3));
+        for (let i = 0; i < n; i++) song.tempos[b + i] = clamp(Math.round(from + ((to - from) * (i + 1)) / n), 30, 240);
+        song.ramps[b] = { type, n };
+      }
       song.meters = song.meters || {};
       song.keys = song.keys || {};
       if (b === 0) {
@@ -2459,7 +2474,7 @@ function openBarDialog(b) {
         song.meter = nm;
         delete song.meters[0];
       } else {
-        if (tOn) song.tempos[b] = clamp(Math.round(+$('#barTempo').value) || bpmAt(b), 30, 240); else delete song.tempos[b];
+        if (ramp && ramp !== '-') { /* だんだんで入れたテンポをのこす */ } else if (tOn) song.tempos[b] = clamp(Math.round(+$('#barTempo').value) || bpmAt(b), 30, 240); else delete song.tempos[b];
         if (mOn && String(nm) !== String(meterAt(b - 1))) song.meters[b] = nm; else delete song.meters[b];
         const prev = keyAt(b - 1);
         if (kOn && !(prev.key === kk && !!prev.minor === !!mm)) song.keys[b] = { key: kk, minor: !!mm }; else delete song.keys[b];
@@ -3498,7 +3513,9 @@ function scoreOpts(trackIds, withDrums) {
   return {
     parts, partTracks, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
     geo: { starts: geo().starts, meters: geo().meters, keys: geo().keys }, jumps: song.jumps || {},
-    title: song.title, bpm: song.bpm, tempoText: song.tempoText, tempos: song.tempos,
+    title: song.title, bpm: song.bpm, tempoText: song.tempoText,
+    tempos: (() => { const t = { ...song.tempos }; for (const b in song.ramps || {}) for (let i = 0; i < song.ramps[b].n; i++) delete t[+b + i]; return t; })(),
+    words: Object.fromEntries(Object.entries(song.ramps || {}).map(([b, r]) => [b, r.type === 'rit' ? 'rit.' : 'accel.'])),
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
