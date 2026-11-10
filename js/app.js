@@ -2792,8 +2792,22 @@ function notesInScope(tr) {
 }
 function transpose(tr, semis) { for (const n of notesInScope(tr)) n.p = clamp(n.p + semis, 21, 108); }
 function transposeDegree(tr, dir) {
-  const all = scaleDegreesInRange(21, 108);
+  const byKey = new Map();
+  const degreesAt = (b) => {
+    const k = keyAt(b);
+    const id = k.key + ':' + (k.minor ? 1 : 0);
+    if (!byKey.has(id)) {
+      // 曲のはじめの調は、えらんでいる音階（ヨナ抜きなど）のまま。とちゅうの調は長調・短調
+      const steps = (!(song.keys && Object.keys(song.keys).length) || (k.key === song.key && !!k.minor === isMinor())) ? SCALES[song.scale].steps : SCALES[k.minor ? 'minor' : 'major'].steps;
+      const pcs = new Set(steps.map((x) => (x + k.key) % 12));
+      const out = [];
+      for (let m = 21; m <= 108; m++) if (pcs.has(m % 12)) out.push(m);
+      byKey.set(id, out);
+    }
+    return byKey.get(id);
+  };
   for (const n of notesInScope(tr)) {
+    const all = degreesAt(barOf(n.s));
     let i = all.indexOf(n.p);
     if (i < 0) { i = all.findIndex((m) => m >= n.p); if (dir < 0) i--; } else i += dir;
     n.p = all[clamp(i, 0, all.length - 1)];
@@ -3631,6 +3645,7 @@ function scoreOpts(trackIds, withDrums) {
     title: song.title, bpm: song.bpm, tempoText: song.tempoText,
     tempos: (() => { const t = { ...song.tempos }; for (const b in song.ramps || {}) for (let i = 0; i < song.ramps[b].n; i++) delete t[+b + i]; return t; })(),
     words: Object.fromEntries(Object.entries(song.ramps || {}).map(([b, r]) => [b, r.type === 'rit' ? 'rit.' : 'accel.'])),
+    soundTempos: { ...song.tempos },
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
     finger: S.finger || '',
     blankBars: parseBars(S.blank),

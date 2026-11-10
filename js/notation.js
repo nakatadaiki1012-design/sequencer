@@ -648,8 +648,16 @@ const Notation = (() => {
           if (isEnd) o.push(`<circle cx="${ex - 11}" cy="${yOf(5)}" r="1.8" fill="#222"/><circle cx="${ex - 11}" cy="${yOf(3)}" r="1.8" fill="#222"/><line x1="${ex - 7}" x2="${ex - 7}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 4}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
           else if (bb === bars - 1 || (hasJ('fine') && J.fine === bb)) o.push(`<line x1="${ex - 5}" x2="${ex - 5}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 3}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
           else o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
-          if (si === 0 && chords && chords[bb]) o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
-          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0] + (chords && chords[bb] ? 34 : 0)}" y="${stTop - 2.9 * SP}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
+          if (si === 0 && chords && chords[bb]) {
+            const co = opts.chordObjs && opts.chordObjs[bb];
+            const parts = String(chords[bb]).split('・');
+            if (co && co.h && co.hAt && parts.length === 2) {
+              o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[0])}</text>`);
+              o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[1])}</text>`);
+            } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
+          }
+          // rit. / accel. はコード名の上に（かさならないように）
+          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
         }
         // 予告の調号・拍子（段の終わり）
         if (caut) {
@@ -977,6 +985,7 @@ const Notation = (() => {
           if (pi === 0) x.push(`<direction placement="above"><direction-type>${opts.tempoText ? `<words font-weight="bold">${esc(opts.tempoText)}</words></direction-type><direction-type>` : ''}<metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
         }
         if (pi === 0 && opts.words && opts.words[b]) x.push(`<direction placement="above"><direction-type><words font-style="italic">${esc(opts.words[b])}</words></direction-type></direction>`);
+        if (pi === 0 && opts.soundTempos && opts.soundTempos[b] && b > 0 && !(opts.tempos && opts.tempos[b])) x.push(`<direction placement="above"><direction-type><words/></direction-type><sound tempo="${opts.soundTempos[b]}"/></direction>`);
         if (pi === 0 && opts.tempos) { const t = opts.tempos[b]; if (t && b > 0) x.push(`<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${t}</per-minute></metronome></direction-type><sound tempo="${t}"/></direction>`); }
         if (pi === 0 && chords && chords[b]) {
           const c = chords[b];
