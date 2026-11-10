@@ -154,7 +154,8 @@ function sanitizeSong(s) {
       }
       tr.grid = g;
     } else {
-      tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => (c && Number.isInteger(c.r) && c.r >= 0 && c.r < 12 && CHORD_Q[c.q] ? c : null));
+      const okC = (c) => c && Number.isInteger(c.r) && c.r >= 0 && c.r < 12 && CHORD_Q[c.q];
+      tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => (okC(c) ? (c.h && !okC(c.h) ? { r: c.r, q: c.q } : c) : null));
     }
     tr.vol = num(t.vol, 0.8, 0, 1.5);
     tr.pan = num(t.pan, 0, -1, 1);
@@ -236,6 +237,10 @@ function noteName(m, withOct = false) {
 }
 const sciName = (m) => NAMES.cde[ui.flat ? 1 : 0][m % 12] + (Math.floor(m / 12) - 1);
 function chordName(c) { return c ? CHORD_ROOT[c.r] + CHORD_Q[c.q].s : ''; }
+// 1小節に2つのコード（c.h ＝ 小節の後半のコード）
+function chordLabel(c) { return c ? (c.h ? `${chordName(c)}・${chordName(c.h)}` : chordName(c)) : ''; }
+// 後半がはじまる位置（小節の頭から。拍の区切りで、まん中あたり）
+function chordHalf(b) { const bs = beatAt(b); const n = Math.round(barLen(b) / bs); return Math.max(1, Math.floor(n / 2)) * bs; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // マス目（おたまチョップ）の区切り：小節の頭からかぞえます
@@ -542,15 +547,21 @@ function buildGraph(ctx, dest, live) {
 function chordEvents(tr) {
   const ev = [];
   for (let b = 0; b < song.bars; b++) {
-    const c = tr.chords[b];
-    if (!c) continue;
-    const bt = barLen(b);
+    const c0 = tr.chords[b];
+    if (!c0) continue;
     const bs = beatAt(b);
+    const hs = c0.h ? chordHalf(b) : barLen(b);
+    chordPart(tr, ev, c0, barStart(b), hs, bs);
+    if (c0.h) chordPart(tr, ev, c0.h, barStart(b) + hs, barLen(b) - hs, bs);
+  }
+  return ev;
+}
+function chordPart(tr, ev, c, o, bt, bs) {
+  {
     let root = 48 + ((c.r % 12) + 12) % 12;
     if (root > 54) root -= 12;
     const tones = CHORD_Q[c.q].iv.map((x) => root + 12 + x);
     const bass = root - 12 + (root < 43 ? 12 : 0);
-    const o = barStart(b);
     const push = (s, p, l, v = 0.7) => ev.push({ s: o + s, p, l, v });
     const pat = tr.pattern;
     if (pat === 'whole') {
@@ -573,7 +584,6 @@ function chordEvents(tr) {
       }
     }
   }
-  return ev;
 }
 
 // 再生する出来事（ノート・打楽器・メトロノーム）を時間順に並べる
@@ -1195,12 +1205,21 @@ function draw(playPos) {
       g2.textAlign = 'center';
       g2.textBaseline = 'middle';
       if (c) {
-        g2.fillStyle = PC_COLORS[c.r];
-        roundRect(g2, x + 6, y + 10, w - 12, rh - 20, 8);
-        g2.fill();
-        g2.fillStyle = '#1b1b1b';
-        g2.font = `bold ${Math.min(26, w / 3)}px sans-serif`;
-        g2.fillText(chordName(c), x + w / 2, y + rh / 2, w - 16);
+        const parts = c.h ? [[c, 0, chordHalf(b) * k], [c.h, chordHalf(b) * k, w - chordHalf(b) * k]] : [[c, 0, w]];
+        for (const [cc, dx, ww] of parts) {
+          g2.fillStyle = PC_COLORS[cc.r];
+          roundRect(g2, x + dx + 6, y + 10, ww - 12, rh - 20, 8);
+          g2.fill();
+          g2.fillStyle = '#1b1b1b';
+          g2.font = `bold ${Math.min(26, ww / 3)}px sans-serif`;
+          g2.fillText(chordName(cc), x + dx + ww / 2, y + rh / 2, ww - 16);
+        }
+        if (b === ui.selBar && ui.chordHalf) {
+          const hx = ui.chordHalf === 2 ? chordHalf(b) * k : 0;
+          const hw = ui.chordHalf === 2 ? w - chordHalf(b) * k : chordHalf(b) * k;
+          g2.strokeStyle = C('--accent'); g2.lineWidth = 3;
+          roundRect(g2, x + hx + 3, y + 6, hw - 6, rh - 12, 10); g2.stroke();
+        }
       } else {
         g2.fillStyle = C('--muted');
         g2.font = '13px sans-serif';
@@ -1955,7 +1974,7 @@ function drawOverviewBase(og, { W, H, dpr, sx, bw, rows }) {
       if (tr.type === 'chord' && tr.chords[b]) {
         og.fillStyle = C('--text');
         og.font = 'bold 10px sans-serif';
-        og.fillText(chordName(tr.chords[b]), x + 4, y + OV_RH / 2 + 1, bw - 6);
+        og.fillText(chordLabel(tr.chords[b]), x + 4, y + OV_RH / 2 + 1, bw - 6);
       }
     });
     if (b % 4 === 0) { og.strokeStyle = C('--line-bar'); og.lineWidth = 2; og.beginPath(); og.moveTo(x + 0.5, 2); og.lineTo(x + 0.5, H); og.stroke(); }
@@ -2294,12 +2313,22 @@ function previewChord(tr, c) {
 function setChord(c) {
   const tr = track();
   if (locked(tr)) return toast('このトラックはロックされています');
+  const half = ui.chordHalf || 0;
+  const old = tr.chords[ui.selBar];
+  if (half === 2 && !old) { toast('先に「前半」のコードを入れてね'); ui.chordHalf = 1; renderEditorTools(); return; }
   edit(() => {
     while (tr.chords.length < song.bars) tr.chords.push(null);
-    tr.chords[ui.selBar] = c;
+    if (half === 0) tr.chords[ui.selBar] = c;
+    else if (half === 1) tr.chords[ui.selBar] = c ? (old && old.h ? { r: c.r, q: c.q, h: old.h } : { r: c.r, q: c.q }) : null;
+    else { const n = { r: old.r, q: old.q }; if (c) n.h = { r: c.r, q: c.q }; tr.chords[ui.selBar] = n; }
     if (c) previewChord(tr, c);
-    const nb = Math.min(ui.selBar + 1, song.bars - 1);
-    selectBars(cur, nb, nb);
+    // 前半を入れたら後半へ、後半（またはまるごと）を入れたら次の小節へ
+    if (half === 1 && c) ui.chordHalf = 2;
+    else {
+      if (half === 2) ui.chordHalf = 1;
+      const nb = Math.min(ui.selBar + 1, song.bars - 1);
+      selectBars(cur, nb, nb);
+    }
   }, 'コードを入れる');
 }
 
@@ -2659,7 +2688,7 @@ function trackStrip(tr, i) {
       o += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="3.2" rx="1.6" fill="${PC_COLORS[n.p % 12]}"/>`;
     }
   } else if (tr.type === 'chord') {
-    tr.chords.forEach((c, b) => { if (c && b < song.bars) o += `<text x="${b * BW + BW / 2}" y="${H / 2 + 7}" text-anchor="middle" class="cn">${escapeHtml(chordName(c))}</text>`; });
+    tr.chords.forEach((c, b) => { if (c && b < song.bars) o += `<text x="${b * BW + BW / 2}" y="${H / 2 + 7}" text-anchor="middle" class="cn">${escapeHtml(chordLabel(c))}</text>`; });
   } else if (tr.type === 'drum') {
     const ids = Object.keys(tr.grid);
     ids.forEach((id, k) => {
@@ -2728,12 +2757,15 @@ function renderEditorTools() {
     html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
     const dia = diatonic();
-    pal.innerHTML = `<div class="palhead">${ui.selBar + 1}小節目のコードをえらぶ（えらぶと次の小節へ進みます）</div>
+    const hb = ui.chordHalf || 0;
+    pal.innerHTML = `<div class="palhead">${ui.selBar + 1}小節目${hb === 1 ? 'の前半' : hb === 2 ? 'の後半' : ''}のコードをえらぶ
+      <span class="seg halfseg" title="1小節に2つのコードを入れるときは「前半」「後半」"><button class="mini ${hb === 0 ? 'on' : ''}" data-h="0">1小節まるごと</button><button class="mini ${hb === 1 ? 'on' : ''}" data-h="1">前半</button><button class="mini ${hb === 2 ? 'on' : ''}" data-h="2">後半</button></span></div>
       <div class="palrow">${dia.map((c, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[c.r]}"><b>${chordName(c)}</b><small>${c.deg}</small></button>`).join('')}
       <button class="chordbtn none" data-i="-1"><b>なし</b><small>休み</small></button>
       <details class="pop" data-pop="chordother"><summary class="mini">そのほかのコード…</summary><div class="popbody"><select id="cRoot">${CHORD_ROOT.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
       <select id="cQ">${Object.entries(CHORD_Q).map(([k, v]) => `<option value="${k}">${v.s || '（長三和音）'}</option>`).join('')}</select>
       <button class="mini" id="cSet">この小節に入れる</button></div></details></div>`;
+    pal.querySelectorAll('.halfseg button').forEach((b) => (b.onclick = () => { ui.chordHalf = +b.dataset.h; renderEditorTools(); draw(); }));
     pal.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; setChord(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
     $('#cSet').onclick = () => setChord({ r: +$('#cRoot').value, q: $('#cQ').value });
   }
@@ -3100,8 +3132,8 @@ function scoreOpts(trackIds, withDrums) {
     geo: { starts: geo().starts, meters: geo().meters, keys: geo().keys }, jumps: song.jumps || {},
     title: song.title, bpm: song.bpm, tempoText: song.tempoText, tempos: song.tempos,
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer },
-    chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordName(chordTr.chords[b])) : null,
-    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => chordTr.chords[b] || null) : null,
+    chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
+    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; return c ? (c.h ? { ...c, hAt: chordHalf(b) } : c) : null; }) : null,
     nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780,
     pickup: song.pickup, repeats: song.repeats,
   };

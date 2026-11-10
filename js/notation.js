@@ -917,6 +917,10 @@ const Notation = (() => {
           const c = chords[b];
           const sp = spell(c.r + 60, kc);
           x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root><kind>${HK[c.q] || 'major'}</kind></harmony>`);
+          if (c.h && c.hAt) {
+            const sh = spell(c.h.r + 60, kc);
+            x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[c.h.q] || 'major'}</kind><offset>${c.hAt}</offset></harmony>`);
+          }
         }
         const dirAt = (t) => {
           for (const dy of p.dyn || []) if (dy.t === t && DYN.has(dy.v)) x.push(`<direction placement="below"><direction-type><dynamics><${dy.v}/></dynamics></direction-type></direction>`);

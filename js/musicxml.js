@@ -425,6 +425,7 @@ const MusicXMLImport = (() => {
           else if (it.kind === 'harm') {
             hasHarmony = true;
             if (i < bars && !chords[i]) chords[i] = { r: it.r, q: it.q };
+            else if (i < bars && chords[i] && !chords[i].h && it.t > 0 && (chords[i].r !== it.r || chords[i].q !== it.q)) chords[i].h = { r: it.r, q: it.q }; // 小節の後半のコード
           }
         }
         if (i >= bars) return;
