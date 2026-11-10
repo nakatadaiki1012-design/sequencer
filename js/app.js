@@ -426,7 +426,7 @@ function snapshot() { return JSON.stringify(song); }
 let songOwn = false; // この曲は自分のもの（さわった・自分で開いた）
 function pushUndo(snap, label) {
   songOwn = true;
-  undoStack.push({ snap, label });
+  undoStack.push({ snap, label, cur: ui.sc ? ui.sc.cursor : null }); // 楽譜のカーソルもおぼえる
   if (undoStack.length > 300) undoStack.shift();
   // 大きな曲で記憶がふくらみすぎないように（全部で約2000万文字まで。少なくとも30回はもどれる）
   let total = 0;
@@ -455,16 +455,20 @@ function restore(json) {
 function undo() {
   if (!undoStack.length) return toast('もどせる操作はありません');
   const e = undoStack.pop();
-  redoStack.push({ snap: snapshot(), label: e.label });
+  redoStack.push({ snap: snapshot(), label: e.label, cur: ui.sc.cursor });
+  if (e.cur != null) ui.sc.cursor = e.cur;
   restore(e.snap);
+  if (ui.view === 'score') renderScoreEdit();
   toast(`↶ 「${e.label}」を元に戻しました`);
   updateUndoButtons();
 }
 function redo() {
   if (!redoStack.length) return toast('やり直せる操作はありません');
   const e = redoStack.pop();
-  undoStack.push({ snap: snapshot(), label: e.label });
+  undoStack.push({ snap: snapshot(), label: e.label, cur: ui.sc.cursor });
+  if (e.cur != null) ui.sc.cursor = e.cur;
   restore(e.snap);
+  if (ui.view === 'score') renderScoreEdit();
   toast(`↷ 「${e.label}」をやり直しました`);
   updateUndoButtons();
 }
