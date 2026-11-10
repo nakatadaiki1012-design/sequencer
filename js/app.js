@@ -3788,6 +3788,11 @@ function exportPng() {
 function exportMusicXML() {
   const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
   o.chords = o.chordObjs;
+  // 大譜表の伴奏は、右手（ト音記号）と左手（ヘ音記号）の2つのパートに分けて書き出す
+  o.parts = o.parts.flatMap((p) => (p.clef === 'grand' ? [
+    { ...p, name: p.name.replace('（伴奏）', '') + '（右手）', clef: 'treble', notes: p.notes.filter((n) => n.p >= 60) },
+    { ...p, id: p.id + '-L', name: p.name.replace('（伴奏）', '') + '（左手）', clef: 'bass', notes: p.notes.filter((n) => n.p < 60) },
+  ] : [p]));
   download(new Blob([Notation.musicXML(o)], { type: 'application/vnd.recordare.musicxml+xml' }), safeName() + '.musicxml');
   toast('MusicXMLを書き出しました（MuseScore・Flat などの楽譜ソフトで開けます）');
 }
