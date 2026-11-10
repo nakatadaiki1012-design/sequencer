@@ -526,6 +526,7 @@ const MusicXMLImport = (() => {
             if ((+it.voice || 1) !== firstVoice[it.staff]) n.v = 2;
             if (it.art) n.art = it.art.slice();
             if (it.ly) n.ly = it.ly;
+            if (it.dynAttr > 0 && Math.abs(it.dynAttr - 100) > 5) n.vel = Math.min(1.25, Math.max(0.25, Math.round((it.dynAttr / 100) * 4) / 4)); // 音ごとの強さ
             notes.push(n);
           }
           if (it.tieStart) openTie[it.p] = n;
