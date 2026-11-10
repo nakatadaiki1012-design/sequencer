@@ -1109,6 +1109,7 @@ function roundRect(g, x, y, w, h, r) {
   g.closePath();
 }
 let cssCache = null;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 // 置いた音が「きらっ」と光る（0.4秒）
 const fxNotes = new Map();
 let fxRaf = 0;
@@ -1242,6 +1243,9 @@ function draw(playPos) {
       const w = n.l * k;
       if (x > W || x + w < LW || y > H || y + rh < RH) continue;
       const on = playing >= n.s && playing < n.s + n.l;
+      // 鳴りはじめに少しふくらむ（動きを減らす設定のときはしない）
+      const pop = on && !REDUCED ? Math.max(0, 1 - (playing - n.s) / 12) * 3 : 0;
+      if (pop) { g2.save(); g2.translate(x + w / 2, y + rh / 2); g2.scale(1 + pop / Math.max(20, w), 1 + pop / rh); g2.translate(-(x + w / 2), -(y + rh / 2)); }
       {
         const col = PC_COLORS[n.p % 12];
         const gr = g2.createLinearGradient(0, y, 0, y + rh);
@@ -1283,6 +1287,7 @@ function draw(playPos) {
         }
       }
       if (w > 24) { g2.fillStyle = '#1b1b1b'; g2.fillText(noteName(n.p), x + 6, y + rh / 2 + 1, w - 12); }
+      if (pop) g2.restore();
       if (w > 12) { g2.fillStyle = 'rgba(0,0,0,.25)'; g2.fillRect(x + w - 6, y + 5, 3, rh - 10); }
     }
   }
@@ -5764,6 +5769,7 @@ function setKids(on) {
   document.body.classList.toggle('kids', on);
   lsSet('otsumiki-kids', on ? '1' : '0');
   $('#kidsMode').checked = on;
+  if (on && ui.rh < 34) { ui.rh = 34; $('#rowZoom').value = 34; requestAnimationFrame(() => { resizeEditor(); draw(); }); }
   if (on) {
     rubyNode(document.body);
     if (!rubyObs) {

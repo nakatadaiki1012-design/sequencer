@@ -1195,3 +1195,7 @@ body.phone .scorepal .palfold { display: none; }
 body.phone .mission { left: 8px; right: 8px; width: auto; bottom: 70px; }
 body.phone .mission { font-size: 12.5px; padding: 9px 12px 8px; }
 body.phone .mission ol { gap: 3px; margin: 5px 0; }
+
+/* 明るい画面の、はじめの画面の見出しも読みやすく */
+dialog.start > h3 { background: none; color: var(--accent-ink); }
+@media (prefers-color-scheme: dark) { dialog.start > h3 { color: var(--accent-text); } }
