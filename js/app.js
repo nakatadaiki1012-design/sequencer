@@ -4892,9 +4892,72 @@ function startCompare() {
       draw();
     } catch (e) { alert('お手本を読みこめませんでした：' + e.message); }
   };
+  inp.hidden = true;
+  document.body.appendChild(inp); // Safari などは、ページの中にないと選べない
+  inp.addEventListener('change', () => setTimeout(() => inp.remove(), 0));
   inp.click();
 }
 function stopCompare() { refSong = null; updateCompare(); draw(); }
+// まとめて採点：お手本（いま読みこんだもの）と、たくさんのファイルをくらべて一覧に
+function scoreAgainst(ref, sg) {
+  const mels = (x) => x.tracks.filter((t) => t.type === 'melody');
+  const R = mels(ref);
+  const S = mels(sg);
+  let ok = 0;
+  let total = 0;
+  let wrong = 0;
+  R.forEach((rt, i) => {
+    const st = S[i];
+    const theirs = new Set(rt.notes.map((n) => n.s + ':' + n.p));
+    const mine = new Set(st ? st.notes.map((n) => n.s + ':' + n.p) : []);
+    total += theirs.size;
+    for (const k of theirs) if (mine.has(k)) ok++;
+    for (const k of mine) if (!theirs.has(k)) wrong++;
+  });
+  return { pct: total ? Math.round((ok / total) * 100) : 0, ok, total, wrong, missing: total - ok };
+}
+function batchCompare() {
+  if (!refSong) return toast('先に「お手本とくらべる」で、お手本をえらんでね');
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.multiple = true;
+  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl';
+  inp.onchange = async () => {
+    const rows = [];
+    for (const f of inp.files) {
+      try {
+        const sg = sanitizeSong(migrate(await readSongFile(f)));
+        rows.push({ file: f.name, title: sg.title, ...scoreAgainst(refSong, sg), sg });
+      } catch (e) { rows.push({ file: f.name, err: e instanceof SyntaxError ? 'ファイルがこわれているか、曲のファイルではありません' : e.message }); }
+    }
+    rows.sort((a, b) => (a.file > b.file ? 1 : -1));
+    const box = $('#batchBody');
+    box.innerHTML = `<p class="muted">お手本：「${escapeHtml(refSong.title)}」　${rows.length}人ぶん（メロディのトラックぜんぶでくらべます）。行をおすと、その曲を開いて、どこがちがうか見られます。</p>
+      <table class="batch"><thead><tr><th>ファイル</th><th>曲名</th><th>あっている</th><th>たりない</th><th>ちがう</th></tr></thead><tbody>${rows.map((r, i) => r.err
+        ? `<tr><td>${escapeHtml(r.file)}</td><td colspan="4" class="bad">読めませんでした（${escapeHtml(r.err)}）</td></tr>`
+        : `<tr data-i="${i}" tabindex="0"><td>${escapeHtml(r.file)}</td><td>${escapeHtml(r.title)}</td><td><b class="${r.pct === 100 ? 'good' : ''}">${r.pct}%</b> <small>${r.ok}/${r.total}</small><span class="bar"><i style="width:${r.pct}%"></i></span></td><td>${r.missing}</td><td>${r.wrong}</td></tr>`).join('')}</tbody></table>
+      <div class="dlgfoot"><button class="tbtn" id="batchCsv">${I('download')}表をCSVで保存</button><button class="close tbtn primary">閉じる</button></div>`;
+    box.querySelectorAll('tr[data-i]').forEach((tr) => (tr.onclick = tr.onkeydown = (e) => {
+      if (e.type === 'keydown' && e.key !== 'Enter') return;
+      const r = rows[+tr.dataset.i];
+      const keep = refSong;
+      loadSong(r.sg, { own: true });
+      refSong = keep;
+      updateCompare(); draw();
+      $('#dlgBatch').close();
+    }));
+    $('#batchCsv').onclick = () => {
+      const csv = '\ufeffファイル,曲名,あっている(%),あっている音,お手本の音,たりない,ちがう\n' + rows.filter((r) => !r.err).map((r) => [r.file, r.title, r.pct, r.ok, r.total, r.missing, r.wrong].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+      download(new Blob([csv], { type: 'text/csv' }), '採点_' + safeName() + '.csv');
+    };
+    box.querySelectorAll('.close').forEach((b) => (b.onclick = () => $('#dlgBatch').close()));
+    $('#dlgBatch').showModal();
+  };
+  inp.hidden = true;
+  document.body.appendChild(inp); // Safari などは、ページの中にないと選べない
+  inp.addEventListener('change', () => setTimeout(() => inp.remove(), 0));
+  inp.click();
+}
 function importFile(file) {
   const r = new FileReader();
   if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
@@ -5823,6 +5886,7 @@ document.addEventListener('fullscreenchange', () => { if (!document.fullscreenEl
 $('#btnCompare').onclick = () => { closePops(); startCompare(); };
 $('#cmpClose').onclick = () => stopCompare();
 $('#cmpOther').onclick = () => startCompare();
+$('#cmpBatch').onclick = () => batchCompare();
 /* ---------- こどもモード：むずかしい漢字にふりがな、M/S を絵に、ボタンを大きく ---------- */
 const RUBY = [
   ['使い方', 'つかいかた'], ['新しい', 'あたらしい'], ['打ち込み', 'うちこみ'], ['元に戻す', 'もとにもどす'], ['戻す', 'もどす'],

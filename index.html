@@ -214,7 +214,7 @@
         </div>
         <div id="zoomHud" class="zoomhud" aria-live="polite"></div>
         <div id="countHud" class="counthud" aria-live="assertive"></div>
-        <div id="cmpBar" class="cmpbar" hidden role="status"><span id="cmpText"></span><button id="cmpOther" class="mini" title="別のお手本にする">別のお手本</button><button id="cmpClose" class="mini" title="答え合わせをおわる"><svg class="i"><use href="#i-x"/></svg></button></div>
+        <div id="cmpBar" class="cmpbar" hidden role="status"><span id="cmpText"></span><button id="cmpBatch" class="mini" title="クラス全員のファイルをまとめてえらぶと、一覧で採点します">まとめて採点</button><button id="cmpOther" class="mini" title="別のお手本にする">別のお手本</button><button id="cmpClose" class="mini" title="答え合わせをおわる"><svg class="i"><use href="#i-x"/></svg></button></div>
         <div id="selBar" class="selbar" hidden role="toolbar" aria-label="えらんだ音">
           <b id="selCount">0個</b>
           <button id="selAll" title="ぜんぶえらぶ（Ctrl+A）">ぜんぶ</button>
@@ -332,6 +332,8 @@
     <div class="expbar"><i id="expBar"></i></div>
     <div class="dlgfoot"><span id="expPct" class="hint">0%</span><button id="expCancel" class="tbtn">やめる</button></div>
   </dialog>
+
+  <dialog id="dlgBatch" class="wide"><h3>まとめて採点</h3><div id="batchBody"></div></dialog>
 
   <dialog id="dlgShare">
     <h3>ともだちや先生に送る</h3>

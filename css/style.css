@@ -1199,3 +1199,14 @@ body.phone .mission ol { gap: 3px; margin: 5px 0; }
 /* 明るい画面の、はじめの画面の見出しも読みやすく */
 dialog.start > h3 { background: none; color: var(--accent-ink); }
 @media (prefers-color-scheme: dark) { dialog.start > h3 { color: var(--accent-text); } }
+
+/* まとめて採点 */
+table.batch { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.batch th, table.batch td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+table.batch tr[data-i] { cursor: pointer; }
+table.batch tr[data-i]:hover, table.batch tr[data-i]:focus { background: var(--accent-soft); outline: none; }
+table.batch b.good { color: #2f9e44; }
+table.batch .bad { color: #e03131; }
+table.batch .bar { display: inline-block; width: 70px; height: 6px; margin-left: 6px; border-radius: 3px; background: var(--border); vertical-align: middle; overflow: hidden; }
+table.batch .bar i { display: block; height: 100%; background: var(--grad); }
+#dlgBatch { max-height: 86vh; overflow: auto; }
