@@ -4586,6 +4586,9 @@ function importMidi(buf, fname) {
   let bpm = 120;
   const chans = new Map();
   const drums = [];
+  const tempoEv = []; // [tick, bpm]（とちゅうのテンポ）
+  const meterEv = []; // [tick, [n, d]]（とちゅうの拍子）
+  const prog = {}; // チャンネル → 楽器番号
   for (let t = 0; t < ntr && p < buf.length; t++) {
     if (id() !== 'MTrk') break;
     const len = u32();
@@ -4603,8 +4606,8 @@ function importMidi(buf, fname) {
         const l = vlq();
         const data = buf.slice(p, p + l);
         p += l;
-        if (type === 0x51 && tick === 0) bpm = Math.round(60000000 / ((data[0] << 16) | (data[1] << 8) | data[2]));
-        if (type === 0x58 && tick === 0) meter = [data[0], Math.pow(2, data[1])];
+        if (type === 0x51 && l >= 3) { const v = Math.round(60000000 / ((data[0] << 16) | (data[1] << 8) | data[2] || 1)); if (tick === 0) bpm = v; else tempoEv.push([tick, v]); }
+        if (type === 0x58 && l >= 2) { const m = [data[0], Math.pow(2, data[1])]; if (tick === 0) meter = m; else meterEv.push([tick, m]); }
         if (type === 0x03) tname = new TextDecoder().decode(data);
         continue;
       }
@@ -4615,6 +4618,7 @@ function importMidi(buf, fname) {
       const a = buf[p++];
       const b = cmd === 0xc0 || cmd === 0xd0 ? 0 : buf[p++];
       const key = chn + ':' + a;
+      if (cmd === 0xc0) { prog[t + ':' + chn] = a; prog['c' + chn] = a; continue; }
       if (cmd === 0x90 && b > 0) on.set(key, { s: tick, v: b });
       else if (cmd === 0x80 || (cmd === 0x90 && b === 0)) {
         const o = on.get(key);
@@ -4622,7 +4626,7 @@ function importMidi(buf, fname) {
         on.delete(key);
         if (chn === 9) drums.push({ s: Math.round(o.s * scale), n: a, v: o.v });
         else {
-          if (!chans.has(t + ':' + chn)) chans.set(t + ':' + chn, { name: tname, notes: [] });
+          if (!chans.has(t + ':' + chn)) chans.set(t + ':' + chn, { name: tname, notes: [], key: t + ':' + chn, chn });
           chans.get(t + ':' + chn).notes.push({ s: Math.round(o.s * scale), p: a, l: Math.max(1, Math.round((tick - o.s) * scale)) });
         }
       }
@@ -4630,14 +4634,50 @@ function importMidi(buf, fname) {
     p = end;
   }
   s.bpm = clamp(bpm, 30, 240);
-  s.meter = [clamp(meter[0], 1, 6), [2, 4, 8].includes(meter[1]) ? meter[1] : 4];
+  const okMeter = (m) => [clamp(m[0], 1, 12), [2, 4, 8, 16].includes(m[1]) ? m[1] : 4];
+  s.meter = okMeter(meter);
   const bt = (s.meter[0] * 192) / s.meter[1];
+  // とちゅうの拍子：小節の番号を数えながら入れる
+  s.meters = {};
+  {
+    let curBt = bt;
+    let barAt = 0; // いまの拍子がはじまった小節
+    let tickAt = 0;
+    for (const [tk, m0] of meterEv.sort((a, b) => a[0] - b[0])) {
+      const t2 = tk * scale;
+      const b = barAt + Math.round((t2 - tickAt) / curBt);
+      const m = okMeter(m0);
+      s.meters[b] = m;
+      barAt = b;
+      tickAt = t2;
+      curBt = (m[0] * 192) / m[1];
+    }
+  }
+  const barOfTick = (t2) => {
+    let curBt = bt; let barAt = 0; let tickAt = 0;
+    for (const b of Object.keys(s.meters).map(Number).sort((x, y) => x - y)) {
+      const bs2 = tickAt + (b - barAt) * curBt;
+      if (bs2 > t2) break;
+      tickAt = bs2; barAt = b; curBt = (s.meters[b][0] * 192) / s.meters[b][1];
+    }
+    return barAt + Math.floor((t2 - tickAt) / curBt);
+  };
+  // とちゅうのテンポ：小節ごと（小節のとちゅうなら、その小節から）
+  s.tempos = {};
+  for (const [tk, v] of tempoEv) { const b = barOfTick(tk * scale); if (b > 0) s.tempos[b] = clamp(v, 30, 240); }
+  // 楽器番号 → いちばん近い楽器（同じ番号、なければ同じなかま）
+  const instFor = (pg) => {
+    if (pg == null) return null;
+    const ids = Object.keys(Sound.GM);
+    return ids.find((id) => Sound.GM[id] === pg) || ids.find((id) => (Sound.GM[id] >> 3) === (pg >> 3)) || null;
+  };
   let maxT = 0;
   for (const c of chans.values()) {
     if (s.tracks.length >= MAX_TRACKS - (drums.length ? 1 : 0)) break;
     const avg = c.notes.reduce((x, n) => x + n.p, 0) / c.notes.length;
     const rg = avg < 50 ? 'bass' : avg < 60 ? 'tenor' : 'soprano';
-    s.tracks.push(newTrack('melody', { name: (c.name || 'パート' + (s.tracks.length + 1)).slice(0, 20), inst: avg < 50 ? 'ebass' : 'piano', range: rg, notes: c.notes }));
+    const inst = instFor(prog[c.key] != null ? prog[c.key] : prog['c' + c.chn]) || (avg < 50 ? 'ebass' : 'piano');
+    s.tracks.push(newTrack('melody', { name: (c.name || 'パート' + (s.tracks.length + 1)).slice(0, 20), inst, range: rg, notes: c.notes }));
     for (const n of c.notes) maxT = Math.max(maxT, n.s + n.l);
   }
   if (drums.length) {
