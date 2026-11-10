@@ -1119,3 +1119,19 @@ body.phone #btnAuto { padding: 0 10px; }
 .mixch .panrow { display: flex; align-items: center; gap: 2px; }
 .mixch .panrow small { font-size: 10px; color: var(--muted); }
 .mixch .panrow input.pan { width: 70px; }
+
+/* 発表モード */
+.presentexit { display: none; }
+body.present .presentexit { display: inline-flex; position: fixed; right: 12px; top: 10px; z-index: 50; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
+body.present .tracks, body.present .canvas-area, body.present .toolbar, body.present #phoneNav, body.present .zoombox,
+body.present .topbar > :not(.mini-display):not(.transport) { display: none !important; }
+body.present .topbar { justify-content: center; gap: 24px; padding: 10px 200px 10px 12px; }
+body.present .mini-display { min-width: 360px; padding: 10px 22px; }
+body.present .mini-display .title { font-size: 26px; width: 100%; }
+body.present .mini-info { font-size: 18px; gap: 18px; }
+body.present .transport { padding: 4px 8px; }
+body.present .transport .play { width: 56px; height: 48px; }
+body.present .main { padding: 8px !important; }
+body.present .editorwrap { flex: 1; height: auto; }
+body.phone.present .topbar { padding-right: 12px; flex-wrap: wrap; }
+body.phone.present .presentexit { top: auto; bottom: 12px; }

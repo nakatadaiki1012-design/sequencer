@@ -3930,7 +3930,7 @@ function openStart(first) {
 /* ============================================================
    スマホ用の画面
    ============================================================ */
-const phoneMQ = window.matchMedia('(max-width: 700px), (max-width: 900px) and (orientation: portrait), (max-height: 500px) and (pointer: coarse)');
+const phoneMQ = window.matchMedia('(max-width: 700px), (max-width: 900px) and (orientation: portrait), (max-height: 500px) and (pointer: coarse), (max-width: 900px) and (max-height: 560px)');
 let isPhone = false;
 const movedEls = [];
 // 指2本でスクロール（1本目で置きかけた音は取り消す）
@@ -4829,6 +4829,7 @@ function init() {
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (e.key === 'Escape' && document.body.classList.contains('present') && !$$('dialog').some((d) => d.open)) { setPresent(false); return; }
     if (e.key === 'Escape') { const op = $$('details.pop[open]'); if (op.length) { op.forEach((d) => (d.open = false)); const s0 = op[0].querySelector('summary'); if (s0) s0.focus(); return; } }
     if (e.key === '?' && !$$('dialog').some((d) => d.open)) { e.preventDefault(); openKeys(); return; }
     if (ui.view === 'score' && !$$('dialog').some((d) => d.open) && scoreKey(e)) return;
@@ -5114,6 +5115,29 @@ function startTour(kind = 'main') {
   place();
   ov.querySelector('.tour-next').focus();
 }
+// 発表モード：全画面で、マス目を大きく（授業のプロジェクター・ともだちに見せるとき）
+let presentPrev = null;
+function setPresent(on) {
+  if (on === document.body.classList.contains('present')) return;
+  document.body.classList.toggle('present', on);
+  if (on) {
+    presentPrev = { zoom: ui.zoom, rh: ui.rh, follow: ui.follow };
+    ui.rh = Math.max(ui.rh * 1.45, 32);
+    ui.zoom = ui.zoom * 1.3;
+    ui.follow = true;
+    try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) { /* なし */ }
+    toast('発表モード：Esc または右上の「おわる」でもどります');
+  } else {
+    if (presentPrev) { ui.zoom = presentPrev.zoom; ui.rh = presentPrev.rh; ui.follow = presentPrev.follow; }
+    try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) { /* なし */ }
+  }
+  $('#zoom').value = ui.zoom;
+  $('#rowZoom').value = ui.rh;
+  requestAnimationFrame(() => { resizeEditor(); scrollToNotes(); draw(); drawOverview(); });
+}
+$('#btnPresent').onclick = () => { closePops(); setPresent(true); };
+$('#presentExit').onclick = () => setPresent(false);
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setPresent(false); });
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
