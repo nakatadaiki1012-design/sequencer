@@ -2032,6 +2032,7 @@ function noteKeys(e) {
   return false;
 }
 function setupSelBar() {
+  $('#selMore').onclick = () => { const b = $('#selBar'); b.classList.toggle('open'); $('#selMore').setAttribute('aria-expanded', b.classList.contains('open')); };
   $('#selCopy').onclick = () => selCopy(false);
   $('#selCut').onclick = () => selCopy(true);
   $('#selPaste').onclick = () => selPaste();
@@ -3161,7 +3162,8 @@ function renderEditorTools() {
   pal.hidden = tr.type !== 'chord';
   let html = '';
   if (lk) html += `<span class="lockmsg" title="先生がロックしています（見る・聴くだけ）">${I('lock')}ロック中</span>`;
-  if (tr.type !== 'chord' && isPhone) html += `<select id="gridSel" class="gridsel" title="おたまチョップ：置く音の長さ">${GRIDS.map(([v, t, ic]) => `<option value="${v}" ${ui.grid === v ? 'selected' : ''}>${ic} ${t}</option>`).join('')}</select>`;
+  // 音の長さ：広い画面はボタン、そうでなければ1つのえらぶ箱（道具の行があふれないように）
+  if (tr.type !== 'chord' && (isPhone || innerWidth < 1600)) html += `<select id="gridSel" class="gridsel" title="おたまチョップ：置く音の長さ">${GRIDS.map(([v, t, ic]) => `<option value="${v}" ${ui.grid === v ? 'selected' : ''}>${ic} ${t}</option>`).join('')}</select>`;
   else if (tr.type !== 'chord') html += `<span class="grp otama" title="おたまチョップ：置く音の長さ（マス目の大きさ）">${GRIDS.map(([v, t, ic]) => `<button class="mini gbtn ${ui.grid === v ? 'on' : ''}" data-v="${v}" title="${t}"><span class="ic">${ic}</span>${t.replace('音符', '').replace('3連符', '3連')}</button>`).join('')}</span>`;
   let tools = '';
   let others = [];
@@ -3177,7 +3179,7 @@ function renderEditorTools() {
       <div class="btnrow"><button class="mini" data-ext="hi-1">${I('minus')}上をせまく</button><button class="mini" data-ext="lo+1">${I('minus')}下をせまく</button></div>
     </div></details>
     <button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>
-    <button class="mini ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('keys')}<span>半音</span></button>`;
+    <button class="mini ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('sharp')}<span>半音</span></button>`;
     tools = `
       <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
       <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
@@ -4575,7 +4577,8 @@ function openStart(first) {
       <label>小節 <select id="tplBars">${[4, 8, 12, 16, 24, 32].map((n) => `<option ${n === 8 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>テンポ <input id="tplBpm" type="number" min="30" max="240" value="100"></label>
     </div>
-    <div class="tpl-links"><button class="mini" id="tplSample">${I('note')}サンプル曲を開く</button><button class="mini" id="tplTwinkle">${I('note')}きらきら星</button><button class="mini" id="tplFrog">${I('note')}かえるの合唱</button><button class="mini" id="tplOpen">${I('folder')}ファイルを開く</button>${first ? '' : `<button class="mini" id="tplCancel">${I('x')}いまの曲にもどる</button>`}</div>`;
+    <div class="tpl-links"><button class="mini" id="tplSample">${I('note')}サンプル曲を開く</button><button class="mini" id="tplTwinkle">${I('note')}きらきら星</button><button class="mini" id="tplFrog">${I('note')}かえるの合唱</button><button class="mini" id="tplOpen">${I('folder')}ファイルを開く</button>${first ? '' : `<button class="mini" id="tplCancel">${I('x')}いまの曲にもどる</button>`}</div>
+    <label class="tpl-kids"><input type="checkbox" id="tplKids" ${document.body.classList.contains('kids') ? 'checked' : ''}> こどもモード（漢字にふりがな・大きなボタン）</label>`;
   box.querySelectorAll('.tpl').forEach((b) => (b.onclick = () => {
     const t = TEMPLATES.find((x) => x.id === b.dataset.t);
     const s = newSong();
@@ -4595,6 +4598,7 @@ function openStart(first) {
     if (!startMission()) tourFirstTime();
   }));
   $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); tourFirstTime(); };
+  $('#tplKids').onchange = (e) => setKids(e.target.checked);
   $('#tplTwinkle').onclick = () => { $('#dlgStart').close(); loadSong(demoSong('twinkle')); toast('「きらきら星」を開きました。▶で聴いてみよう'); };
   $('#tplFrog').onclick = () => { $('#dlgStart').close(); loadSong(demoSong('frog')); toast('「かえるの合唱」を開きました。輪唱（メロディをずらして重ねる）にもちょうせんしてみよう'); };
   $('#tplOpen').onclick = () => { $('#dlgStart').close(); $('#fileIn').click(); };
@@ -5732,6 +5736,7 @@ function init() {
   applyPhone();
   loadZoom();
   setupSelBar();
+  { let wide = innerWidth >= 1600; addEventListener('resize', () => { const w = innerWidth >= 1600; if (w !== wide) { wide = w; renderEditorTools(); } }); }
   {
     const tb = document.querySelector('.toolbar');
     const upd = () => tb.classList.toggle('more', isPhone && tb.scrollLeft + tb.clientWidth < tb.scrollWidth - 4);

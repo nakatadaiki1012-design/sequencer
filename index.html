@@ -54,6 +54,10 @@
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
       <symbol id="i-teacher" viewBox="0 0 24 24"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2.7 9 2.7 12 0v-5M22 9v6"/></symbol>
       <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6V14M12 17.5h.01"/></symbol>
+      <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 20h8"/></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1.1.2-2.2 1.4-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></symbol>
+      <symbol id="i-turtle" viewBox="0 0 24 24"><path d="M4 15c0-4 3.6-7 8-7s8 3 8 7z"/><path d="M20 13h1.5a1.5 1.5 0 0 0 0-3H20M7 15l-1 3M17 15l1 3M2 15h20"/></symbol>
+      <symbol id="i-sharp" viewBox="0 0 24 24"><path d="M9 3 8 21M16 3l-1 18M4 9h17M3 15h17"/></symbol>
       <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7" rx="1"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
       <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
@@ -98,7 +102,7 @@
       <button id="btnLoop" class="tbtn icon toggle" title="ループ再生（くりかえす範囲は小節番号の上の帯で決めます）"><svg class="i"><use href="#i-loop"/></svg></button>
       <button id="btnMetro" class="tbtn icon toggle" title="メトロノーム"><svg class="i"><use href="#i-metro"/></svg></button>
       <details class="pop" id="popPractice" data-pop="practice">
-        <summary class="tbtn icon" title="練習：はじめる前のカウント・ゆっくり再生"><svg class="i"><use href="#i-clock"/></svg><span>練習</span></summary>
+        <summary class="tbtn icon" title="練習：はじめる前のカウント・ゆっくり再生"><svg class="i"><use href="#i-turtle"/></svg><span>練習</span></summary>
         <div class="popbody practice">
           <div class="sub">はじめる前にカウント（カッ・カッ・カッ・カッ）</div>
           <div class="seg" id="countSeg"><button class="mini" data-c="0">なし</button><button class="mini" data-c="1">1小節</button><button class="mini" data-c="2">2小節</button></div>
@@ -115,34 +119,35 @@
     <div class="menu">
       <button id="btnUndo" class="tbtn icon" title="元に戻す（Ctrl+Z）"><svg class="i"><use href="#i-undo"/></svg></button>
       <button id="btnRedo" class="tbtn icon" title="やり直す（Ctrl+Y）"><svg class="i"><use href="#i-redo"/></svg></button>
-      <button id="btnScore" class="tbtn" title="楽譜を見る・印刷する"><svg class="i"><use href="#i-score"/></svg><span>楽譜</span></button>
+      <button id="btnScore" class="tbtn" title="楽譜をつくる・印刷する・PDF"><svg class="i"><use href="#i-print"/></svg><span>印刷</span></button>
       <button id="btnPal" class="tbtn" title="ミキサー・イコライザー・エフェクト"><svg class="i"><use href="#i-mixer"/></svg><span>パレット</span></button>
-      <button id="btnShare" class="tbtn" title="URLで曲を共有"><svg class="i"><use href="#i-share"/></svg><span>共有</span></button>
+      <button id="btnShare" class="tbtn" title="ともだちや先生に送る（リンク）"><svg class="i"><use href="#i-share"/></svg><span>送る</span></button>
       <details class="dropdown pop" data-pop="menu">
         <summary class="tbtn" title="ファイル・履歴・先生用・使い方"><svg class="i"><use href="#i-menu"/></svg><span>メニュー</span></summary>
         <div class="dd">
+          <div class="ddh">曲</div>
           <button id="btnNew"><svg class="i"><use href="#i-newfile"/></svg>新しい曲をつくる</button>
           <button id="btnSample"><svg class="i"><use href="#i-note"/></svg>サンプル曲を開く</button>
-          <hr>
           <button id="btnSave"><svg class="i"><use href="#i-save"/></svg>このブラウザに保存</button>
           <button id="btnOpen"><svg class="i"><use href="#i-folder"/></svg>ブラウザに保存した曲を開く</button>
-          <button id="btnExportJson"><svg class="i"><use href="#i-download"/></svg>曲ファイルを書き出す（配布・提出用）</button>
-          <button id="btnImportJson"><svg class="i"><use href="#i-upload"/></svg>曲ファイル／MIDI／MusicXMLを開く</button>
-          <hr>
-          <button id="btnMp3"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（MP3）を書き出す</button>
-          <button id="btnWav"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（WAV・高音質）を書き出す</button>
-          <button id="btnStems"><svg class="i"><use href="#i-layers"/></svg>パートごとに書き出す（WAV を ZIP に）</button>
-          <button id="btnScoreMenu"><svg class="i"><use href="#i-score"/></svg>楽譜を見る・印刷する（PDF）</button>
-          <button id="btnMidi"><svg class="i"><use href="#i-piano"/></svg>MIDIファイルを書き出す</button>
-          <hr>
-          <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>履歴（これまでの操作）</button>
+          <button id="btnExportJson"><svg class="i"><use href="#i-download"/></svg>曲ファイルに保存（配る・出す）</button>
+          <button id="btnImportJson"><svg class="i"><use href="#i-upload"/></svg>ファイルを開く（曲・MIDI・MusicXML）</button>
+          <div class="ddh">書き出す</div>
+          <button id="btnMp3"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（MP3）</button>
+          <button id="btnWav"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（WAV・高音質）</button>
+          <button id="btnStems"><svg class="i"><use href="#i-layers"/></svg>パートごと（WAV を ZIP に）</button>
+          <button id="btnMidi"><svg class="i"><use href="#i-piano"/></svg>MIDIファイル</button>
+          <button id="btnScoreMenu" hidden></button>
+          <div class="ddh">授業・発表</div>
+          <button id="btnPresent"><svg class="i"><use href="#i-screen"/></svg>発表モード（全画面）</button>
           <button id="btnCompare"><svg class="i"><use href="#i-file"/></svg>お手本とくらべる（答え合わせ）</button>
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
-          <button id="btnPresent"><svg class="i"><use href="#i-eye"/></svg>発表モード（全画面・大きく）</button>
+          <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>これまでの操作（履歴）</button>
+          <div class="ddh">見た目・ヘルプ</div>
+          <button id="btnTheme"><svg class="i"><use href="#i-palette"/></svg>着せかえ（色・明るさ）</button>
           <button id="btnHelp"><svg class="i"><use href="#i-help"/></svg>使い方</button>
-          <button id="btnTheme"><svg class="i"><use href="#i-eye"/></svg>着せかえ（色・明るさ）</button>
-          <button id="btnKeys"><svg class="i"><use href="#i-keys"/></svg>キーボードのショートカット（? キー）</button>
-          <button id="btnTour"><svg class="i"><use href="#i-help"/></svg>使い方ツアー（かんたん案内）</button>
+          <button id="btnTour"><svg class="i"><use href="#i-spark"/></svg>使い方ツアー</button>
+          <button id="btnKeys"><svg class="i"><use href="#i-keys"/></svg>キーボードのショートカット</button>
         </div>
       </details>
       <input id="fileIn" type="file" accept=".json,.mid,.midi,.musicxml,.xml,.mxl,application/json,audio/midi" hidden>
@@ -220,18 +225,19 @@
           <b id="selCount">0個</b>
           <button id="selAll" title="ぜんぶえらぶ（Ctrl+A）">ぜんぶ</button>
           <button id="selCopy" data-need="sel" title="コピー（Ctrl+C）"><svg class="i"><use href="#i-copy"/></svg><span>コピー</span></button>
-          <button id="selCut" data-need="sel" title="切り取り（Ctrl+X）">切り取り</button>
+          <button id="selCut" class="adv" data-need="sel" title="切り取り（Ctrl+X）">切り取り</button>
           <button id="selPaste" title="再生の印（▼）の所に貼りつけ（Ctrl+V）"><svg class="i"><use href="#i-paste"/></svg><span>貼りつけ</span></button>
           <button id="selDup" data-need="sel" title="すぐうしろに複製（Ctrl+D）">複製</button>
-          <button id="selSoft" data-need="sel" title="弱くする（音を小さく）">弱く</button>
-          <button id="selLoud" data-need="sel" title="強くする（音を大きく）">強く</button>
-          <button id="selLoop" data-need="sel" title="えらんだ音の小節を、くり返し再生する">ループ</button>
-          <button id="selQuant" data-need="sel" title="はじまりと長さを、今のマス目にぴったりそろえる（Q）">そろえる</button>
-          <button id="selUp" data-need="sel" title="1つ上の音へ（↑、Shift+↑でオクターブ）">↑</button>
-          <button id="selDn" data-need="sel" title="1つ下の音へ（↓、Shift+↓でオクターブ）">↓</button>
-          <button id="selLeft" data-need="sel" title="1マス前へ（←）">←</button>
-          <button id="selRight" data-need="sel" title="1マスうしろへ（→）">→</button>
+          <button id="selSoft" class="adv" data-need="sel" title="弱くする（音を小さく）">弱く</button>
+          <button id="selLoud" class="adv" data-need="sel" title="強くする（音を大きく）">強く</button>
+          <button id="selLoop" class="adv" data-need="sel" title="えらんだ音の小節を、くり返し再生する">ループ</button>
+          <button id="selQuant" class="adv" data-need="sel" title="はじまりと長さを、今のマス目にぴったりそろえる（Q）">そろえる</button>
+          <button id="selUp" class="adv" data-need="sel" title="1つ上の音へ（↑、Shift+↑でオクターブ）">↑</button>
+          <button id="selDn" class="adv" data-need="sel" title="1つ下の音へ（↓、Shift+↓でオクターブ）">↓</button>
+          <button id="selLeft" class="adv" data-need="sel" title="1マス前へ（←）">←</button>
+          <button id="selRight" class="adv" data-need="sel" title="1マスうしろへ（→）">→</button>
           <button id="selDel" data-need="sel" title="消す（Delete）"><svg class="i"><use href="#i-trash"/></svg></button>
+          <button id="selMore" class="more" title="ほかの操作（高さ・位置・強さ・そろえる・ループ）" aria-expanded="false">…</button>
           <button id="selClose" title="えらぶのをやめる（Esc）"><svg class="i"><use href="#i-x"/></svg></button>
         </div>
       </div>
