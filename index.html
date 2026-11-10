@@ -134,6 +134,7 @@
           <button id="btnMidi"><svg class="i"><use href="#i-piano"/></svg>MIDIファイルを書き出す</button>
           <hr>
           <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>履歴（これまでの操作）</button>
+          <button id="btnCompare"><svg class="i"><use href="#i-file"/></svg>お手本とくらべる（答え合わせ）</button>
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
           <button id="btnPresent"><svg class="i"><use href="#i-eye"/></svg>発表モード（全画面・大きく）</button>
           <button id="btnHelp"><svg class="i"><use href="#i-help"/></svg>使い方</button>
@@ -210,6 +211,7 @@
         </div>
         <div id="zoomHud" class="zoomhud" aria-live="polite"></div>
         <div id="countHud" class="counthud" aria-live="assertive"></div>
+        <div id="cmpBar" class="cmpbar" hidden role="status"><span id="cmpText"></span><button id="cmpOther" class="mini" title="別のお手本にする">別のお手本</button><button id="cmpClose" class="mini" title="答え合わせをおわる"><svg class="i"><use href="#i-x"/></svg></button></div>
         <div id="selBar" class="selbar" hidden role="toolbar" aria-label="えらんだ音">
           <b id="selCount">0個</b>
           <button id="selAll" title="ぜんぶえらぶ（Ctrl+A）">ぜんぶ</button>

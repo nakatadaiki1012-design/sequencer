@@ -424,6 +424,7 @@ function saveState(st) {
 let scoreTimer = null;
 function changed(full = false) {
   version++;
+  if (refSong) setTimeout(updateCompare, 0);
   if (full) { renderSettings(); renderTracks(); }
   renderEditorTools();
   resizeEditor();
@@ -1208,6 +1209,7 @@ function draw(playPos) {
       g2.textAlign = 'left';
     }
   }
+  if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
   if (rubber && tr.type === 'melody') {
     const ta = Math.min(rubber.t0, rubber.t1);
     const tb = Math.max(rubber.t0, rubber.t1);
@@ -2087,6 +2089,7 @@ function ovUp() {
   toast(`${src.name} ${d.b0 + 1}〜${d.b1 + 1}小節 → ${dst.name} ${d.over.b + 1}小節目へコピーしました`);
 }
 function selectTrack(i, redraw = true) {
+  if (refSong) setTimeout(updateCompare, 0);
   if (i !== cur) { nsel.clear(); updateSelBar(); }
   cur = i;
   if (ui.sel.t !== i) ui.sel = { ...ui.sel, t: i };
@@ -4370,6 +4373,110 @@ function download(blob, name) {
 }
 const safeName = () => (song.title || 'song').replace(/[\\/:*?"<>|]/g, '_');
 function exportJSON() { download(new Blob([JSON.stringify(song)], { type: 'application/json' }), safeName() + '.otsumiki.json'); toast('曲ファイルを書き出しました'); }
+// ファイル（曲・MusicXML・MIDI）を曲のデータにする
+function readSongFile(file) {
+  return new Promise((ok, ng) => {
+    const r = new FileReader();
+    r.onerror = () => ng(new Error('ファイルを読めませんでした'));
+    if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
+      r.onload = () => MusicXMLImport.readFile(r.result, file.name).then(ok, ng);
+      r.readAsArrayBuffer(file);
+    } else if (/\.midi?$/i.test(file.name)) {
+      r.onload = () => { try { ok(importMidi(new Uint8Array(r.result), file.name)); } catch (e) { ng(e); } };
+      r.readAsArrayBuffer(file);
+    } else {
+      r.onload = () => { try { ok(JSON.parse(r.result)); } catch (e) { ng(e); } };
+      r.readAsText(file);
+    }
+  });
+}
+
+/* ---------- お手本とくらべる ----------
+   お手本の曲を読みこんで、今の曲のメロディと1音ずつくらべます。
+   マス目に「たりない音」（緑の点線）と「ちがう音」（赤い×）を出し、あっている割合を出します */
+let refSong = null;
+function refTrackFor(i) {
+  if (!refSong) return null;
+  const tr = song.tracks[i];
+  if (!tr || tr.type !== 'melody') return null;
+  const same = refSong.tracks[i];
+  if (same && same.type === 'melody') return same;
+  const k = song.tracks.slice(0, i + 1).filter((t) => t.type === 'melody').length - 1;
+  return refSong.tracks.filter((t) => t.type === 'melody')[k] || null;
+}
+function compareTrack(i) {
+  const tr = song.tracks[i];
+  const rt = refTrackFor(i);
+  if (!rt) return null;
+  const mine = new Map(tr.notes.map((n) => [n.s + ':' + n.p, n]));
+  const theirs = new Map(rt.notes.filter((n) => n.s < totalTicks()).map((n) => [n.s + ':' + n.p, n]));
+  let ok = 0;
+  let len = 0;
+  const missing = [];
+  const wrong = new Set();
+  for (const [k, n] of theirs) {
+    const m = mine.get(k);
+    if (m) { ok++; if (m.l !== n.l) len++; } else missing.push(n);
+  }
+  for (const [k, n] of mine) if (!theirs.has(k)) wrong.add(n);
+  return { ok, total: theirs.size, len, missing, wrong };
+}
+function updateCompare() {
+  const bar = $('#cmpBar');
+  if (!refSong) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const c = compareTrack(cur);
+  if (!c) { $('#cmpText').textContent = 'このトラックには、くらべるお手本がありません'; return; }
+  const pct = c.total ? Math.round((c.ok / c.total) * 100) : 100;
+  $('#cmpText').innerHTML = `<b>${pct}%</b> あっている音 ${c.ok}/${c.total}　<span class="miss">たりない ${c.missing.length}</span>　<span class="bad">ちがう ${c.wrong.size}</span>${c.len ? `　長さがちがう ${c.len}` : ''}`;
+  $('#cmpBar').classList.toggle('perfect', c.total > 0 && c.ok === c.total && !c.wrong.size);
+}
+function compareMarks(g2, tr, X, rowIndex, rh, sy, k) {
+  const c = compareTrack(cur);
+  if (!c) return;
+  g2.save();
+  g2.setLineDash([4, 3]);
+  g2.lineWidth = 2;
+  g2.strokeStyle = '#2f9e44';
+  for (const n of c.missing) {
+    const ri = rowIndex.get(n.p);
+    if (ri == null) continue;
+    roundRect(g2, X(n.s) + 2, RH + ri * rh - sy + 2, n.l * k - 4, rh - 4, 6);
+    g2.stroke();
+  }
+  g2.setLineDash([]);
+  g2.strokeStyle = '#e03131';
+  g2.lineWidth = 2.5;
+  for (const n of c.wrong) {
+    const ri = rowIndex.get(n.p);
+    if (ri == null) continue;
+    const x = X(n.s);
+    const y = RH + ri * rh - sy;
+    const sz = Math.min(rh - 8, 12);
+    g2.beginPath();
+    g2.moveTo(x + 4, y + 4); g2.lineTo(x + 4 + sz, y + 4 + sz);
+    g2.moveTo(x + 4 + sz, y + 4); g2.lineTo(x + 4, y + 4 + sz);
+    g2.stroke();
+  }
+  g2.restore();
+}
+function startCompare() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl';
+  inp.onchange = async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    try {
+      refSong = sanitizeSong(migrate(await readSongFile(f)));
+      toast(`お手本「${refSong.title}」とくらべています`);
+      updateCompare();
+      draw();
+    } catch (e) { alert('お手本を読みこめませんでした：' + e.message); }
+  };
+  inp.click();
+}
+function stopCompare() { refSong = null; updateCompare(); draw(); }
 function importFile(file) {
   const r = new FileReader();
   if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
@@ -5223,6 +5330,9 @@ function setPresent(on) {
 $('#btnPresent').onclick = () => { closePops(); setPresent(true); };
 $('#presentExit').onclick = () => setPresent(false);
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setPresent(false); });
+$('#btnCompare').onclick = () => { closePops(); startCompare(); };
+$('#cmpClose').onclick = () => stopCompare();
+$('#cmpOther').onclick = () => startCompare();
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }

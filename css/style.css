@@ -1140,3 +1140,15 @@ body.phone.present .presentexit { top: auto; bottom: 12px; }
 .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 300; overflow: hidden; }
 .confetti i { position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px; animation: confFall 2.1s cubic-bezier(.25,.6,.4,1) forwards; }
 @keyframes confFall { to { transform: translate(var(--dx), 105vh) rotate(var(--r)); opacity: .9; } }
+
+/* お手本とくらべる */
+.cmpbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.16); font-size: 13px; white-space: nowrap; max-width: calc(100% - 140px); overflow-x: auto; }
+.cmpbar[hidden] { display: none; }
+.cmpbar b { font-size: 18px; color: var(--accent-text); margin-right: 4px; }
+.cmpbar .miss { color: #2f9e44; font-weight: 600; }
+.cmpbar .bad { color: #e03131; font-weight: 600; }
+.cmpbar.perfect { border-color: #51cf66; box-shadow: 0 0 0 3px rgba(81,207,102,.25), 0 8px 24px rgba(0,0,0,.16); }
+.cmpbar.perfect b::after { content: ' 🎉'; }
+body.phone .cmpbar { bottom: 58px; max-width: calc(100% - 20px); font-size: 12px; }
+@media (max-width: 1500px) { body:not(.phone) #btnSelTool span { display: none; } }
