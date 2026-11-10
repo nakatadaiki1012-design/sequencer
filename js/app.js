@@ -104,6 +104,45 @@ function sampleSong() {
   s.tempos = { 7: 88 };
   return s;
 }
+// みんなが知っている曲（作者がわからない・著作権の切れた童謡）
+function demoSong(id) {
+  const s = newSong();
+  const Q = 48;
+  const put = (tr, list) => { let st = 0; for (const [p, l] of list) { if (p) tr.notes.push({ s: st * Q, p, l: l * Q }); st += l; } return st; };
+  const C = (r, q = 'M') => ({ r, q });
+  s.tracks = s.tracks.filter((t) => t.type !== 'melody' || t === s.tracks[0]);
+  const mel = s.tracks[0];
+  const chord = s.tracks.find((t) => t.type === 'chord');
+  const drum = s.tracks.find((t) => t.type === 'drum');
+  if (id === 'twinkle') {
+    s.title = 'きらきら星';
+    s.bpm = 96;
+    mel.inst = 'glocken';
+    const a = [[60, 1], [60, 1], [67, 1], [67, 1], [69, 1], [69, 1], [67, 2], [65, 1], [65, 1], [64, 1], [64, 1], [62, 1], [62, 1], [60, 2]];
+    const b = [[67, 1], [67, 1], [65, 1], [65, 1], [64, 1], [64, 1], [62, 2]];
+    const len = put(mel, [...a, ...b, ...b, ...a]);
+    s.bars = Math.ceil(len / 4);
+    const A = [C(0), { ...C(5), h: C(0) }, { ...C(5), h: C(0) }, { ...C(7, '7'), h: C(0) }];
+    const B = [{ ...C(0), h: C(5) }, { ...C(0), h: C(7) }];
+    chord.chords = [...A, ...B, ...B, ...A];
+    chord.pattern = 'arp';
+  } else {
+    s.title = 'かえるの合唱';
+    s.bpm = 104;
+    mel.inst = 'recorder';
+    const list = [[60, 1], [62, 1], [64, 1], [65, 1], [64, 1], [62, 1], [60, 2], [64, 1], [65, 1], [67, 1], [69, 1], [67, 1], [65, 1], [64, 2],
+      [60, 2], [60, 2], [60, 2], [60, 2], [60, 0.5], [60, 0.5], [62, 0.5], [62, 0.5], [64, 0.5], [64, 0.5], [65, 0.5], [65, 0.5], [64, 1], [62, 1], [60, 2]];
+    const len = put(mel, list);
+    s.bars = Math.ceil(len / 4);
+    chord.chords = [C(0), C(0), C(0), C(0), C(0), C(0), C(0), { r: 7, q: '7', h: C(0) }];
+    chord.pattern = 'march';
+  }
+  // かるいリズム
+  drum.grid = { kick: {}, hihat: {} };
+  for (let b = 0; b < s.bars; b++) { const o = b * 192; drum.grid.kick[o] = 2; drum.grid.kick[o + 96] = 1; for (let i = 0; i < 4; i++) drum.grid.hihat[o + i * 48] = 1; }
+  drum.vol = 0.5;
+  return s;
+}
 // 古い形式（v1：マス目単位）の曲を新しい形式に変換
 function migrate(s) {
   if (s.v >= 2) return s;
@@ -4535,7 +4574,7 @@ function openStart(first) {
       <label>小節 <select id="tplBars">${[4, 8, 12, 16, 24, 32].map((n) => `<option ${n === 8 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label>テンポ <input id="tplBpm" type="number" min="30" max="240" value="100"></label>
     </div>
-    <div class="tpl-links"><button class="mini" id="tplSample">${I('note')}サンプル曲を開く</button><button class="mini" id="tplOpen">${I('folder')}ファイルを開く</button>${first ? '' : `<button class="mini" id="tplCancel">${I('x')}いまの曲にもどる</button>`}</div>`;
+    <div class="tpl-links"><button class="mini" id="tplSample">${I('note')}サンプル曲を開く</button><button class="mini" id="tplTwinkle">${I('note')}きらきら星</button><button class="mini" id="tplFrog">${I('note')}かえるの合唱</button><button class="mini" id="tplOpen">${I('folder')}ファイルを開く</button>${first ? '' : `<button class="mini" id="tplCancel">${I('x')}いまの曲にもどる</button>`}</div>`;
   box.querySelectorAll('.tpl').forEach((b) => (b.onclick = () => {
     const t = TEMPLATES.find((x) => x.id === b.dataset.t);
     const s = newSong();
@@ -4555,6 +4594,8 @@ function openStart(first) {
     if (!startMission()) tourFirstTime();
   }));
   $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); tourFirstTime(); };
+  $('#tplTwinkle').onclick = () => { $('#dlgStart').close(); loadSong(demoSong('twinkle')); toast('「きらきら星」を開きました。▶で聴いてみよう'); };
+  $('#tplFrog').onclick = () => { $('#dlgStart').close(); loadSong(demoSong('frog')); toast('「かえるの合唱」を開きました。輪唱（メロディをずらして重ねる）にもちょうせんしてみよう'); };
   $('#tplOpen').onclick = () => { $('#dlgStart').close(); $('#fileIn').click(); };
   const c = $('#tplCancel');
   if (c) c.onclick = () => $('#dlgStart').close();
