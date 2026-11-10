@@ -1135,3 +1135,8 @@ body.present .main { padding: 8px !important; }
 body.present .editorwrap { flex: 1; height: auto; }
 body.phone.present .topbar { padding-right: 12px; flex-wrap: wrap; }
 body.phone.present .presentexit { top: auto; bottom: 12px; }
+
+/* お祝いの紙ふぶき */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 300; overflow: hidden; }
+.confetti i { position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px; animation: confFall 2.1s cubic-bezier(.25,.6,.4,1) forwards; }
+@keyframes confFall { to { transform: translate(var(--dx), 105vh) rotate(var(--r)); opacity: .9; } }

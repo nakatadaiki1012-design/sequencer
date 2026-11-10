@@ -656,9 +656,30 @@ function loopBounds() {
   return [0, playTotal()];
 }
 function firstIdx(list, t) { let i = 0; while (i < list.length && list[i].t < t) i++; return i; }
+const cheered = new Set();
+function cheer() {
+  const n = song.tracks.reduce((a, t) => a + (t.notes ? t.notes.length : 0), 0);
+  if (n < 6 || cheered.has(song.title) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  cheered.add(song.title);
+  const box = document.createElement('div');
+  box.className = 'confetti';
+  const cols = ['#ff6b6b', '#ffd43b', '#51cf66', '#4dabf7', '#b197fc', '#ff8fd1'];
+  for (let i = 0; i < 36; i++) {
+    const c = document.createElement('i');
+    c.style.left = Math.random() * 100 + '%';
+    c.style.background = cols[i % cols.length];
+    c.style.animationDelay = Math.random() * 0.4 + 's';
+    c.style.setProperty('--dx', (Math.random() * 120 - 60) + 'px');
+    c.style.setProperty('--r', (Math.random() * 720 - 360) + 'deg');
+    box.appendChild(c);
+  }
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 2600);
+}
 function play() {
   const ctx = ensureAudio();
   const fresh = !player.on;
+  if (fresh) setTimeout(cheer, 200);
   if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) {
     if (lsGet('otsumiki-silenthint', '') !== '1') { lsSet('otsumiki-silenthint', '1'); setTimeout(() => toast('音が出ないときは、マナーモード（横のスイッチ）を切ってね', 5000), 400); }
   }
@@ -1610,6 +1631,28 @@ function selMove(dt, drow, oct) {
   if (drow || oct) preview(tr, ns[0].p);
   updateSelBar();
 }
+// そろえる：えらんだ音のはじまりと長さを、今のマス目（おたまチョップ）にぴったり合わせる
+function selQuantize() {
+  const tr = track();
+  const ns = prSel();
+  if (!ns.length) return;
+  if (locked(tr)) return toast('このトラックはロックされています');
+  const g = ui.grid;
+  let moved = 0;
+  edit(() => {
+    for (const n of ns) {
+      const s0 = n.s;
+      const l0 = n.l;
+      n.s = clamp(Math.round(n.s / g) * g, 0, totalTicks() - 1);
+      n.l = Math.max(g, Math.round(l0 / g) * g);
+      if (n.s !== s0 || n.l !== l0) moved++;
+    }
+    const seen = new Set();
+    tr.notes = tr.notes.filter((n) => { const k = n.s + ':' + n.p; if (seen.has(k)) return false; seen.add(k); return true; });
+  }, 'リズムをそろえる');
+  updateSelBar();
+  toast(moved ? `${moved}個の音を${GRIDS.find((x) => x[0] === g)?.[1] || 'マス目'}にそろえました` : 'もうそろっています');
+}
 function selAll() {
   const tr = track();
   if (tr.type !== 'melody') return;
@@ -1628,6 +1671,7 @@ function noteKeys(e) {
   if (ctrl && k === 'x' && nsel.size) { e.preventDefault(); selCopy(true); return true; }
   if (ctrl && k === 'v' && noteClip) { e.preventDefault(); selPaste(); return true; }
   if (ctrl && k === 'd' && nsel.size) { e.preventDefault(); selDuplicate(); return true; }
+  if (!ctrl && k === 'q' && nsel.size && !ui.stepRec) { e.preventDefault(); selQuantize(); return true; }
   if (ctrl || !nsel.size || ui.stepRec) return false;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); selDelete(); return true; }
   if (e.key === 'Escape') { nsel.clear(); updateSelBar(); draw(); return true; }
@@ -1645,6 +1689,7 @@ function setupSelBar() {
   $('#selCut').onclick = () => selCopy(true);
   $('#selPaste').onclick = () => selPaste();
   $('#selDup').onclick = () => selDuplicate();
+  $('#selQuant').onclick = () => selQuantize();
   $('#selUp').onclick = () => selMove(0, 1, 0);
   $('#selDn').onclick = () => selMove(0, -1, 0);
   $('#selLeft').onclick = () => selMove(-ui.grid, 0, 0);
