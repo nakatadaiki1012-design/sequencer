@@ -1220,3 +1220,5 @@ body.present .karaoke:not([hidden]) { display: flex; position: absolute; left: 5
 .karaoke span.now { color: #fff; text-shadow: 0 0 18px color-mix(in srgb, var(--accent2) 90%, transparent); transform: scale(1.12); display: inline-block; }
 .karaoke span.next { opacity: .55; font-size: .8em; align-self: flex-end; }
 body.present .toast { top: 84px; bottom: auto; }
+#cPat { max-width: 190px; }
+#cProg { max-width: 130px; }

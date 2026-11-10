@@ -3089,7 +3089,8 @@ function renderEditorTools() {
     html += `<button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>`;
     html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
-    if (!song.locks.compose) html += `<button class="mini accent" id="btnAutoChord" title="メロディに合うコードを、全部の小節に自動でつけます">${I('spark')}<span>メロディにコードをつける</span></button>`;
+    if (!song.locks.compose) html += `<select id="cProg" title="よく使われるコード進行を、えらんだ小節から入れます"><option value="">コード進行…</option>${PROGRESSIONS.map(([n, , d], i) => `<option value="${i}" title="${d}">${n}</option>`).join('')}</select>`;
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAutoChord" title="メロディに合うコードを、全部の小節に自動でつけます">${I('spark')}<span>コードをつける</span></button>`;
     html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
     const dia = diatonic();
@@ -3165,6 +3166,7 @@ function renderEditorTools() {
     };
   } else {
     if ($('#btnAutoChord')) $('#btnAutoChord').onclick = () => autoChords();
+    if ($('#cProg')) $('#cProg').onchange = (ev) => { if (ev.target.value !== '') applyProgression(+ev.target.value); ev.target.value = ''; };
     $('#cPat').onchange = (ev) => edit(() => { tr.pattern = ev.target.value; }, '伴奏の形');
     $('#cBass').onchange = (ev) => edit(() => { tr.bassOn = ev.target.checked; }, 'ベースの有無');
   }
@@ -3794,6 +3796,37 @@ function scEditSel(fn, label) {
    小節ごとに、メロディの音（長い音・拍の頭の音ほど大事）がいちばん多くふくまれるコードをえらぶ。
    さいごの小節は主和音（Ⅰ）、その前は属和音（Ⅴ・Ⅴ7）になりやすくする。
    1小節の中で前半と後半の音がはっきりちがうときは、2つのコードにする */
+// よく使われるコード進行（調の主音からの半音の数・和音の種類）。'|' で小節、'/' で1小節に2つ
+const PROGRESSIONS = [
+  ['カノン進行', 'I V | vi iii | IV I | IV V', 'パッヘルベルのカノンの流れ。やさしく、なつかしい'],
+  ['王道進行', 'IV | V | iii | vi', 'J-POP でよく聞く、せつなくてもり上がる進行'],
+  ['小室進行', 'vi | IV | V | I', 'かっこよく、走りだしたくなる進行'],
+  ['ずっと明るい', 'I | IV | V | I', 'Ⅰ→Ⅳ→Ⅴ→Ⅰ。いちばん基本の進行'],
+  ['50年代', 'I | vi | IV | V', 'むかしのポップス・ドゥーワップ'],
+  ['ブルース（12小節）', 'I7 | I7 | I7 | I7 | IV7 | IV7 | I7 | I7 | V7 | IV7 | I7 | V7', 'ジャズ・ロックのもと'],
+];
+const DEG = { I: [0, 'M'], ii: [2, 'm'], iii: [4, 'm'], IV: [5, 'M'], V: [7, 'M'], vi: [9, 'm'], I7: [0, '7'], IV7: [5, '7'], V7: [7, '7'] };
+function applyProgression(i) {
+  const tr = track();
+  if (tr.type !== 'chord') return;
+  if (locked(tr)) return toast('このトラックはロックされています');
+  const [name, pat] = PROGRESSIONS[i];
+  const bars = pat.split('|').map((x) => x.trim().split(/\s+/).filter(Boolean));
+  const k = song.key;
+  const mk = (d) => { const [iv, q] = DEG[d] || DEG.I; return { r: (k + iv) % 12, q }; };
+  const from = ui.selBar || 0;
+  edit(() => {
+    while (tr.chords.length < song.bars) tr.chords.push(null);
+    // えらんだ小節から、曲のおわりまでくり返し入れる
+    for (let b = from, j = 0; b < song.bars; b++, j++) {
+      const ds = bars[j % bars.length];
+      const c = mk(ds[0]);
+      if (ds[1]) c.h = mk(ds[1]);
+      tr.chords[b] = c;
+    }
+  }, 'コード進行「' + name + '」');
+  toast(`「${name}」を ${from + 1}小節目から入れました（メジャーの調で、いちばん合います）`, 3500);
+}
 function harmonize(halves = true) {
   const mels = song.tracks.filter((t) => t.type === 'melody' && t.notes.length);
   if (!mels.length) return null;
