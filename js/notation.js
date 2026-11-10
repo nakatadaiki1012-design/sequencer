@@ -49,12 +49,27 @@ const Notation = (() => {
     return a;
   }
   // 音の高さ → 音名（letter 0=C..6=B）と臨時記号。pref: +1=♯で書きたい, -1=♭で書きたい, 0=調に合わせる
+  let MINOR = false; // いま書いている曲が短調か（render / musicXML でセット）
   function spellPref(midi, kc, pref) {
     const pc = ((midi % 12) + 12) % 12;
     const keyAcc = keyAccOf(kc);
     // 調の中の音ならそのまま
     for (let l = 0; l < 7; l++) if ((LETTER_PC[l] + keyAcc[l] + 12) % 12 === pc) return mk(midi, l, keyAcc[l]);
-    const want = pref || (kc < 0 ? -1 : 1);
+    // 短調の「導音」（第7音を半音上げた音）と、上げた第6音は、調の音を半音上げて書く（ニ短調の C♯ を D♭ にしない）
+    if (MINOR && !pref) {
+      const mt = ((((kc * 7) % 12) + 12) % 12 + 9) % 12; // 短調の主音
+      if (pc === (mt + 11) % 12 || pc === (mt + 9) % 12) {
+        for (let l = 0; l < 7; l++) if ((LETTER_PC[l] + keyAcc[l] + 1 + 12) % 12 === pc) return mk(midi, l, keyAcc[l] + 1);
+      }
+    }
+    // 調の主音からの距離で、よく使う書き方に（♭3・♭6・♭7 は♭、♯1・♯4 は♯）
+    let want = pref || (kc < 0 ? -1 : 1);
+    if (!pref) {
+      const tonic = MINOR ? ((((kc * 7) % 12) + 12) % 12 + 9) % 12 : (((kc * 7) % 12) + 12) % 12;
+      const rel = (pc - tonic + 12) % 12;
+      if (MINOR ? rel === 1 : [3, 8, 10].includes(rel)) want = -1;
+      else if (rel === 6 || (!MINOR && rel === 1)) want = 1;
+    }
     for (const acc of [0, want, -want]) {
       for (let l = 0; l < 7; l++) if ((LETTER_PC[l] + acc + 12) % 12 === pc) return mk(midi, l, acc);
     }
@@ -203,6 +218,7 @@ const Notation = (() => {
     return s + '</g>';
   }
   function render(opts) {
+    MINOR = !!opts.minor;
     const { parts, bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
     const meta = opts.meta || {};
     const BLANK = new Set(opts.blankBars || []); // 穴うめ：音符を書かない小節
@@ -899,6 +915,7 @@ const Notation = (() => {
 
   // MusicXML（楽譜ソフト用のファイル）を作る
   function musicXML(opts) {
+    MINOR = !!opts.minor;
     const { parts, bars, barTicks, meter, key, minor, title, bpm, chords, meta = {} } = opts;
     const rep = opts.repeats || { start: [], end: [], volta: {} };
     const GEO = opts.geo || { starts: Array.from({ length: bars + 1 }, (_, i) => i * barTicks), meters: Array(bars).fill(meter), keys: Array(bars).fill({ key, minor }) };
@@ -963,10 +980,11 @@ const Notation = (() => {
         if (pi === 0 && opts.tempos) { const t = opts.tempos[b]; if (t && b > 0) x.push(`<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${t}</per-minute></metronome></direction-type><sound tempo="${t}"/></direction>`); }
         if (pi === 0 && chords && chords[b]) {
           const c = chords[b];
-          const sp = spell(c.r + 60, kc);
+          const rootPref = (r) => ([1, 3, 6, 8, 10].includes(((r % 12) + 12) % 12) ? (kc > 0 || (r % 12 === 6 && kc >= 0) ? 1 : -1) : 0);
+          const sp = spellPref(c.r + 60, kc, rootPref(c.r));
           x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root><kind>${HK[c.q] || 'major'}</kind></harmony>`);
           if (c.h && c.hAt) {
-            const sh = spell(c.h.r + 60, kc);
+            const sh = spellPref(c.h.r + 60, kc, rootPref(c.h.r));
             x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[c.h.q] || 'major'}</kind><offset>${c.hAt}</offset></harmony>`);
           }
         }
