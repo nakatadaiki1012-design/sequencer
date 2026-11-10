@@ -172,6 +172,7 @@ const Notation = (() => {
   function render(opts) {
     const { parts, bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
     const meta = opts.meta || {};
+    const BLANK = new Set(opts.blankBars || []); // 穴うめ：音符を書かない小節
     const scale = opts.scale || 1;
     const OUTW = opts.width || 780;
     const width = OUTW / scale;
@@ -322,15 +323,18 @@ const Notation = (() => {
     const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0);
     const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const systemH = topRow + staves.reduce((a, s) => a + staffH(s), 0) + 16;
-    const top = 70 + (meta.subtitle ? 18 : 0);
+    const NL = meta.nameLine ? 24 : 0; // 名前のらんのぶん、下げる
+    const top = 70 + NL + (meta.subtitle ? 18 : 0);
     const height = top + lines.length * systemH + 24;
     const o = [];
     const layout = { systems: [], width, height, scale, barTicks, starts: GEO.starts };
     o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">`);
     o.push(`<rect width="100%" height="100%" fill="#fff"/>`);
-    o.push(`<text x="${width / 2}" y="32" text-anchor="middle" font-size="21" font-weight="bold" fill="#111">${esc(title)}</text>`);
-    if (meta.subtitle) o.push(`<text x="${width / 2}" y="52" text-anchor="middle" font-size="13" fill="#333">${esc(meta.subtitle)}</text>`);
+    o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="21" font-weight="bold" fill="#111">${esc(title)}</text>`);
+    if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13" fill="#333">${esc(meta.subtitle)}</text>`);
     const credits = [meta.lyricist ? '作詞：' + meta.lyricist : '', meta.composer ? '作曲：' + meta.composer : ''].filter(Boolean);
+    // 名前を書くらん（プリント用）
+    if (meta.nameLine) o.push(`<text x="${width - 340}" y="20" font-size="12" fill="#111">　年　　組　　番　名前</text><line x1="${width - 216}" y1="23" x2="${width - 16}" y2="23" stroke="#111" stroke-width="0.8"/>`);
     credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12" fill="#222">${esc(c)}</text>`));
     {
       const tw = opts.tempoText ? textW(opts.tempoText) * 1.05 + 8 : 0;
@@ -470,6 +474,7 @@ const Notation = (() => {
           const yR = mode === 1 ? (q) => yOf(q + 4) : mode === 2 ? (q) => yOf(q - 4) : yOf;
           for (let ei = 0; ei < evs.length; ei++) {
             const ev = evs[ei];
+            if (BLANK.has(bb)) { prevHead = null; continue; }
             const x0 = xAt(bb, ev.pos);
             if (ev.rest) {
               const rx = ev.whole ? (B.x0 + B.x1) / 2 - 5 : x0;

@@ -3116,6 +3116,18 @@ function scoreSettings() {
   if (!song.score) song.score = {};
   return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', drums: false, clefs: {}, ...song.score });
 }
+// 「3,5-6」→ [2, 4, 5]（小節番号は1から）
+function parseBars(txt) {
+  const out = new Set();
+  for (const part of String(txt || '').replace(/[－]/g, '-').split(/[,、\s]+/)) {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) continue;
+    const a = +m[1];
+    const z = m[2] ? +m[2] : a;
+    for (let b = Math.min(a, z); b <= Math.min(Math.max(a, z), 128); b++) out.add(b - 1 + (song.pickup ? 1 : 0));
+  }
+  return [...out];
+}
 function scoreOpts(trackIds, withDrums) {
   const S = scoreSettings();
   if (!S.trans) S.trans = {};
@@ -3156,7 +3168,8 @@ function scoreOpts(trackIds, withDrums) {
     parts, partTracks, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
     geo: { starts: geo().starts, meters: geo().meters, keys: geo().keys }, jumps: song.jumps || {},
     title: song.title, bpm: song.bpm, tempoText: song.tempoText, tempos: song.tempos,
-    meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer },
+    meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
+    blankBars: parseBars(S.blank),
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
     chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; return c ? (c.h ? { ...c, hAt: chordHalf(b) } : c) : null; }) : null,
     nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780,
@@ -3207,6 +3220,10 @@ function openScore() {
     <label>1段の小節数 <select data-s="perLine"><option value="0">自動</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}小節</option>`).join('')}</select></label>
     <label>大きさ <select data-s="scale"><option value="0.8">小さい</option><option value="1">ふつう</option><option value="1.25">大きい</option><option value="1.5">とても大きい</option></select></label>
     <label class="chk"><input type="checkbox" data-c="accomp" ${S.accomp ? 'checked' : ''}> コード伴奏をピアノの楽譜（大譜表）にする</label>
+    <h4>プリント（学習用）</h4>
+    <label class="chk"><input type="checkbox" data-c="nameLine" ${S.nameLine ? 'checked' : ''}> 名前を書くらん（年・組・番・名前）</label>
+    <label class="srow">穴うめにする小節 <input type="text" data-k="blank" value="${escapeHtml(S.blank || '')}" placeholder="れい：3,5-6" inputmode="numeric" style="width:9em"></label>
+    <small class="muted">えらんだ小節の音符を書かずに、五線だけにします（聴き取り・書きこみ用）</small>
     <h4>パート</h4>
     ${mel.map((t) => `<div class="scorepart">
       <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
@@ -3230,6 +3247,8 @@ function openScore() {
     el.oninput = () => { S[el.dataset.s] = el.value; upd(); };
     el.onchange = () => { autosaveSoon(); if (ui.showScore) renderScorePanel(); if (ui.view === 'score') renderScoreEdit(); };
   });
+  side.querySelector('[data-c="nameLine"]').onchange = (e) => { S.nameLine = e.target.checked; upd(); autosaveSoon(); };
+  side.querySelector('[data-k="blank"]').onchange = (e) => { S.blank = e.target.value.replace(/[^0-9,\-－、 ]/g, '').slice(0, 60); upd(); autosaveSoon(); };
   side.querySelector('[data-c="accomp"]').onchange = (e) => { S.accomp = e.target.checked; const ct = song.tracks.find((t) => t.type === 'chord'); if (ct && S.accomp) scoreSel.add(ct.id); upd(); autosaveSoon(); };
   side.querySelector('[data-k="title"]').onchange = (e) => { edit(() => { song.title = e.target.value || song.title; }, '曲名'); renderSettings(); upd(); };
   side.querySelector('[data-k="tempoText"]').onchange = (e) => { edit(() => { song.tempoText = e.target.value.slice(0, 30); }, '速さのことば'); upd(); };
