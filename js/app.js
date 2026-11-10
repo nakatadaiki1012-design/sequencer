@@ -176,7 +176,7 @@ function sanitizeSong(s) {
   out.key = Math.round(num(s.key, 0, -12, 12));
   out.meter = Array.isArray(s.meter) && s.meter.length === 2 && s.meter.every((x) => Number.isInteger(x) && x > 0 && x <= 32) ? s.meter : [4, 4];
   for (const k of ['tempos', 'meters', 'keys', 'jumps', 'eq', 'metro', 'locks']) out[k] = obj(s[k]);
-  for (const b in out.tempos) if (!Number.isFinite(+out.tempos[b])) delete out.tempos[b];
+  for (const b in out.tempos) { const v = +out.tempos[b]; if (!Number.isFinite(v) || v <= 0) delete out.tempos[b]; else out.tempos[b] = clamp(v, 20, 300); }
   out.ramps = obj(s.ramps);
   for (const b in out.ramps) { const r = out.ramps[b]; if (!(r && (r.type === 'rit' || r.type === 'acc') && Number.isInteger(r.n) && r.n > 0 && r.n <= 16)) delete out.ramps[b]; }
   for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
@@ -723,10 +723,13 @@ function eventList() {
   const list = [];
   const order = playOrder();
   const ps = playStarts();
+  // くり返しで弱起の小節にもどるときは、音のない部分（前の小節とかさなる所）はとばす
+  const pk = song.pickup > 0 ? barLen(0) - song.pickup : 0;
   order.forEach((src, k) => {
-    for (const e of bySrc[src]) list.push({ ...e, t: ps[k] + e.rt });
+    const skip = k > 0 && src === 0 ? pk : 0;
+    for (const e of bySrc[src]) if (e.rt >= skip) list.push({ ...e, t: ps[k] + e.rt });
     const bs = beatAt(src);
-    for (let t = 0; t < barLen(src); t += bs) list.push({ t: ps[k] + t, kind: 'metro', acc: t === 0 });
+    for (let t = 0; t < barLen(src); t += bs) if (t >= skip) list.push({ t: ps[k] + t, kind: 'metro', acc: t === 0 });
   });
   list.sort((a, b) => a.t - b.t);
   evCache = { v: key, list };
@@ -862,10 +865,17 @@ async function recordVoice(onState) {
 function scheduleEvent(ctx, graph, e, when, withMetro) {
   if (e.kind === 'metro') { if (withMetro) Sound.click(ctx, graph.metro, when, e.acc, song.metro.kind); return; }
   if (!audible(e.tr)) return;
-  const out = graph.outs[e.tr.id];
-  if (!out) return;
+  let out = graph.outs[e.tr.id];
+  if (!out) {
+    // 再生中に足したトラックも鳴らす
+    out = ctx.createGain(); out.gain.value = e.tr.vol;
+    if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = clamp(+e.tr.pan || 0, -1, 1); out.connect(pn); pn.connect(graph.session); graph.pans[e.tr.id] = pn; } else out.connect(graph.session);
+    graph.outs[e.tr.id] = out;
+  }
   const t = when + swingSec(e.t);
-  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, (absSec(e.t + e.l) - absSec(e.t)) * (e.lf || 0.96), e.v, e.tr.real !== false);
+  const dur = e.kind === 'note' ? (absSec(e.t + e.l) - absSec(e.t)) * (e.lf || 0.96) : 0.5;
+  graph.lastEnd = Math.max(graph.lastEnd || 0, t + dur);
+  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, dur, e.v, e.tr.real !== false);
   else Sound.playDrum(ctx, out, e.id, t, e.v, e.tr.real !== false);
 }
 
@@ -973,6 +983,7 @@ function play() {
   }
   player.seg = { tick: start, time: ctx.currentTime + 0.05 + lead };
   player.segs = [player.seg];
+  player.tt = null;
   player.idx = firstIdx(eventList(), start);
   player.lastT = start - 1;
   player.ver = version;
@@ -989,6 +1000,19 @@ function tick() {
   if (player.stopping) { if (ctx.currentTime > player.stopAt) stop(); return; }
   const list = eventList();
   if (player.ver !== version) { player.ver = version; player.idx = firstIdx(list, player.lastT + 1); }
+  // 再生中にテンポを変えたら、もう鳴らした所はそのままに、そこから先を新しいテンポで（音がいっぺんに鳴らないように）
+  const tt = timeTable();
+  const psKey = playStarts().join(',');
+  if (player.tt && player.tt !== tt && player.psKey === psKey && player.lastT >= player.seg.tick) {
+    const old = player.tt;
+    const ps = playStarts();
+    const at = (tb, x) => { const b = playBarOf(x); return tb.start[b] + (x - ps[b]) * tb.spt[b]; };
+    const time = player.seg.time + at(old, player.lastT) - at(old, player.seg.tick);
+    player.seg = { tick: player.lastT, time };
+    player.segs.push(player.seg);
+    if (player.segs.length > 4) player.segs.shift();
+  }
+  player.tt = tt; player.psKey = psKey;
   const horizon = ctx.currentTime + 0.3;
   for (let guard = 0; guard < 8; guard++) {
     const [ls, le] = loopBounds();
@@ -1011,7 +1035,8 @@ function tick() {
       player.lastT = ls - 1;
     } else {
       player.stopping = true;
-      player.stopAt = endT + 0.05;
+      // さいごの音（フェルマータなど）がなり終わるまで待ってから止める
+      player.stopAt = Math.max(endT, Math.min(endT + 8, (player.graph && player.graph.lastEnd) || 0) + 0.4) + 0.05;
       return;
     }
   }
@@ -5442,9 +5467,16 @@ async function renderSong(onProg, opts = {}) {
   const c0 = audioCtx();
   await Promise.all(song.tracks.filter((t) => t.real !== false).map((t) => (t.type === 'drum' ? Sound.Samples.loadDrums(c0) : Sound.Samples.has(t.inst) ? Sound.Samples.load(t.inst, c0) : null)).map((p) => p && p.catch(() => null)));
   const sr = 44100;
+  // 曲の全部を書き出すときは、ループの「はんい」を使わない（くり返し・D.C. もそのとおりに）
+  const loop0 = ui.loopOn;
+  if (!opts.range) ui.loopOn = false;
+  try {
   const [ra, rz] = opts.range || [0, playTotal()];
   const off = absSec(ra);
-  const len = Math.ceil((absSec(rz) - off + (opts.range ? 1.5 : 3)) * sr);
+  // さいごの音がのびる分（フェルマータなど）も入れる
+  let tailEnd = absSec(rz);
+  for (const e of eventList()) if (e.kind === 'note' && e.t >= ra && e.t < rz) tailEnd = Math.max(tailEnd, absSec(e.t) + (absSec(e.t + e.l) - absSec(e.t)) * (e.lf || 0.96));
+  const len = Math.ceil((Math.min(tailEnd, absSec(rz) + 10) - off + (opts.range ? 1.5 : 3)) * sr);
   const ctx = new OfflineAudioContext(2, len, sr);
   const comp = ctx.createDynamicsCompressor();
   comp.connect(ctx.destination);
@@ -5454,6 +5486,10 @@ async function renderSong(onProg, opts = {}) {
     if (opts.only && (!e.tr || e.tr.id !== opts.only)) continue;
     scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t) - off, false);
   }
+  return finishRender(ctx, len, sr, onProg);
+  } finally { ui.loopOn = loop0; }
+}
+function finishRender(ctx, len, sr, onProg) {
   // とちゅうで止めて、進みぐあいを知らせる
   if (onProg && ctx.suspend) {
     const dur = len / sr;

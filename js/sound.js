@@ -22,6 +22,7 @@ const Sound = (() => {
   function noiseSrc(ctx) {
     const s = ctx.createBufferSource();
     s.buffer = noiseBuf(ctx);
+    s.loop = true; // 長いシンバルでも、雑音がとちゅうで切れない
     return s;
   }
   const curves = new Map();
