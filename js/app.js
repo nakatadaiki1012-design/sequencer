@@ -43,6 +43,7 @@ const CHORD_Q = {
 const CHORD_PATTERNS = {
   whole: 'じゃーん（のばす）', beat: 'ジャン・ジャン（拍ごと）', arp: 'ポロロン（分散和音）',
   waltz: 'ズン・チャッ・チャッ（ワルツ風）', march: 'ズン・チャッ（マーチ風）', alberti: 'ドソミソ（アルベルティ）',
+  pop8: 'タタタタ（ポップス・8分きざみ）', strum: 'ジャカジャカ（ギターのストローク）', bossa: 'ボサノバ風', ballad: 'バラード（ゆったり分散）',
 };
 const RANGES = {
   high: ['高い音（ド5〜ド8）', 72, 108], soprano: ['ソプラノ（ソ3〜ミ6）', 55, 88], alto: ['アルト（ド3〜ラ5）', 48, 81],
@@ -568,7 +569,7 @@ function chordPart(tr, ev, c, o, bt, bs) {
     if (root > 54) root -= 12;
     const tones = CHORD_Q[c.q].iv.map((x) => root + 12 + x);
     const bass = root - 12 + (root < 43 ? 12 : 0);
-    const push = (s, p, l, v = 0.7) => ev.push({ s: o + s, p, l, v });
+    const push = (s, p, l, v = 0.7) => { if (s < bt) ev.push({ s: o + s, p, l: Math.min(l, bt - s), v }); }; // 区切りの外には出さない
     const pat = tr.pattern;
     if (pat === 'whole') {
       tones.forEach((p) => push(0, p, bt, 0.6));
@@ -583,6 +584,33 @@ function chordPart(tr, ev, c, o, bt, bs) {
       let i = 0;
       for (let s = 0; s < bt; s += 24) push(s, seq[i++ % seq.length], pat === 'arp' ? 40 : 22, 0.55);
       if (tr.bassOn) push(0, bass, bt, 0.7);
+    } else if (pat === 'pop8') {
+      // 8分音符できざむ。拍の頭を少し強く、ベースは1・3拍
+      for (let s = 0, k = 0; s < bt; s += 24, k++) tones.forEach((p) => push(s, p, 20, k % 2 ? 0.38 : 0.5));
+      if (tr.bassOn) for (let s = 0; s < bt; s += bs * 2) push(s, bass, bs * 1.8, 0.8);
+    } else if (pat === 'strum') {
+      // ギター：下・下上・上下・上（D-DU-UDU）を、弦を少しずつずらして
+      const hits = [[0, 1, 0.6], [48, 1, 0.5], [72, -1, 0.4], [120, -1, 0.4], [144, 1, 0.5], [168, -1, 0.4]];
+      const gtr = [tones[0] - 12, tones[2] - 12, tones[0], tones[1], tones[2]];
+      for (const [st, dir, v] of hits) {
+        const s = (st / 192) * bt;
+        if (s >= bt) continue;
+        const order = dir > 0 ? gtr : [...gtr].reverse().slice(0, 4);
+        order.forEach((p, i) => push(s + i * 1.5, p, Math.max(12, Math.min(48, bt - s) * 0.9), v));
+      }
+      if (tr.bassOn) push(0, bass, bs * 1.5, 0.75);
+    } else if (pat === 'bossa') {
+      // ボサノバ：ベースは 1拍・3拍の前（ルートと5度）、和音はシンコペーション
+      const fifth = bass + 7;
+      if (tr.bassOn) { push(0, bass, bs * 1.4, 0.8); push(bs * 1.5, fifth, bs * 0.45, 0.6); push(bs * 2, fifth, bs * 1.4, 0.75); push(bs * 3.5, bass, bs * 0.45, 0.6); }
+      for (const st of [0, 72, 144]) { const s = (st / 192) * bt; if (s < bt) tones.forEach((p) => push(s, p, 30, 0.42)); }
+      for (const st of [24 + 96]) { const s = (st / 192) * bt; if (s < bt) tones.forEach((p) => push(s, p, 20, 0.35)); }
+    } else if (pat === 'ballad') {
+      // 1小節で、ベース→和音を上り下り（8分音符）
+      const seq = [bass + 12, tones[0], tones[1], tones[2], tones[0] + 12, tones[2], tones[1], tones[0]];
+      let i = 0;
+      for (let s = 0; s < bt; s += 24) push(s, seq[i++ % seq.length], 60, i === 1 ? 0.55 : 0.42);
+      if (tr.bassOn) push(0, bass, bt, 0.6);
     } else if (pat === 'waltz' || pat === 'march') {
       for (let s = 0, k = 0; s < bt; s += bs, k++) {
         const first = pat === 'waltz' ? k % 3 === 0 : k % 2 === 0;
