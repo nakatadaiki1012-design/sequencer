@@ -4834,6 +4834,8 @@ function applyPhone() {
   if (on) {
     // パソコンでは上のバーにある部品を「その他」シートへ移す
     for (const sel of ['.topbar .tempo', '#btnMetro', '#popPractice', '#popKey', '#popRules', '#btnPal', '#btnShare', '.menu details.dropdown']) {
+      // タブレット（はば700以上）では、テンポ・メトロノーム・練習は上のバーにのこす
+      if (matchMedia('(min-width: 700px)').matches && ['.topbar .tempo', '#btnMetro', '#popPractice'].includes(sel)) continue;
       const el = $(sel);
       if (!el) continue;
       const mark = document.createComment('phone');

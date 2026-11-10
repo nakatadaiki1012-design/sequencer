@@ -1275,3 +1275,11 @@ body.phone #phoneMoreBody > .tempo { grid-column: 1 / -1; }
 body.phone #phoneMoreBody > .tbtn, body.phone #phoneMoreBody > details > summary { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 54px; width: 100%; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2, var(--panel)); font-size: 14px; }
 body.phone #phoneMoreBody > details { margin: 0; }
 body.phone #phoneMoreBody > details.dropdown { grid-column: 1 / -1; }
+
+/* スマホ：ミッションは、いまやることだけの小さなカードに */
+body.phone .mission ol li:not(.now) { display: none; }
+body.phone .mission ol { margin: 4px 0 2px; }
+body.phone .mission b { font-size: 12.5px; }
+body.phone .mission .mini { position: absolute; right: 8px; top: 6px; float: none; min-height: 28px; padding: 0 8px; font-size: 11px; }
+body.phone .mission { position: fixed; }
+@media (min-width: 700px) { body.phone .mission { right: auto; width: min(420px, 60vw); } }
