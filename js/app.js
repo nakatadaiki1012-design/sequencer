@@ -1217,7 +1217,16 @@ function rowsFor(tr) {
 }
 const DRUM_SHORT = { バスドラム: 'バスドラ', クローズハイハット: 'ハイハット', オープンハイハット: 'オープンHH', ライドシンバル: 'ライド', クラッシュシンバル: 'クラッシュ', 合わせシンバル: 'シンバル', '長胴太鼓（フチ打ち）': 'フチ打ち', '大太鼓（ばち）': '大太鼓', 'クラップ（手拍子）': '手拍子' };
 function shortDrum(name) { return DRUM_SHORT[name] || name.replace(/（(低|高|ミュート)）/, '$1').replace(/（.*?）/g, ''); }
-function rowH(tr) { return tr.type === 'chord' ? 70 : ui.rh; }
+function rowH(tr) {
+  if (tr.type === 'chord') return 70;
+  // リズムは行が少ないので、画面に余りがあれば行を高くして、たていっぱいに使う（タブレットで押しやすい）
+  if (tr.type === 'drum') {
+    const h = $('#editorWrap').clientHeight - RH - 6;
+    const n = kitRows(tr).length;
+    if (n && h > 0) return Math.max(ui.rh, Math.min(56, Math.floor((h / n) * 10) / 10));
+  }
+  return ui.rh;
+}
 
 function resizeEditor() {
   const wrap = $('#editorWrap');
@@ -1512,6 +1521,7 @@ function draw(playPos) {
       }
       g2.textAlign = 'left';
     }
+    drawChordNotes(tr, X, k, y + rh, H, t0, t1, playPos);
   }
   if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
   if (rubber && tr.type !== 'chord') {
@@ -1841,6 +1851,34 @@ function editDown(e) {
     if (c) previewChord(tr, c);
   }
   draw();
+}
+// コードの下に「じっさいに鳴る音」を出す（伴奏の形・ベースが目で見てわかる）
+let chordNotesCache = { key: '', ev: [] };
+function drawChordNotes(tr, X, k, top, H, t0, t1, playPos) {
+  const key = JSON.stringify([tr.chords, tr.pattern, tr.bassOn, song.bars, song.meters, song.pickup]);
+  if (chordNotesCache.key !== key) chordNotesCache = { key, ev: chordEvents(tr) };
+  const ev = chordNotesCache.ev;
+  const y0 = top + 26;
+  const y1 = H - 14;
+  if (!ev.length || y1 - y0 < 60) return;
+  let lo = Infinity, hi = -Infinity;
+  for (const n of ev) { lo = Math.min(lo, n.p); hi = Math.max(hi, n.p); }
+  lo -= 1; hi += 1;
+  const nh = Math.min(14, (y1 - y0) / (hi - lo + 1));
+  const yy = (p) => y0 + (hi - p) * nh + ((y1 - y0) - (hi - lo + 1) * nh) / 2;
+  g2.fillStyle = C('--muted'); g2.font = '12px sans-serif'; g2.textBaseline = 'middle';
+  g2.fillText('じっさいに鳴る音（伴奏の形' + (tr.bassOn ? '・ベース' : '') + '）', LW + 8, top + 13);
+  const col = TRACK_COLORS[cur % TRACK_COLORS.length];
+  const bassMax = Math.min(...ev.map((n) => n.p)) + 11;
+  for (const n of ev) {
+    if (n.s + n.l < t0 || n.s > t1) continue;
+    const on = playPos != null && playPos >= n.s && playPos < n.s + n.l;
+    g2.fillStyle = on ? C('--accent') : col;
+    g2.globalAlpha = on ? 1 : tr.bassOn && n.p <= bassMax && n.p < 48 ? 0.85 : 0.55;
+    roundRect(g2, X(n.s) + 1, yy(n.p) + 1, Math.max(3, n.l * k - 2), Math.max(3, nh - 2), 3);
+    g2.fill();
+  }
+  g2.globalAlpha = 1;
 }
 /* ---------- 音をえらぶ（まとめて移動・コピー・貼りつけ・複製・消す・高さを変える） ---------- */
 let nsel = new Set();
