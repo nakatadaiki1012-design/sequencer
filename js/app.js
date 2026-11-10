@@ -144,7 +144,7 @@ function sanitizeSong(s) {
     const tr = { ...t };
     if (t.type === 'melody') {
       tr.notes = (Array.isArray(t.notes) ? t.notes : []).filter((n) => n && Number.isFinite(+n.s) && Number.isFinite(+n.p) && Number.isFinite(+n.l) && +n.l > 0 && +n.s >= 0)
-        .map((n) => ({ ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) }));
+        .map((n) => { const o = { ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) }; if (n.vel != null) { const v = Number(n.vel); if (Number.isFinite(v) && v !== 1) o.vel = clamp(v, 0.1, 1.5); else delete o.vel; } return o; });
       for (const k of ['dyn', 'hairpins', 'slurs']) if (!Array.isArray(tr[k])) tr[k] = [];
     } else if (t.type === 'drum') {
       const g = {};
@@ -598,7 +598,7 @@ function eventList() {
   for (const tr of song.tracks) {
     if (tr.type === 'melody') {
       const ex = expression(tr);
-      for (const n of tr.notes) if (n.s < total) { const x = ex(n); put(n.s, { tr, kind: 'note', p: n.p, l: Math.min(n.l, total - n.s), v: x.v, lf: x.lf }); }
+      for (const n of tr.notes) if (n.s < total) { const x = ex(n); put(n.s, { tr, kind: 'note', p: n.p, l: Math.min(n.l, total - n.s), v: clamp(x.v * (n.vel || 1), 0.05, 1.3), lf: x.lf }); }
     } else if (tr.type === 'chord') for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
     else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) put(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
   }
@@ -1117,8 +1117,13 @@ function draw(playPos) {
         g2.fillStyle = gr;
         if (on) { g2.shadowColor = col; g2.shadowBlur = 14; }
         roundRect(g2, x + 1.5, y + 1.5, w - 3, rh - 3, 6);
+        const vel = n.vel || 1;
+        if (vel < 1) g2.globalAlpha = 0.35 + 0.65 * vel;
         g2.fill();
+        g2.globalAlpha = 1;
         g2.shadowBlur = 0;
+        // 強さのしるし（下のはしの線の長さ）
+        if (vel !== 1 && w > 14) { g2.fillStyle = vel > 1 ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.3)'; g2.fillRect(x + 4, y + rh - 5, Math.max(3, (w - 10) * Math.min(1, vel / 1.25)), 2); }
       }
       const picked = nsel.has(n);
       g2.lineWidth = on ? 3 : picked ? 2.5 : 1;
@@ -1674,6 +1679,24 @@ function selQuantize() {
   updateSelBar();
   toast(moved ? `${moved}個の音を${GRIDS.find((x) => x[0] === g)?.[1] || 'マス目'}にそろえました` : 'もうそろっています');
 }
+function selVelocity(dir) {
+  const tr = track();
+  const ns = prSel();
+  if (!ns.length) return;
+  if (locked(tr)) return toast('このトラックはロックされています');
+  const steps = [0.25, 0.5, 0.75, 1, 1.25];
+  edit(() => {
+    for (const n of ns) {
+      const i = steps.findIndex((x) => x >= (n.vel || 1) - 0.01);
+      const v = steps[clamp((i < 0 ? 3 : i) + dir, 0, steps.length - 1)];
+      if (v === 1) delete n.vel; else n.vel = v;
+    }
+  }, dir > 0 ? '強くする' : '弱くする');
+  const v = ns[0].vel || 1;
+  preview(tr, ns[0].p);
+  toast(`強さ：${['とても弱い', '弱い', '少し弱い', 'ふつう', '強い'][steps.indexOf(v)]}`);
+  updateSelBar();
+}
 function selAll() {
   const tr = track();
   if (tr.type !== 'melody') return;
@@ -1711,6 +1734,8 @@ function setupSelBar() {
   $('#selPaste').onclick = () => selPaste();
   $('#selDup').onclick = () => selDuplicate();
   $('#selQuant').onclick = () => selQuantize();
+  $('#selLoud').onclick = () => selVelocity(1);
+  $('#selSoft').onclick = () => selVelocity(-1);
   $('#selUp').onclick = () => selMove(0, 1, 0);
   $('#selDn').onclick = () => selMove(0, -1, 0);
   $('#selLeft').onclick = () => selMove(-ui.grid, 0, 0);
@@ -4685,7 +4710,7 @@ function midiBytes() {
       if (ch === 9) ch++;
       const c = ch++ & 15;
       ev.push({ t: 0, o: 0, d: [0xc0 | c, Sound.GM[tr.inst] || 0] }, { t: 0, o: 0, d: [0xb0 | c, 7, Math.round(tr.vol * 127)] });
-      const notes = tr.type === 'melody' ? tr.notes.map((n) => ({ ...n, v: 0.8 })) : chordEvents(tr);
+      const notes = tr.type === 'melody' ? tr.notes.map((n) => ({ ...n, v: 0.8 * (n.vel || 1) })) : chordEvents(tr);
       for (const n of notes) {
         if (n.s >= totalTicks()) continue;
         const v = Math.round(clamp(n.v, 0.1, 1) * 110);
@@ -4766,7 +4791,10 @@ function importMidi(buf, fname) {
         if (chn === 9) drums.push({ s: Math.round(o.s * scale), n: a, v: o.v });
         else {
           if (!chans.has(t + ':' + chn)) chans.set(t + ':' + chn, { name: tname, notes: [], key: t + ':' + chn, chn });
-          chans.get(t + ':' + chn).notes.push({ s: Math.round(o.s * scale), p: a, l: Math.max(1, Math.round((tick - o.s) * scale)) });
+          const nn = { s: Math.round(o.s * scale), p: a, l: Math.max(1, Math.round((tick - o.s) * scale)) };
+          const vel = Math.round(clamp(o.v / 88, 0.25, 1.25) * 4) / 4; // 強さ（4段階くらいにまるめる）
+          if (vel !== 1) nn.vel = vel;
+          chans.get(t + ':' + chn).notes.push(nn);
         }
       }
     }
