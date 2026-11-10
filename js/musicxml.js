@@ -245,6 +245,7 @@ const MusicXMLImport = (() => {
             const bpm = num(snd.getAttribute('tempo'), 0);
             if (bpm > 0) { M.items.push({ kind: 'tempo', t, bpm }); gotTempo = true; }
           }
+          if (snd) for (const [attr, type] of [['segno', 'segno'], ['coda', 'coda'], ['tocoda', 'tocoda'], ['fine', 'fine'], ['dacapo', 'dc'], ['dalsegno', 'ds']]) if (snd.hasAttribute(attr)) M.items.push({ kind: 'jump', type });
           for (const dt of kids(el, 'direction-type')) {
             for (const dy of kids(dt, 'dynamics')) {
               for (const c of dy.children) if (DYN.includes(c.localName)) M.items.push({ kind: 'dyn', t, v: c.localName });
@@ -268,6 +269,8 @@ const MusicXMLImport = (() => {
         } else if (tag === 'sound') {
           const bpm = num(el.getAttribute('tempo'), 0);
           if (bpm > 0) M.items.push({ kind: 'tempo', t: at(), bpm });
+          // D.C.・D.S.・Fine・セーニョ・コーダ
+          for (const [attr, type] of [['segno', 'segno'], ['coda', 'coda'], ['tocoda', 'tocoda'], ['fine', 'fine'], ['dacapo', 'dc'], ['dalsegno', 'ds']]) if (el.hasAttribute(attr)) M.items.push({ kind: 'jump', type });
         } else if (tag === 'harmony') {
           const root = kid(el, 'root');
           if (root) {
@@ -413,6 +416,7 @@ const MusicXMLImport = (() => {
     let tempoText = '';
     const chords = new Array(bars).fill(null);
     let hasHarmony = false;
+    const jumps = {};
     const rStart = new Set();
     const rEnd = new Set();
     const volta = {};
@@ -421,6 +425,7 @@ const MusicXMLImport = (() => {
       p.measures.forEach((M, i) => {
         for (const it of M.items) {
           if (it.kind === 'tempo') tempoEv.push({ tick: absT(i, it.t), bar: i, bpm: it.bpm });
+          else if (it.kind === 'jump') { if (jumps[it.type] == null) jumps[it.type] = i; }
           else if (it.kind === 'words' && !tempoText && TEMPO_WORD.test(it.s)) tempoText = it.s.slice(0, 40);
           else if (it.kind === 'harm') {
             hasHarmony = true;
@@ -477,6 +482,7 @@ const MusicXMLImport = (() => {
       meters,
       keys,
       pickup,
+      jumps,
       repeats: {
         start: Array.from(rStart).sort((a, b) => a - b),
         end: Array.from(rEnd).sort((a, b) => a - b),
