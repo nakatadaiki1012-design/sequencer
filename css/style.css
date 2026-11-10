@@ -1269,3 +1269,9 @@ body.phone .selbar #selCopy .i, body.phone .selbar #selPaste .i { display: none;
 body.phone .selbar:not(.open) { flex-wrap: nowrap; }
 body.phone .selbar button { padding: 0 6px; min-width: 34px; }
 body.phone .selbar b { padding: 0 4px; }
+/* スマホ「その他」：2列のタイル */
+body.phone #phoneMoreBody { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
+body.phone #phoneMoreBody > .tempo { grid-column: 1 / -1; }
+body.phone #phoneMoreBody > .tbtn, body.phone #phoneMoreBody > details > summary { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 54px; width: 100%; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2, var(--panel)); font-size: 14px; }
+body.phone #phoneMoreBody > details { margin: 0; }
+body.phone #phoneMoreBody > details.dropdown { grid-column: 1 / -1; }
