@@ -940,6 +940,7 @@ function stop(silent = false) {
   player.graph = null;
   player.on = false;
   playSpeed = 1;
+  if ($('#karaoke')) { $('#karaoke').hidden = true; karaKey = ''; }
   countHud(0);
   player.segs = [];
   if (!silent) {
@@ -1005,6 +1006,24 @@ function vizFade() {
   const step = () => { vizFadeRaf = !player.on && drawViz(true) ? requestAnimationFrame(step) : 0; };
   vizFadeRaf = requestAnimationFrame(step);
 }
+// 発表モード：歌詞を大きく（いま歌うところを光らせる）。歌詞があるいちばん上のメロディで
+let karaKey = '';
+function karaoke(pos) {
+  const box = $('#karaoke');
+  if (!box) return;
+  const tr = song.tracks.find((t) => t.type === 'melody' && t.notes.some((n) => n.ly));
+  if (!tr || pos == null) { if (karaKey) { box.innerHTML = ''; box.hidden = true; karaKey = ''; } return; }
+  const b = barOf(Math.max(0, pos));
+  const a = barStart(b);
+  const z = barStart(Math.min(song.bars, b + 2));
+  const syl = tr.notes.filter((n) => n.ly && n.s >= a && n.s < z).sort((x, y) => x.s - y.s);
+  const now = syl.filter((n) => n.s <= pos).pop();
+  const key = b + ':' + (now ? now.s : -1);
+  if (key === karaKey) return;
+  karaKey = key;
+  box.hidden = !syl.length;
+  box.innerHTML = syl.map((n) => `<span class="${n === now ? 'now' : n.s < pos ? 'done' : ''}${n.s >= barStart(b + 1) ? ' next' : ''}">${escapeHtml(n.ly)}</span>`).join('');
+}
 function countHud(n) {
   const h = $('#countHud');
   if (!h) return;
@@ -1038,6 +1057,7 @@ function anim() {
   drawOverview(pos);
   updateMini(pos);
   drawViz();
+  if (document.body.classList.contains('present')) karaoke(pos);
   if (ui.view === 'score') highlightScore(pos);
   requestAnimationFrame(anim);
 }

@@ -1210,3 +1210,13 @@ table.batch .bad { color: #e03131; }
 table.batch .bar { display: inline-block; width: 70px; height: 6px; margin-left: 6px; border-radius: 3px; background: var(--border); vertical-align: middle; overflow: hidden; }
 table.batch .bar i { display: block; height: 100%; background: var(--grad); }
 #dlgBatch { max-height: 86vh; overflow: auto; }
+
+/* 発表モードの歌詞 */
+.karaoke { display: none; }
+body.present .karaoke:not([hidden]) { display: flex; position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 7; gap: 10px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100% - 40px); padding: 12px 26px; border-radius: 20px; background: color-mix(in srgb, var(--display) 88%, transparent); color: rgba(255,255,255,.55);
+  font: 800 clamp(26px, 4vw, 46px)/1.25 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,.25); pointer-events: none; }
+.karaoke span.done { color: #fff; }
+.karaoke span.now { color: #fff; text-shadow: 0 0 18px color-mix(in srgb, var(--accent2) 90%, transparent); transform: scale(1.12); display: inline-block; }
+.karaoke span.next { opacity: .55; font-size: .8em; align-self: flex-end; }
+body.present .toast { top: 84px; bottom: auto; }
