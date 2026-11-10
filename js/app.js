@@ -2925,6 +2925,16 @@ function updateMini(pos) {
   const beat = Math.floor((t - barStart(bar)) / beatAt(bar));
   $('#miniTitle').textContent = song.title;
   $('#miniPos').textContent = `${bar + 1}小節 ${beat + 1}拍`;
+  // 拍のランプ（いまの拍が光る。1拍目は色をかえる）
+  {
+    const n = Math.max(1, Math.round(barLen(bar) / beatAt(bar)));
+    const box = $('#beatDots');
+    const k = n + ':' + (pos != null ? beat : -1);
+    if (box && box._k !== k) {
+      box._k = k;
+      box.innerHTML = Array.from({ length: Math.min(n, 12) }, (_, i) => `<i class="${pos != null && i === beat ? (i === 0 ? 'on one' : 'on') : ''}"></i>`).join('');
+    }
+  }
   { const k = keyAt(bar); $('#miniKey').textContent = keyLabel(k.key, k.minor); }
   $('#miniMeter').textContent = meterAt(bar).join('/');
   $('#miniBpm').textContent = '♩=' + bpmAt(bar) + ((ui.speed || 1) !== 1 ? `（練習${Math.round(ui.speed * 100)}%）` : '');
