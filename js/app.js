@@ -553,21 +553,41 @@ function buildGraph(ctx, dest, live) {
 
 function chordEvents(tr) {
   const ev = [];
+  let prev = null; // 前の和音の音（なめらかにつなぐため）
   for (let b = 0; b < song.bars; b++) {
     const c0 = tr.chords[b];
     if (!c0) continue;
     const bs = beatAt(b);
     const hs = c0.h ? chordHalf(b) : barLen(b);
-    chordPart(tr, ev, c0, barStart(b), hs, bs);
-    if (c0.h) chordPart(tr, ev, c0.h, barStart(b) + hs, barLen(b) - hs, bs);
+    prev = chordPart(tr, ev, c0, barStart(b), hs, bs, prev);
+    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b) + hs, barLen(b) - hs, bs, prev);
   }
   return ev;
 }
-function chordPart(tr, ev, c, o, bt, bs) {
+// 和音の形（転回）を、前の和音からいちばん近いものにする（指があまり動かない、なめらかな伴奏）
+function voiceLead(tones, prev) {
+  if (!prev) return tones;
+  let best = tones;
+  let bc = Infinity;
+  const n = tones.length;
+  for (let inv = 0; inv < n; inv++) {
+    const t = tones.map((x, i) => (i < inv ? x + 12 : x)).sort((a, b) => a - b);
+    for (const sh of [-12, 0, 12]) {
+      const c = t.map((x) => x + sh);
+      if (c[0] < 52 || c[c.length - 1] > 79) continue;
+      let cost = 0;
+      for (const x of c) cost += Math.min(...prev.map((p) => Math.abs(p - x)));
+      cost += Math.abs(c[0] - 60) * 0.15; // 真ん中あたりにいるように
+      if (cost < bc) { bc = cost; best = c; }
+    }
+  }
+  return best;
+}
+function chordPart(tr, ev, c, o, bt, bs, prev) {
   {
     let root = 48 + ((c.r % 12) + 12) % 12;
     if (root > 54) root -= 12;
-    const tones = CHORD_Q[c.q].iv.map((x) => root + 12 + x);
+    const tones = voiceLead(CHORD_Q[c.q].iv.map((x) => root + 12 + x), prev);
     const bass = root - 12 + (root < 43 ? 12 : 0);
     const push = (s, p, l, v = 0.7) => { if (s < bt) ev.push({ s: o + s, p, l: Math.min(l, bt - s), v }); }; // 区切りの外には出さない
     const pat = tr.pattern;
@@ -617,6 +637,7 @@ function chordPart(tr, ev, c, o, bt, bs) {
         if (first) { if (tr.bassOn) push(s, bass, bs * 0.9, 0.85); else push(s, tones[0], bs * 0.9, 0.6); } else tones.forEach((p) => push(s, p, bs * 0.6, 0.45));
       }
     }
+    return tones;
   }
 }
 
