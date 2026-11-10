@@ -6176,6 +6176,19 @@ if (lsGet('otsumiki-kids', '0') === '1') setKids(true);
 }
 // MIDI鍵盤が使えないブラウザ（iPad の Safari など）では、ボタンを出さない
 if (!navigator.requestMIDIAccess && $('#btnMidiIn')) $('#btnMidiIn').hidden = true;
+// ひらいたメニューが画面の下からはみ出すときは、その中でスクロール
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.open || !d.matches || !d.matches('details.pop, details.dropdown')) return;
+  const body = d.querySelector(':scope > .popbody, :scope > .dd');
+  if (!body) return;
+  body.style.maxHeight = '';
+  requestAnimationFrame(() => {
+    const r = body.getBoundingClientRect();
+    const room = innerHeight - Math.max(0, r.top) - 10;
+    if (r.height > room && room > 120) { body.style.maxHeight = room + 'px'; body.style.overflowY = 'auto'; }
+  });
+}, true);
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
