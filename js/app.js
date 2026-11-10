@@ -912,7 +912,7 @@ function renderMission(done) {
   let box = $('#mission');
   if (!mission.on) { if (box) box.remove(); return; }
   if (!box) { box = document.createElement('div'); box.id = 'mission'; box.className = 'mission'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
-  box.innerHTML = `<b>${done ? 'ミッションクリア！ 🎉' : 'はじめてのミッション'}</b><ol>${MISSION.map((m, i) => `<li class="${i < mission.step ? 'ok' : i === mission.step ? 'now' : ''}">${i < mission.step ? '✅' : i === mission.step ? '👉' : '・'} ${m}</li>`).join('')}</ol>${done ? '<p>これで作曲家の仲間入り！ いろいろためしてね。</p>' : ''}<button class="mini" id="missionClose">${done ? 'とじる' : 'あとでやる'}</button>`;
+  box.innerHTML = `<b>${done ? 'ミッションクリア！ 🎉' : 'はじめてのミッション'}</b><ol>${MISSION.map((m, i) => `<li class="${i < mission.step ? 'ok' : i === mission.step ? 'now' : ''}">${i < mission.step ? '✅' : i === mission.step ? '👉' : '・'} ${m}</li>`).join('')}</ol>${done ? '<p>これで作曲家の仲間入り！ 次は、楽器えらびのいちばん上「じぶんの音」で、声や手びょうしを楽器にしてみよう🎤</p>' : ''}<button class="mini" id="missionClose">${done ? 'とじる' : 'あとでやる'}</button>`;
   $('#missionClose').onclick = () => { mission.on = false; lsSet('otsumiki-mission', '1'); renderMission(); };
 }
 function missionCheck(ev) {
