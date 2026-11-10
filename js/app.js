@@ -447,6 +447,7 @@ function edit(fn, label = '編集') {
 function restore(json) {
   song = JSON.parse(json);
   cur = clamp(cur, 0, song.tracks.length - 1);
+  if (ui.sc) { ui.sc.sel = new Set(); ui.sc.cursor = clamp(ui.sc.cursor || 0, 0, totalTicks()); }
   nsel.clear();
   updateSelBar();
   changed(true);
@@ -944,6 +945,7 @@ function play() {
   player.graph = buildGraph(ctx, ctx._comp, true);
   player.on = true;
   player.stopping = false;
+  if (fresh && ui.view === 'score' && ui.sc.cursor != null && ui.sc.cursor < totalTicks()) ui.startTick = barStart(barOf(ui.sc.cursor));
   let st0 = playTickOf(ui.startTick);
   if (st0 === 0 && song.pickup > 0 && !(ui.loopOn && ui.loopRange)) st0 = barLen(0) - song.pickup; // 弱起は休みをとばす
   const start = st0 >= ls && st0 < le ? st0 : ls;
@@ -4099,7 +4101,16 @@ function scMove(dir, extend) {
   let target;
   if (curS != null) target = dir > 0 ? ons.find((s) => s > curS) : [...ons].reverse().find((s) => s < curS);
   else target = dir > 0 ? ons.find((s) => s >= ui.sc.cursor) : [...ons].reverse().find((s) => s < ui.sc.cursor);
-  if (target == null) { ui.sc.cursor = clamp(ui.sc.cursor + dir * scDur(), 0, totalTicks()); ui.sc.sel = extend ? ui.sc.sel : new Set(); renderScoreEdit(); return; }
+  if (target == null) {
+    // うしろに音がないときは、いまの音（えらんだ音・カーソルにかかる音）のおわりへ。なければ1つぶん
+    let to = ui.sc.cursor + dir * scDur();
+    if (dir > 0) {
+      const from = curS != null ? curS : ui.sc.cursor;
+      const cover = tr.notes.filter((n) => n.s <= from && n.s + n.l > from);
+      if (cover.length) to = Math.max(...cover.map((n) => n.s + n.l));
+    }
+    ui.sc.cursor = clamp(to, 0, totalTicks()); ui.sc.sel = extend ? ui.sc.sel : new Set(); renderScoreEdit(); return;
+  }
   const keys = tr.notes.filter((n) => n.s === target).map((n) => n.s + ':' + n.p);
   ui.sc.sel = extend ? new Set([...ui.sc.sel, ...keys]) : new Set(keys);
   ui.sc.selByInput = false;
@@ -4308,7 +4319,7 @@ function renderScorePal() {
   pal.querySelector('.prow').insertAdjacentHTML('beforeend', `<button class="mini palfold" id="scFold" title="${ui.sc.compact ? '記号・強弱・歌詞・くり返しなどのボタンも出す' : 'ボタンを1行にして、楽譜を広く見る'}">${ui.sc.compact ? '▾ もっと' : '▴ たたむ'}</button>`);
   $('#scFold').onclick = () => { ui.sc.compact = !ui.sc.compact; lsSet('otsumiki-scpal', ui.sc.compact ? '1' : '0'); renderScorePal(); renderScoreEdit(); };
   pal.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { ui.sc.input = b.dataset.m === '1'; renderScorePal(); }));
-  pal.querySelectorAll('.sdur').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; scApplyDurToSel(); renderScorePal(); }));
+  pal.querySelectorAll('.sdur').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; ui.sc.dot = false; ui.sc.trip = false; scApplyDurToSel(); renderScorePal(); }));
   $('#scDot').onclick = () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); };
   $('#scTrip').onclick = () => { ui.sc.trip = !ui.sc.trip; renderScorePal(); };
   $('#scRest').onclick = () => scInsert([]);
@@ -4432,7 +4443,7 @@ function scoreKey(e) {
     return true;
   }
   const durKey = SC_DURS.find((d) => String(d[3]) === k);
-  if (durKey) { e.preventDefault(); ui.sc.dur = durKey[0]; scApplyDurToSel(); renderScorePal(); return true; }
+  if (durKey) { e.preventDefault(); ui.sc.dur = durKey[0]; ui.sc.dot = false; ui.sc.trip = false; scApplyDurToSel(); renderScorePal(); return true; }
   if (k === '.') { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); return true; }
   if (k === 't' || k === 'T') { ui.sc.trip = !ui.sc.trip; renderScorePal(); return true; }
   if (k === '0' || k === 'r' || k === 'R') { e.preventDefault(); scInsert([]); return true; }
@@ -4450,7 +4461,7 @@ function scoreKey(e) {
     return true;
   }
   if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); scMove(k === 'ArrowRight' ? 1 : -1, e.shiftKey); return true; }
-  if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); scDelete(); return true; }
+  if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); if (k === 'Delete' && !ui.sc.sel.size) return true; scDelete(); return true; }
   if (k === 'Escape') { ui.sc.sel = new Set(); renderScoreEdit(); return true; }
   return false;
 }
@@ -4592,7 +4603,7 @@ function renderPhonePad() {
         <div class="btnrow"><button class="mini" data-x="copy">コピー</button><button class="mini" data-x="paste">貼りつけ</button><button class="mini" data-x="print">印刷・書き出し</button></div>
       </div></details>
     </div>`;
-  pad.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; scApplyDurToSel(); renderPhonePad(); }));
+  pad.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; ui.sc.dot = false; ui.sc.trip = false; scApplyDurToSel(); renderPhonePad(); }));
   pad.querySelectorAll('.pp-note').forEach((b) => (b.onclick = () => {
     const tr = track();
     if (tr.type !== 'melody') { scEditable(); return; }
