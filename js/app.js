@@ -1124,6 +1124,8 @@ function rowsFor(tr) {
   rows.sort((a, b) => b.p - a.p);
   return rows;
 }
+const DRUM_SHORT = { バスドラム: 'バスドラ', クローズハイハット: 'ハイハット', オープンハイハット: 'オープンHH', ライドシンバル: 'ライド', クラッシュシンバル: 'クラッシュ', 合わせシンバル: 'シンバル', '長胴太鼓（フチ打ち）': 'フチ打ち', '大太鼓（ばち）': '大太鼓', 'クラップ（手拍子）': '手拍子' };
+function shortDrum(name) { return DRUM_SHORT[name] || name.replace(/（(低|高|ミュート)）/, '$1').replace(/（.*?）/g, ''); }
 function rowH(tr) { return tr.type === 'chord' ? 70 : ui.rh; }
 
 function resizeEditor() {
@@ -1529,7 +1531,14 @@ function draw(playPos) {
       g2.fillStyle = C('--text');
       g2.font = `${tr.type === 'chord' ? 14 : Math.min(12, rh - 8)}px sans-serif`;
       g2.textBaseline = 'middle';
-      g2.fillText(row.label, 6, y + rh / 2 + 1, LW - 10);
+      if (isPhone && tr.type === 'drum') {
+        // スマホ：せまい列でも読めるように、短い名前を2行で
+        const t = shortDrum(row.label);
+        const half = t.length > 4 ? Math.ceil(t.length / 2) : t.length;
+        const lines = t.length > 4 && rh >= 24 ? [t.slice(0, half), t.slice(half)] : [t];
+        g2.font = `${lines.length > 1 ? 10.5 : 11.5}px sans-serif`;
+        lines.forEach((ln, i) => g2.fillText(ln, 4, y + rh / 2 + 1 + (lines.length > 1 ? (i - 0.5) * 11 : 0), LW - 6));
+      } else g2.fillText(row.label, 6, y + rh / 2 + 1, LW - 10);
     }
     g2.strokeStyle = C('--line-step');
     g2.lineWidth = 1;
