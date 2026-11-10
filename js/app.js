@@ -1383,6 +1383,7 @@ function draw(playPos) {
         g2.fill();
         g2.globalAlpha = 1;
         if (playing >= st && playing < st + 12) { g2.strokeStyle = '#fff'; g2.lineWidth = 3; g2.stroke(); }
+        else if (nsel.has(dkey(id, st))) { g2.strokeStyle = C('--accent2'); g2.lineWidth = 2.5; g2.stroke(); }
         if (v === 2 && w > 18) { g2.fillStyle = '#222'; g2.font = 'bold 11px sans-serif'; g2.textAlign = 'center'; g2.fillText('強', x + w / 2, y + rh / 2 + 1); g2.textAlign = 'left'; }
       }
     }
@@ -1420,7 +1421,7 @@ function draw(playPos) {
     }
   }
   if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
-  if (rubber && tr.type === 'melody') {
+  if (rubber && tr.type !== 'chord') {
     const ta = Math.min(rubber.t0, rubber.t1);
     const tb = Math.max(rubber.t0, rubber.t1);
     const ra = Math.min(rubber.r0, rubber.r1);
@@ -1721,6 +1722,10 @@ function editDown(e) {
   } else if (tr.type === 'drum') {
     const id = h.row.id;
     const ex = existingHit(tr, id, h.cell);
+    const addKey = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (ex != null && (addKey || ui.selTool)) { const k = dkey(id, ex); if (addKey && nsel.has(k)) nsel.delete(k); else { if (!addKey) nsel.clear(); nsel.add(k); } updateSelBar(); draw(); return; }
+    if (ex == null && (addKey || ui.selTool)) { rubber = { t0: h.tick, r0: h.ri, t1: h.tick, r1: h.ri, base: addKey ? new Set(nsel) : new Set() }; drag = { kind: 'rubber' }; draw(); return; }
+    if (nsel.size) { nsel.clear(); updateSelBar(); draw(); return; }
     const v = ex != null ? tr.grid[id][ex] : 0;
     const nv = (v + 1) % 3;
     if (ex != null) delete tr.grid[id][ex];
@@ -1741,13 +1746,24 @@ function editDown(e) {
 let nsel = new Set();
 let rubber = null;
 let noteClip = null;
-function prSel() { const tr = track(); return tr.type === 'melody' ? tr.notes.filter((n) => nsel.has(n)) : []; }
+const dkey = (id, s) => id + '|' + s;
+function prSel() {
+  const tr = track();
+  if (tr.type === 'melody') return tr.notes.filter((n) => nsel.has(n));
+  if (tr.type === 'drum') {
+    const out = [];
+    for (const k of nsel) { if (typeof k !== 'string') continue; const i = k.lastIndexOf('|'); const id = k.slice(0, i); const st = +k.slice(i + 1); const v = tr.grid[id] && tr.grid[id][st]; if (v) out.push({ id, s: st, v, l: Math.max(1, cellLen(cellStart(st))), drum: true }); }
+    return out.sort((a, b) => a.s - b.s);
+  }
+  return [];
+}
 function updateSelBar() {
   const bar = $('#selBar');
   if (!bar) return;
   const tr = track();
-  if (tr.type !== 'melody') nsel.clear();
-  for (const n of [...nsel]) if (!tr.notes.includes(n)) nsel.delete(n);
+  if (tr.type === 'chord') nsel.clear();
+  else if (tr.type === 'melody') { for (const n of [...nsel]) if (!tr.notes.includes(n)) nsel.delete(n); }
+  else { const ok = new Set(prSel().map((h) => dkey(h.id, h.s))); for (const k of [...nsel]) if (!ok.has(k)) nsel.delete(k); }
   bar.hidden = !nsel.size && !(ui.selTool && noteClip);
   $('#selCount').textContent = nsel.size ? `${nsel.size}個` : 'えらぶ';
   $$('#selBar [data-need="sel"]').forEach((b) => (b.disabled = !nsel.size));
@@ -1762,16 +1778,24 @@ function selCopy(cut) {
   const ns = prSel();
   if (!ns.length) return;
   const [a, z] = selSpan(ns);
-  noteClip = { notes: ns.map((n) => ({ ...n, s: n.s - a })), len: z - a };
+  noteClip = { drum: track().type === 'drum', notes: ns.map((n) => ({ ...n, s: n.s - a })), len: z - a };
   if (cut) selDelete('切り取り');
   else toast(`${ns.length}個の音をコピーしました（Ctrl+V で再生の印の所に貼りつけ）`);
   updateSelBar();
 }
 function pasteAt(t, label = '貼りつけ') {
   const tr = track();
-  if (!noteClip || tr.type !== 'melody') return;
+  if (!noteClip || tr.type === 'chord') return;
+  if (!!noteClip.drum !== (tr.type === 'drum')) { toast(noteClip.drum ? 'リズムのコピーは、リズムのトラックに貼りつけてね' : 'メロディのコピーは、メロディのトラックに貼りつけてね'); return; }
   if (locked(tr)) return toast('このトラックはロックされています');
   const added = [];
+  if (tr.type === 'drum') {
+    edit(() => { for (const c of noteClip.notes) { const st = t + c.s; if (st >= totalTicks()) continue; setCell(tr, c.id, st, c.v); added.push(dkey(c.id, st)); } }, label);
+    nsel = new Set(added);
+    updateSelBar();
+    draw();
+    return added;
+  }
   edit(() => {
     for (const c of noteClip.notes) {
       const s = t + c.s;
@@ -1804,7 +1828,7 @@ function selDuplicate() {
   const beat = beatAt(barOf(a));
   const len = Math.ceil((z - a) / beat) * beat;
   const keep = noteClip;
-  noteClip = { notes: ns.map((n) => ({ ...n, s: n.s - a })), len };
+  noteClip = { drum: track().type === 'drum', notes: ns.map((n) => ({ ...n, s: n.s - a })), len };
   const added = pasteAt(a + len, '複製');
   noteClip = keep;
   if (added) toast(`うしろに複製しました（${added.length}個）`);
@@ -1814,6 +1838,7 @@ function selDelete(label = 'えらんだ音を消す') {
   if (!nsel.size) return;
   if (locked(tr)) return toast('このトラックはロックされています');
   const n0 = nsel.size;
+  if (tr.type === 'drum') { const hs = prSel(); edit(() => { for (const h of hs) setCell(tr, h.id, h.s, 0); }, label); } else
   edit(() => { tr.notes = tr.notes.filter((n) => !nsel.has(n)); }, label);
   nsel.clear();
   updateSelBar();
@@ -1828,6 +1853,14 @@ function selMove(dt, drow, oct) {
   const [a] = selSpan(ns);
   const zS = Math.max(...ns.map((n) => n.s));
   dt = clamp(dt, -a, totalTicks() - 1 - zS);
+  if (tr.type === 'drum') {
+    if (!dt) return;
+    edit(() => { for (const h of ns) setCell(tr, h.id, h.s, 0); for (const h of ns) setCell(tr, h.id, h.s + dt, h.v); }, 'えらんだリズムを移動');
+    nsel = new Set(ns.map((h) => dkey(h.id, h.s + dt)));
+    updateSelBar();
+    draw();
+    return;
+  }
   edit(() => {
     for (const n of ns) {
       n.s += dt;
@@ -1851,6 +1884,15 @@ function selQuantize() {
   if (locked(tr)) return toast('このトラックはロックされています');
   const g = ui.grid;
   let moved = 0;
+  if (tr.type === 'drum') {
+    const to = ns.map((h) => ({ ...h, t: clamp(Math.round(h.s / g) * g, 0, totalTicks() - 1) }));
+    moved = to.filter((h) => h.t !== h.s).length;
+    edit(() => { for (const h of to) setCell(tr, h.id, h.s, 0); for (const h of to) setCell(tr, h.id, h.t, h.v); }, 'リズムをそろえる');
+    nsel = new Set(to.map((h) => dkey(h.id, h.t)));
+    updateSelBar();
+    draw();
+    return toast(moved ? `${moved}個をそろえました` : 'もうそろっています');
+  }
   edit(() => {
     for (const n of ns) {
       const s0 = n.s;
@@ -1870,6 +1912,11 @@ function selVelocity(dir) {
   const ns = prSel();
   if (!ns.length) return;
   if (locked(tr)) return toast('このトラックはロックされています');
+  if (tr.type === 'drum') {
+    edit(() => { for (const h of ns) setCell(tr, h.id, h.s, dir > 0 ? 2 : 1); }, dir > 0 ? '強くする' : '弱くする');
+    toast(dir > 0 ? '強く（アクセント）にしました' : 'ふつうの強さにしました');
+    return updateSelBar();
+  }
   const steps = [0.25, 0.5, 0.75, 1, 1.25];
   edit(() => {
     for (const n of ns) {
@@ -1885,15 +1932,16 @@ function selVelocity(dir) {
 }
 function selAll() {
   const tr = track();
-  if (tr.type !== 'melody') return;
-  nsel = new Set(tr.notes);
+  if (tr.type === 'chord') return;
+  if (tr.type === 'drum') { nsel = new Set(); for (const id in tr.grid) for (const st in tr.grid[id]) nsel.add(dkey(id, +st)); }
+  else nsel = new Set(tr.notes);
   updateSelBar();
   draw();
   toast(`${nsel.size}個の音をぜんぶえらびました`);
 }
 // キー：Ctrl+A/C/X/V/D、Delete、矢印、Esc（マス目のとき）
 function noteKeys(e) {
-  if (track().type !== 'melody') return false;
+  if (track().type === 'chord') return false;
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   if (ctrl && k === 'a') { e.preventDefault(); selAll(); return true; }
@@ -1987,9 +2035,13 @@ function onMove(e) {
     const tb = Math.max(rubber.t0, rubber.t1);
     const ra = Math.min(rubber.r0, rubber.r1);
     const rb = Math.max(rubber.r0, rubber.r1);
-    const inRow = new Set(rows.slice(Math.max(0, ra), rb + 1).map((r) => r.p));
     nsel = new Set(rubber.base);
-    for (const n of tr.notes) if (inRow.has(n.p) && n.s < tb && n.s + n.l > ta) nsel.add(n);
+    if (tr.type === 'drum') {
+      for (const r of rows.slice(Math.max(0, ra), rb + 1)) for (const st in tr.grid[r.id] || {}) if (+st < tb && +st + cellLen(cellStart(+st)) > ta) nsel.add(dkey(r.id, +st));
+    } else {
+      const inRow = new Set(rows.slice(Math.max(0, ra), rb + 1).map((r) => r.p));
+      for (const n of tr.notes) if (inRow.has(n.p) && n.s < tb && n.s + n.l > ta) nsel.add(n);
+    }
     updateSelBar();
     draw();
     return;
@@ -3034,6 +3086,7 @@ function renderEditorTools() {
       <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
       ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}`;
   } else if (tr.type === 'drum') {
+    html += `<button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>`;
     html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
     if (!song.locks.compose) html += `<button class="mini accent" id="btnAutoChord" title="メロディに合うコードを、全部の小節に自動でつけます">${I('spark')}<span>メロディにコードをつける</span></button>`;
@@ -3103,6 +3156,7 @@ function renderEditorTools() {
       edit(() => shiftCopy(src, tr, +$('#rBars').value), '輪唱づくり');
     };
   } else if (tr.type === 'drum') {
+    $('#btnSelTool').onclick = () => { ui.selTool = !ui.selTool; if (!ui.selTool) nsel.clear(); renderEditorTools(); updateSelBar(); draw(); toast(ui.selTool ? 'えらぶモード：ドラッグで囲むと、まとめてえらべます' : 'リズムを入れるモードにもどりました'); };
     $('#rPreset').onchange = (ev) => {
       if (!ev.target.value || lk) return;
       if (Object.keys(tr.grid).length && !confirm('今のリズムを消して、お手本を入れますか？')) { ev.target.value = ''; return; }
