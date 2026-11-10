@@ -1234,3 +1234,5 @@ body.present .beatdots i { width: 12px; height: 12px; }
 
 /* メニューが長くても、画面の中でスクロールできるように */
 .menu details.dropdown .dd { max-height: calc(100vh - 100px); max-height: calc(100dvh - 100px); overflow-y: auto; overscroll-behavior: contain; }
+
+@media print { .zoombox, .zoomhud, .selbar, .cmpbar, .mission, .toast, .savewarn, .karaoke, .confetti, .counthud, .presentexit, #phoneNav { display: none !important; } }
