@@ -1181,3 +1181,17 @@ body.kids .mini-info { font-size: 13px; }
 .scorepal.compact .prow:first-child { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
 .scorepal .palfold { margin-left: auto; white-space: nowrap; color: var(--accent-text); }
 body.phone .scorepal .palfold { display: none; }
+
+/* はじめてのミッション */
+.mission { position: fixed; left: 16px; bottom: 16px; z-index: 60; width: min(340px, calc(100vw - 32px)); padding: 12px 14px 10px; border-radius: 16px;
+  background: var(--panel); border: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: 0 12px 32px rgba(0,0,0,.18); font-size: 13.5px; animation: popIn .25s ease-out; }
+.mission b { font-size: 15px; color: var(--accent-text); }
+.mission ol { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 5px; }
+.mission li { color: var(--muted); }
+.mission li.now { color: var(--text); font-weight: 700; }
+.mission li.ok { color: #2f9e44; text-decoration: line-through; text-decoration-color: color-mix(in srgb, #2f9e44 50%, transparent); }
+.mission p { margin: 4px 0 8px; }
+.mission .mini { float: right; }
+body.phone .mission { left: 8px; right: 8px; width: auto; bottom: 70px; }
+body.phone .mission { font-size: 12.5px; padding: 9px 12px 8px; }
+body.phone .mission ol { gap: 3px; margin: 5px 0; }

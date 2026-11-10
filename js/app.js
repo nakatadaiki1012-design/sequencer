@@ -434,6 +434,7 @@ function saveState(st) {
 let scoreTimer = null;
 function changed(full = false) {
   version++;
+  if (mission.on) setTimeout(missionCheck, 0);
   if (refSong) setTimeout(updateCompare, 0);
   if (full) { renderSettings(); renderTracks(); }
   renderEditorTools();
@@ -763,9 +764,10 @@ function loopBounds() {
 }
 function firstIdx(list, t) { let i = 0; while (i < list.length && list[i].t < t) i++; return i; }
 const cheered = new Set();
-function cheer() {
+function cheer(force) {
   const n = song.tracks.reduce((a, t) => a + (t.notes ? t.notes.length : 0), 0);
-  if (n < 6 || cheered.has(song.title) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!force && (n < 6 || cheered.has(song.title))) return;
   cheered.add(song.title);
   const box = document.createElement('div');
   box.className = 'confetti';
@@ -782,9 +784,44 @@ function cheer() {
   document.body.appendChild(box);
   setTimeout(() => box.remove(), 2600);
 }
+/* ---------- はじめてのミッション（読むより、やってみる） ---------- */
+const mission = { on: false, step: 0, base: 0 };
+const MISSION = ['マス目をおして、音を3つ置こう', '▶ をおして、聴いてみよう', '「送る」で、ともだちに送ってみよう（送らずにとじてもOK）'];
+const noteCount = () => song.tracks.reduce((a, t) => a + (t.notes ? t.notes.length : 0), 0);
+function startMission() {
+  if (NO_TOUR || lsGet('otsumiki-mission', '')) return false;
+  lsSet('otsumiki-tour', '1'); // 読むツアーは、メニューからいつでも
+  mission.on = true;
+  mission.step = 0;
+  mission.base = noteCount();
+  renderMission();
+  return true;
+}
+function renderMission(done) {
+  let box = $('#mission');
+  if (!mission.on) { if (box) box.remove(); return; }
+  if (!box) { box = document.createElement('div'); box.id = 'mission'; box.className = 'mission'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
+  box.innerHTML = `<b>${done ? 'ミッションクリア！ 🎉' : 'はじめてのミッション'}</b><ol>${MISSION.map((m, i) => `<li class="${i < mission.step ? 'ok' : i === mission.step ? 'now' : ''}">${i < mission.step ? '✅' : i === mission.step ? '👉' : '・'} ${m}</li>`).join('')}</ol>${done ? '<p>これで作曲家の仲間入り！ いろいろためしてね。</p>' : ''}<button class="mini" id="missionClose">${done ? 'とじる' : 'あとでやる'}</button>`;
+  $('#missionClose').onclick = () => { mission.on = false; lsSet('otsumiki-mission', '1'); renderMission(); };
+}
+function missionCheck(ev) {
+  if (!mission.on) return;
+  const before = mission.step;
+  if (mission.step === 0 && noteCount() - mission.base >= 3) mission.step = 1;
+  if (mission.step === 1 && ev === 'play') mission.step = 2;
+  if (mission.step === 2 && ev === 'share') mission.step = 3;
+  if (mission.step === before) return;
+  if (mission.step >= 3) {
+    lsSet('otsumiki-mission', '1');
+    renderMission(true);
+    cheer(true);
+    setTimeout(() => { mission.on = false; renderMission(); }, 6000);
+  } else renderMission();
+}
 function play() {
   const ctx = ensureAudio();
   const fresh = !player.on;
+  setTimeout(() => missionCheck('play'), 0);
   if (fresh) setTimeout(cheer, 200);
   if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) {
     if (lsGet('otsumiki-silenthint', '') !== '1') { lsSet('otsumiki-silenthint', '1'); setTimeout(() => toast('音が出ないときは、マナーモード（横のスイッチ）を切ってね', 5000), 400); }
@@ -4303,7 +4340,7 @@ function openStart(first) {
     setView(t.view || 'grid');
     if (isPhone) setPhoneView(t.view === 'score' ? 'score' : 'edit');
     if (t.view === 'score') toast('長さ→音名の順におすと、音符が入っていきます');
-    tourFirstTime();
+    if (!startMission()) tourFirstTime();
   }));
   $('#tplSample').onclick = () => { $('#dlgStart').close(); loadSong(sampleSong()); tourFirstTime(); };
   $('#tplOpen').onclick = () => { $('#dlgStart').close(); $('#fileIn').click(); };
@@ -4860,6 +4897,7 @@ async function unpackSong(str) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 async function shareDialog() {
+  setTimeout(() => missionCheck('share'), 300);
   // ?notour などの表示の設定は、送る先にはいらないので外す
   const url = location.origin + location.pathname + '#song=' + (await packSong());
   $('#shareUrl').value = url;
