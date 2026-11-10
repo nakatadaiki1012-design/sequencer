@@ -2779,6 +2779,7 @@ function renderEditorTools() {
   } else if (tr.type === 'drum') {
     html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAutoChord" title="メロディに合うコードを、全部の小節に自動でつけます">${I('spark')}<span>メロディにコードをつける</span></button>`;
     html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
     const dia = diatonic();
@@ -2852,6 +2853,7 @@ function renderEditorTools() {
       renderTracks();
     };
   } else {
+    if ($('#btnAutoChord')) $('#btnAutoChord').onclick = () => autoChords();
     $('#cPat').onchange = (ev) => edit(() => { tr.pattern = ev.target.value; }, '伴奏の形');
     $('#cBass').onchange = (ev) => edit(() => { tr.bassOn = ev.target.checked; }, 'ベースの有無');
   }
@@ -3458,6 +3460,86 @@ function scEditSel(fn, label) {
   edit(() => { fn(ns, tr); }, label);
   ui.sc.sel = new Set(ns.map((n) => n.s + ':' + n.p));
   renderScoreEdit();
+}
+/* ---------- メロディにコードをつける ----------
+   小節ごとに、メロディの音（長い音・拍の頭の音ほど大事）がいちばん多くふくまれるコードをえらぶ。
+   さいごの小節は主和音（Ⅰ）、その前は属和音（Ⅴ・Ⅴ7）になりやすくする。
+   1小節の中で前半と後半の音がはっきりちがうときは、2つのコードにする */
+function harmonize(halves = true) {
+  const mels = song.tracks.filter((t) => t.type === 'melody' && t.notes.length);
+  if (!mels.length) return null;
+  const cands = diatonic().filter((c) => c.q !== 'M7' && c.q !== 'dim');
+  const tonesOf = (c) => new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12));
+  const weights = (a, z) => {
+    const w = new Array(12).fill(0);
+    mels.forEach((t, ti) => {
+      const tw = ti === 0 ? 1 : 0.5; // いちばん上のメロディを大事に
+      for (const n of t.notes) {
+        const s0 = Math.max(n.s, a);
+        const e0 = Math.min(n.s + n.l, z);
+        if (e0 <= s0) continue;
+        let v = (e0 - s0) / 48;
+        if (n.s >= a && (n.s - a) % beatAt(barOf(a)) === 0) v += 0.5; // 拍の頭
+        if (n.s === a) v += 0.5; // 小節（区切り）の頭
+        w[n.p % 12] += v * tw;
+      }
+    });
+    return w;
+  };
+  const score = (c, w, prev, last, beforeLast) => {
+    const tones = tonesOf(c);
+    let sc = 0;
+    let any = 0;
+    for (let pc = 0; pc < 12; pc++) { if (!w[pc]) continue; any += w[pc]; sc += tones.has(pc) ? w[pc] : -0.45 * w[pc]; }
+    if (!any) return -1e9;
+    const deg = c.deg;
+    if (/^Ⅰ/.test(deg)) sc += 0.25;
+    if (/^Ⅳ|^Ⅴ/.test(deg)) sc += 0.15;
+    if (last) sc += /^Ⅰ/.test(deg) ? 3 : -1;
+    if (beforeLast && /^Ⅴ/.test(deg)) sc += 0.6;
+    if (prev && prev.r === c.r && prev.q === c.q) sc += 0.1;
+    if (c.q === '7' && !(w[(c.r + 10) % 12] > 0)) sc -= 0.2; // 7の音がないなら、ふつうのⅤ
+    return sc;
+  };
+  const best = (a, z, prev, last, beforeLast) => {
+    const w = weights(a, z);
+    let bc = null;
+    let bs = -1e9;
+    for (const c of cands) { const v = score(c, w, prev, last, beforeLast); if (v > bs) { bs = v; bc = c; } }
+    return bs <= -1e8 ? null : { c: { r: bc.r, q: bc.q }, s: bs };
+  };
+  const out = [];
+  let prev = null;
+  const lastBar = (() => { let lb = 0; for (const t of mels) for (const n of t.notes) lb = Math.max(lb, barOf(Math.min(n.s, totalTicks() - 1))); return lb; })();
+  for (let b = 0; b < song.bars; b++) {
+    const a = barStart(b);
+    const z = barStart(b + 1);
+    const last = b === lastBar;
+    const whole = best(a, z, prev, last, b === lastBar - 1);
+    if (!whole) { out.push(b > lastBar ? null : prev ? { ...prev } : null); continue; }
+    let pick = whole.c;
+    if (halves && !last) {
+      const h = a + chordHalf(b);
+      const A = best(a, h, prev, false, false);
+      const B = A && best(h, z, A.c, false, b === lastBar - 1);
+      // にた和音（音が2つ以上同じ）なら分けない
+      const shared = A && B ? [...tonesOf(A.c)].filter((x) => tonesOf(B.c).has(x)).length : 3;
+      if (A && B && shared < 2 && A.s + B.s > whole.s + 1.2) pick = { ...A.c, h: B.c };
+    }
+    out.push(pick);
+    prev = pick.h || pick;
+  }
+  return out;
+}
+function autoChords() {
+  let tr = song.tracks.find((t) => t.type === 'chord');
+  if (!tr) return toast('コード伴奏のトラックがありません（トラックの「追加」から作れます）');
+  if (locked(tr)) return toast('コード伴奏のトラックはロックされています');
+  const res = harmonize(true);
+  if (!res) return toast('先にメロディを入れてね');
+  edit(() => { tr.chords = res; }, 'メロディにコードをつける');
+  const two = res.filter((c) => c && c.h).length;
+  toast(`メロディに合うコードをつけました${two ? `（${two}小節は2つのコード）` : ''}。気に入らない小節は、下のボタンで変えられます`, 4000);
 }
 function diatonicStep(p, dir) {
   const acc = scKeyAcc();
