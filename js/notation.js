@@ -40,7 +40,8 @@ const Notation = (() => {
     triangle: [10, 'x'], triMute: [10, 'x'], suzu: [9, 'x'], kane: [9, 'x'], gong: [10, 'x'],
   };
 
-  const keyCount = (key, minor) => KEYSIG[(((minor ? key + 3 : key) % 12) + 12) % 12];
+  // 変ホ短調（E♭m）は♭6つ（平行調の G♭ 長調）。KEYSIG の F♯ 長調（♯6）を使わない
+  const keyCount = (key, minor) => { const pc = (((minor ? key + 3 : key) % 12) + 12) % 12; return minor && pc === 6 ? -6 : KEYSIG[pc]; };
   const beatOf = (meter) => (meter[1] === 8 && meter[0] % 3 === 0 && meter[0] > 3 ? 72 : 192 / meter[1]);
   function keyAccOf(kc) {
     const a = [0, 0, 0, 0, 0, 0, 0];
