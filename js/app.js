@@ -613,8 +613,10 @@ function chordEvents(tr) {
     const bl = barLen(b);
     const hs = c0.h ? chordHalf(b) : bl;
     // 伴奏の形は「小節の」リズムで作り、前半・後半それぞれの区切りの中だけ鳴らす（2つのコードでも速くならない）
-    prev = chordPart(tr, ev, c0, barStart(b), bl, 0, hs, bs, prev);
-    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b), bl, hs, bl, bs, prev);
+    // 弱起の小節は、音のある所（さいごの数拍）だけ鳴らす
+    const st0 = b === 0 && song.pickup > 0 ? Math.max(0, bl - song.pickup) : 0;
+    if (hs > st0) prev = chordPart(tr, ev, c0, barStart(b), bl, st0, hs, bs, prev);
+    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b), bl, Math.max(hs, st0), bl, bs, prev);
   }
   return ev;
 }
