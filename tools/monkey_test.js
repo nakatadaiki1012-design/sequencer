@@ -8,7 +8,7 @@ const N = +(process.argv[2] || 300);
     const ctx = await b.newContext(opt);
     const p = await ctx.newPage();
     const errs = [];
-    p.on('pageerror', (e) => errs.push(e.message.slice(0, 160)));
+    p.on('pageerror', (e) => errs.push(e.message.slice(0, 160) + ' @ ' + String(e.stack || '').split('\n').slice(1, 4).join(' | ').replace(/http:\/\/localhost:8765\//g, '').slice(0, 300)));
     p.on('dialog', (d) => d.dismiss().catch(() => {}));
     p.on('filechooser', () => {});
     await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(900);

@@ -3871,6 +3871,7 @@ function scInsert(pitches, chordAdd) {
   renderScoreEdit();
 }
 function refPitch(tr) {
+  if (!tr || !Array.isArray(tr.notes)) return 72; // コード・リズムのトラックのとき
   if (ui.sc.lastIns && (ui.sc.lastIns.p || ui.sc.lastIns.ref)) return ui.sc.lastIns.p || ui.sc.lastIns.ref;
   const before = tr.notes.filter((n) => n.s < ui.sc.cursor).sort((a, b) => b.s - a.s)[0];
   return before ? before.p : (RANGES[tr.range] || RANGES.soprano)[1] + 7;
