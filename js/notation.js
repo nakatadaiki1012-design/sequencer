@@ -570,7 +570,7 @@ const Notation = (() => {
               if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; o.push(G('augmentationDot', x + hw + 3 + Math.max(0, ...disp), y + dy, `fill="${col}"`)); }
             }
             // 階名・歌詞
-            if (!perc && nameOf && ev.first && stream === 'A') o.push(`<text x="${x}" y="${textY}" font-size="10" text-anchor="middle" fill="#2b6cb0">${esc(heads.map((h) => nameOf(h.p)).reverse().join('・'))}</text>`);
+            if (!perc && nameOf && ev.first && stream === 'A') o.push(`<text x="${x}" y="${textY}" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1e3a8a">${esc(heads.map((h) => nameOf(h.p)).reverse().join('・'))}</text>`);
             if (!perc && FING && ev.first && stream === 'A' && heads.length === 1) {
               const f = FING[heads[0].p];
               if (f) o.push(fingerSvg(x, fingY, f));

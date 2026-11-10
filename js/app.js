@@ -1718,7 +1718,7 @@ function editDown(e) {
       let mode = nearEnd ? 'resize' : 'move';
       if (ui.dragMode === 'stretch') mode = 'resize';
       if (ui.dragMode === 'move') mode = 'move';
-      drag = { kind: mode, n, snap, off: h.cell - n.s, moved: false, existing: true, touch: e.pointerType === 'touch', label: mode === 'resize' ? '音の長さを変更' : '音を移動' };
+      drag = { kind: mode, n, snap, off: h.cell - n.s, offT: h.tick - n.s, moved: false, existing: true, touch: e.pointerType === 'touch', label: mode === 'resize' ? '音の長さを変更' : '音を移動' };
     } else {
       const nn = { s: h.cell, p: h.row.p, l: cellLen(h.cell) };
       tr.notes.push(nn);
@@ -2074,14 +2074,18 @@ function onMove(e) {
     draw();
     return;
   }
+  const fine = e.altKey ? Math.max(3, Math.round(ui.grid / 4)) : 0;
   if (drag.kind === 'resize') {
-    const endCell = cellStart(clamp(h.tick, drag.n.s, totalTicks() - 1));
-    drag.n.l = Math.max(cellLen(drag.n.s), endCell + cellLen(endCell) - drag.n.s);
+    if (fine) drag.n.l = Math.max(fine, Math.round((clamp(h.tick, drag.n.s, totalTicks()) - drag.n.s) / fine) * fine + fine);
+    else {
+      const endCell = cellStart(clamp(h.tick, drag.n.s, totalTicks() - 1));
+      drag.n.l = Math.max(cellLen(drag.n.s), endCell + cellLen(endCell) - drag.n.s);
+    }
     drag.moved = true;
     version++;
   } else if (drag.kind === 'move') {
     const rows = rowsFor(tr);
-    const ns = clamp(cellStart(Math.max(0, h.tick)) - drag.off, 0, totalTicks() - 1);
+    const ns = fine ? clamp(Math.round((h.tick - (drag.offT != null ? drag.offT : drag.off)) / fine) * fine, 0, totalTicks() - 1) : clamp(cellStart(Math.max(0, h.tick)) - drag.off, 0, totalTicks() - 1);
     const row = rows[clamp(h.ri, 0, rows.length - 1)];
     if (ns !== drag.n.s || row.p !== drag.n.p) {
       if (row.p !== drag.n.p) { preview(tr, row.p); showMini(row.p); }
@@ -5712,6 +5716,7 @@ function init() {
     if (e.key === '?' && !$$('dialog').some((d) => d.open)) { e.preventDefault(); openKeys(); return; }
     if (ui.view === 'score' && !$$('dialog').some((d) => d.open) && scoreKey(e)) return;
     if (ui.view !== 'score' && !$$('dialog').some((d) => d.open) && noteKeys(e)) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveToBrowser(); return; }
     if (e.ctrlKey || e.metaKey) {
       if (e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
