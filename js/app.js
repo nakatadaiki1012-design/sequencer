@@ -352,7 +352,12 @@ function playStarts() {
   const o = playOrder();
   if (orderCache.ps && orderCache.psKey === orderCache.key + geo().key) return orderCache.ps;
   const ps = [0];
-  for (let k = 0; k < o.length; k++) ps.push(ps[k] + barLen(o[k]));
+  const pk = song.pickup > 0 ? barLen(0) - song.pickup : 0; // 弱起の小節の、音のない部分
+  for (let k = 0; k < o.length; k++) {
+    // くり返し・D.C. で弱起の小節にもどるときは、音のない部分をとばす（すき間があかないように）
+    if (k > 0 && pk && o[k] === 0) ps[k] -= pk;
+    ps.push(ps[k] + barLen(o[k]));
+  }
   orderCache.ps = ps;
   orderCache.psKey = orderCache.key + geo().key;
   return ps;
@@ -387,9 +392,10 @@ function timeTable() {
   if (timeCache.key === key) return timeCache;
   const start = [0];
   const spt = [];
+  const ps = playStarts();
   for (let k = 0; k < o.length; k++) {
     spt.push(60 / (bpmAt(o[k]) * TPQ * playSpeed));
-    start.push(start[k] + spt[k] * barLen(o[k]));
+    start.push(start[k] + spt[k] * (ps[k + 1] - ps[k]));
   }
   timeCache = { key, start, spt, n: o.length };
   return timeCache;
