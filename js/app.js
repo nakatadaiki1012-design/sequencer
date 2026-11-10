@@ -4594,7 +4594,7 @@ function applyPhone() {
 }
 function renderChips() {
   const box = $('#trackChips');
-  box.innerHTML = song.tracks.map((t, i) => `<button class="chip ${i === cur ? 'on' : ''}" data-i="${i}" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><i class="dot"></i>${escapeHtml(t.name)}${t.mute ? I('mute') : ''}${t.locked ? I('lock') : ''}</button>`).join('') + (song.locks.tracks ? '' : `<button class="chip add" data-add="1">${I('plus')}</button>`);
+  box.innerHTML = song.tracks.map((t, i) => `<button class="chip ${i === cur ? 'on' : ''}" data-i="${i}" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><i class="dot"></i>${escapeHtml(t.name)}${t.mute ? I('mute') : ''}${t.locked ? I('lock') : ''}</button>`).join('') + (song.locks.tracks ? '' : `<button class="chip add" data-add="1" aria-label="トラックを追加" title="トラックを追加">${I('plus')}</button>`);
   box.querySelectorAll('.chip[data-i]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.i;
     if (i === cur) setPhoneView('tracks'); else { selectTrack(i); renderPhoneKbd(); }
@@ -5876,6 +5876,18 @@ function setKids(on) {
 }
 $('#kidsMode').onchange = (e) => setKids(e.target.checked);
 if (lsGet('otsumiki-kids', '0') === '1') setKids(true);
+// 読み上げソフトのために：on のボタンは「おされている」、ダイアログには見出しの名前
+{
+  const sync = (b) => { if (b.classList.contains('toggle') || b.closest('.seg, .otama, .realtoggle, .halfseg') || b.id === 'btnRec' || b.id === 'btnStepRec') b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); };
+  $$('button').forEach(sync);
+  new MutationObserver((ms) => {
+    for (const m of ms) {
+      if (m.type === 'attributes' && m.target.nodeName === 'BUTTON') sync(m.target);
+      else if (m.type === 'childList') m.addedNodes.forEach((n) => { if (n.nodeType !== 1) return; if (n.nodeName === 'BUTTON') sync(n); if (n.querySelectorAll) n.querySelectorAll('button').forEach(sync); });
+    }
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  $$('dialog').forEach((d, i) => { const h = d.querySelector('h3'); if (h && !d.hasAttribute('aria-labelledby')) { if (!h.id) h.id = 'dlgTitle' + i; d.setAttribute('aria-labelledby', h.id); } });
+}
 $('#btnTour').onclick = () => { closePops(); startTour(ui.view === 'score' ? 'score' : 'main'); };
 $('#btnKeys').onclick = () => { closePops(); openKeys(); };
 function openKeys() { if (!$('#dlgKeys').open) $('#dlgKeys').showModal(); }
