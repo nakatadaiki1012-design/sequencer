@@ -71,15 +71,22 @@ const Notation = (() => {
     const out = [];
     const mid = meter[0] === 4 && meter[1] === 4 ? 96 : 0;
     let guard = 0;
+    const compound = beat % 3 === 0 && beat >= 36; // 6/8 などの複合拍子（1拍＝付点）
     while (len > 0 && guard++ < 64) {
       let chosen = null;
-      for (const v of VALUES) {
-        if (v[0] > len) continue;
-        if (v[3]) { if (pos % v[0] !== 0) continue; } else if (pos % Math.min(v[1], beat) !== 0) continue;
-        // 4/4拍子では、小節の頭から始まる音・2分音符以上で拍の頭から始まる音以外は、まん中（3拍目）をまたがない
-        if (mid && pos < mid && pos + v[0] > mid && pos !== 0 && !(v[1] >= 96 && pos % 48 === 0)) continue;
-        chosen = v;
-        break;
+      // 3連符の位置・長さ（6でわりきれない）なら、まず3連符でさがす（16分＋32分…のように書かない）
+      const trip = len % 6 !== 0 || pos % 6 !== 0;
+      for (const pass of trip ? [1, 0] : [0]) {
+        for (const v of VALUES) {
+          if (pass && !v[3]) continue;
+          if (v[0] > len) continue;
+          if (v[3]) { if (pos % (v[0] / 2) !== 0) continue; } else if (compound ? (pos % beat) % Math.min(v[0], beat) !== 0 : pos % Math.min(v[1], beat) !== 0) continue;
+          // 4/4拍子では、小節の頭から始まる音・2分音符以上で拍の頭から始まる音以外は、まん中（3拍目）をまたがない
+          if (mid && pos < mid && pos + v[0] > mid && pos !== 0 && !(v[1] >= 96 && pos % 48 === 0)) continue;
+          chosen = v;
+          break;
+        }
+        if (chosen) break;
       }
       if (!chosen) chosen = [len, 6, 0, 0];
       out.push({ pos, len: chosen[0], base: chosen[1], dot: chosen[2], trip: chosen[3] });
