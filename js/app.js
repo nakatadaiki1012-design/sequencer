@@ -4957,18 +4957,32 @@ function exportProgress(label, p) {
   $('#expPct').textContent = Math.round(p * 100) + '%';
   if (!d.open) d.showModal();
 }
-async function renderSong(onProg) {
+// どこを書き出すか：ループがオンなら「範囲だけ」をえらべる
+function exportRange() {
+  if (!(ui.loopOn && ui.loopRange)) return null;
+  const [a, z] = loopBounds();
+  const b0 = ui.loopRange[0] + 1;
+  const b1 = ui.loopRange[1];
+  return confirm(`ループの範囲（${b0}〜${b1}小節）だけ書き出しますか？\nOK＝範囲だけ／キャンセル＝曲の全部`) ? [a, z] : null;
+}
+async function renderSong(onProg, opts = {}) {
   stop();
   if (onProg) onProg(0.02);
   const c0 = audioCtx();
   await Promise.all(song.tracks.filter((t) => t.real !== false).map((t) => (t.type === 'drum' ? Sound.Samples.loadDrums(c0) : Sound.Samples.has(t.inst) ? Sound.Samples.load(t.inst, c0) : null)).map((p) => p && p.catch(() => null)));
   const sr = 44100;
-  const len = Math.ceil((absSec(playTotal()) + 3) * sr);
+  const [ra, rz] = opts.range || [0, playTotal()];
+  const off = absSec(ra);
+  const len = Math.ceil((absSec(rz) - off + (opts.range ? 1.5 : 3)) * sr);
   const ctx = new OfflineAudioContext(2, len, sr);
   const comp = ctx.createDynamicsCompressor();
   comp.connect(ctx.destination);
   const graph = buildGraph(ctx, comp, false);
-  for (const e of eventList()) scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t), false);
+  for (const e of eventList()) {
+    if (e.t < ra || e.t >= rz) continue;
+    if (opts.only && (!e.tr || e.tr.id !== opts.only)) continue;
+    scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t) - off, false);
+  }
   // とちゅうで止めて、進みぐあいを知らせる
   if (onProg && ctx.suspend) {
     const dur = len / sr;
@@ -4980,9 +4994,10 @@ async function renderSong(onProg) {
   return ctx.startRendering();
 }
 async function exportWav() {
+  const range = exportRange();
   const job = (exportJob = { cancel: false });
   try {
-    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.9));
+    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.9), { range });
     if (job.cancel) return;
     exportProgress('ファイルにまとめています…', 0.95);
     download(encodeWav(buf), safeName() + '.wav');
@@ -4994,7 +5009,8 @@ async function exportMp3() {
   const job = (exportJob = { cancel: false, ac: new AbortController() });
   try {
     MP3.ensure();
-    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.5));
+    const range = exportRange();
+    const buf = await renderSong((p) => exportProgress('音を作っています…', p * 0.5), { range });
     if (job.cancel) return;
     const blob = await MP3.encode(buf, { kbps: 192, signal: job.ac.signal, onProgress: (p) => exportProgress('MP3 に変換しています…', 0.5 + p * 0.5) });
     if (job.cancel) return;
@@ -5004,6 +5020,53 @@ async function exportMp3() {
   } catch (e) {
     if (e && e.name === 'AbortError') { toast('書き出しをやめました'); return; }
     throw e;
+  } finally { exportProgress(null); exportJob = null; }
+}
+/* ---------- パートごとに書き出す（WAV を ZIP にまとめる） ---------- */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+// 圧縮しない ZIP（音のファイルはもう小さくならないので、そのまま入れる）
+function makeZip(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let off = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const data = f.data;
+    const crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const csize = central.reduce((a, x) => a + x.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
+}
+async function exportStems() {
+  const range = exportRange();
+  const list = song.tracks.filter((t) => audible(t) && ((t.notes && t.notes.length) || (t.grid && Object.keys(t.grid).length) || (t.chords && t.chords.some(Boolean))));
+  if (!list.length) return toast('書き出す音がありません');
+  const job = (exportJob = { cancel: false });
+  try {
+    const files = [];
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      const buf = await renderSong((p) => exportProgress(`パート ${i + 1}/${list.length}「${t.name}」`, (i + p) / list.length), { range, only: t.id });
+      if (job.cancel) return;
+      const wav = encodeWav(buf);
+      files.push({ name: `${String(song.tracks.indexOf(t) + 1).padStart(2, '0')}_${t.name.replace(/[\\/:*?"<>|]/g, '_')}.wav`, data: new Uint8Array(await wav.arrayBuffer()) });
+    }
+    download(makeZip(files), safeName() + '_パートごと.zip');
+    toast(`${files.length}パートを、それぞれのWAVにしてZIPにまとめました（ほかの音楽ソフトで使えます）`, 4000);
+    return files.length;
   } finally { exportProgress(null); exportJob = null; }
 }
 function cancelExport() { if (exportJob) { exportJob.cancel = true; if (exportJob.ac) exportJob.ac.abort(); } exportProgress(null); toast('書き出しをやめました'); }
@@ -5321,6 +5384,7 @@ function init() {
   $('#btnImportJson').onclick = () => $('#fileIn').click();
   $('#fileIn').onchange = (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
   $('#btnWav').onclick = () => exportWav().catch((err) => alert('書き出しに失敗しました：' + err.message));
+  $('#btnStems').onclick = () => { closePops(); exportStems().catch((err) => alert('書き出しに失敗しました：' + err.message)); };
   $('#expCancel').onclick = cancelExport;
   $('#btnMp3').onclick = () => exportMp3().catch((err) => alert('書き出しに失敗しました：' + err.message));
   $('#btnMidi').onclick = exportMidi;
