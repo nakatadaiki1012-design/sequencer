@@ -3175,7 +3175,7 @@ async function openTeacher() {
    ============================================================ */
 function scoreSettings() {
   if (!song.score) song.score = {};
-  return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', drums: false, clefs: {}, ...song.score });
+  return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', finger: '', drums: false, clefs: {}, ...song.score });
 }
 // 「3,5-6」→ [2, 4, 5]（小節番号は1から）
 function parseBars(txt) {
@@ -3230,6 +3230,7 @@ function scoreOpts(trackIds, withDrums) {
     geo: { starts: geo().starts, meters: geo().meters, keys: geo().keys }, jumps: song.jumps || {},
     title: song.title, bpm: song.bpm, tempoText: song.tempoText, tempos: song.tempos,
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
+    finger: S.finger || '',
     blankBars: parseBars(S.blank),
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
     chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; return c ? (c.h ? { ...c, hAt: chordHalf(b) } : c) : null; }) : null,
@@ -3277,6 +3278,7 @@ function openScore() {
     <label>速さのことば <input data-k="tempoText" value="${escapeHtml(song.tempoText || '')}" placeholder="れい：Moderato／やさしく"></label>
     <label title="1小節目を、はじめの休みをのぞいた短い小節（アウフタクト）として書きます">弱起（アウフタクト） <select data-k="pickup">${pickOpts.map(([v, t]) => `<option value="${v}" ${song.pickup === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     <h4>見た目</h4>
+    <label>リコーダーの指づかい <select data-s="finger"><option value="">書かない</option><option value="baroque">ソプラノ（バロック式）</option><option value="german">ソプラノ（ジャーマン式）</option></select></label>
     <label>音符の下に <select data-s="solfa"><option value="none">何も書かない</option><option value="doremi">ドレミ（音名）</option><option value="movable">ドレミ（階名・移動ド）</option><option value="cde">CDE</option><option value="haniho">ハニホ</option></select></label>
     <label>1段の小節数 <select data-s="perLine"><option value="0">自動</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}小節</option>`).join('')}</select></label>
     <label>大きさ <select data-s="scale"><option value="0.8">小さい</option><option value="1">ふつう</option><option value="1.25">大きい</option><option value="1.5">とても大きい</option></select></label>

@@ -169,10 +169,38 @@ const Notation = (() => {
      ほか: bars, barTicks, meter, key, minor, title, bpm, tempoText, chords, meta, nameOf,
           perLine, scale, width, pickup, repeats, edit: { part, cursor, sel:Set('s:p'), grid }
      ------------------------------------------------------------ */
+  const FINGERING = (() => {
+    const base = {
+      60: [1, 1, 1, 1, 1, 1, 1, 1], 62: [1, 1, 1, 1, 1, 1, 1, 0], 64: [1, 1, 1, 1, 1, 1, 0, 0],
+      67: [1, 1, 1, 1, 0, 0, 0, 0], 69: [1, 1, 1, 0, 0, 0, 0, 0], 70: [1, 1, 0, 1, 1, 0, 0, 0], 71: [1, 1, 0, 0, 0, 0, 0, 0],
+      72: [1, 0, 1, 0, 0, 0, 0, 0], 73: [0, 1, 1, 0, 0, 0, 0, 0], 74: [0, 0, 1, 0, 0, 0, 0, 0],
+      76: [0.5, 1, 1, 1, 1, 1, 0, 0], 79: [0.5, 1, 1, 1, 0, 0, 0, 0], 81: [0.5, 1, 1, 0, 0, 0, 0, 0],
+      83: [0.5, 1, 1, 0, 1, 1, 0, 0], 84: [0.5, 1, 0, 0, 1, 1, 0, 0],
+    };
+    return {
+      baroque: { ...base, 65: [1, 1, 1, 1, 1, 0, 1, 1], 66: [1, 1, 1, 1, 0, 1, 1, 0], 77: [0.5, 1, 1, 1, 1, 0, 1, 0] },
+      german: { ...base, 65: [1, 1, 1, 1, 1, 0, 0, 0], 77: [0.5, 1, 1, 1, 1, 0, 0, 0] },
+    };
+  })();
+  // 指づかいの絵（上から：うら穴、1〜7。ぬりつぶし＝ふさぐ）
+  function fingerSvg(x, y, f) {
+    const r = 2.3;
+    let s = `<g class="finger" stroke="#111" stroke-width="0.7">`;
+    f.forEach((v, i) => {
+      const cx = i === 0 ? x - 3.2 : x;
+      const cy = y + (i === 0 ? 0 : 3 + i * 4.6 + (i >= 4 ? 1.6 : 0));
+      if (v === 1) s += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#111"/>`;
+      else if (v === 0.5) s += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff"/><path d="M${cx} ${cy - r}A${r} ${r} 0 0 0 ${cx} ${cy + r}Z" fill="#111"/>`;
+      else s += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff"/>`;
+    });
+    return s + '</g>';
+  }
   function render(opts) {
     const { parts, bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
     const meta = opts.meta || {};
     const BLANK = new Set(opts.blankBars || []); // 穴うめ：音符を書かない小節
+    // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
+    const FING = opts.finger ? FINGERING[opts.finger] : null;
     const scale = opts.scale || 1;
     const OUTW = opts.width || 780;
     const width = OUTW / scale;
@@ -321,7 +349,7 @@ const Notation = (() => {
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
     const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0);
-    const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
+    const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const systemH = topRow + staves.reduce((a, s) => a + staffH(s), 0) + 16;
     const NL = meta.nameLine ? 24 : 0; // 名前のらんのぶん、下げる
     const top = 70 + NL + (meta.subtitle ? 18 : 0);
@@ -446,8 +474,10 @@ const Notation = (() => {
           digits(mAt(0)[1], yOf(2), tx + 7);
         }
         const textY = stTop + 4 * SP + 2.7 * SP + st.below;
-        const lyrY = textY + (nameOf && !perc ? 15 : 0);
-        const dynY = (st.hasLyr ? lyrY + 18 : nameOf && !perc ? textY + 15 : textY) + 2;
+        const fOff = FING && !perc ? 42 : 0;
+        const fingY = textY + (nameOf && !perc ? 15 : 0) - 4;
+        const lyrY = textY + (nameOf && !perc ? 15 : 0) + fOff;
+        const dynY = (st.hasLyr ? lyrY + 18 : textY + (nameOf && !perc ? 15 : 0) + fOff) + 2;
         const headsAt = new Map(); // abs tick → {x, ys[], up}（スラー用）
         const prevOf = { A: null, B: null };
         for (const B of sys.bars) {
@@ -541,6 +571,10 @@ const Notation = (() => {
             }
             // 階名・歌詞
             if (!perc && nameOf && ev.first && stream === 'A') o.push(`<text x="${x}" y="${textY}" font-size="10" text-anchor="middle" fill="#2b6cb0">${esc(heads.map((h) => nameOf(h.p)).reverse().join('・'))}</text>`);
+            if (!perc && FING && ev.first && stream === 'A' && heads.length === 1) {
+              const f = FING[heads[0].p];
+              if (f) o.push(fingerSvg(x, fingY, f));
+            }
             const lyr = ev.first ? (ev.ly || (st.notes.some((n) => n.ly) ? '' : st.lyrics[ev.syll])) : '';
             if (st.sub === 0 && lyr && stream === 'A') o.push(`<text x="${x}" y="${lyrY}" font-size="12" text-anchor="middle" fill="#111">${esc(lyr)}</text>`);
             const flags = ev.base <= 6 ? 3 : ev.base <= 12 ? 2 : ev.base <= 24 ? 1 : 0;
