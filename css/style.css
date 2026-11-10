@@ -1283,3 +1283,7 @@ body.phone .mission b { font-size: 12.5px; }
 body.phone .mission .mini { position: absolute; right: 8px; top: 6px; float: none; min-height: 28px; padding: 0 8px; font-size: 11px; }
 body.phone .mission { position: fixed; }
 @media (min-width: 700px) { body.phone .mission { right: auto; width: min(420px, 60vw); } }
+
+/* キャンバスの長い説明は、マウスをのせたときだけ（場所をとらない） */
+body:not(.phone) .ovtools .hint { opacity: 0; transition: opacity .2s; }
+body:not(.phone) .canvas-area:hover .ovtools .hint { opacity: 1; }

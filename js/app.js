@@ -3988,6 +3988,20 @@ function applyProgression(i) {
     }
   }, 'コード進行「' + name + '」');
   toast(`「${name}」を ${from + 1}小節目から入れました（メジャーの調で、いちばん合います）`, 3500);
+  // はじめの4つのコードを、さっと鳴らして聞かせる
+  const ctx = ensureAudio();
+  let k2 = 0;
+  for (let b = from; b < Math.min(song.bars, from + 4); b++) {
+    const c = tr.chords[b];
+    for (const cc of c ? (c.h ? [c, c.h] : [c]) : []) {
+      let root = 48 + (cc.r % 12);
+      if (root > 54) root -= 12;
+      const at = ctx.currentTime + 0.05 + k2 * 0.42;
+      CHORD_Q[cc.q].iv.forEach((x) => Sound.playNote(ctx, previewOut, tr.inst, root + 12 + x, at, 0.38, 0.45));
+      Sound.playNote(ctx, previewOut, tr.inst, root - 12 + (root < 43 ? 12 : 0), at, 0.38, 0.5);
+      k2++;
+    }
+  }
 }
 function harmonize(halves = true) {
   const mels = song.tracks.filter((t) => t.type === 'melody' && t.notes.length);
