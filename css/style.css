@@ -1175,3 +1175,9 @@ body.kids .mini-info { font-size: 13px; }
 .myvoice > span { font-size: 12px; color: var(--muted); flex: 1 1 200px; }
 .myvoice.on { border-style: solid; box-shadow: 0 0 0 2px var(--accent); }
 .mvstate { font: 800 22px/1 system-ui, sans-serif; color: #e03131; min-width: 1.2em; text-align: center; }
+
+/* 楽譜のパレット：たたむ */
+.scorepal.compact .prow ~ .prow { display: none; }
+.scorepal.compact .prow:first-child { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.scorepal .palfold { margin-left: auto; white-space: nowrap; color: var(--accent-text); }
+body.phone .scorepal .palfold { display: none; }

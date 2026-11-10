@@ -3934,6 +3934,11 @@ function renderScorePal() {
       <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button></span>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す</span></div>`;
+  // パレットをたたむ（1行だけ：入力・長さ・休符・ドレミ・♯♭）。画面が低いときは、はじめからたたむ
+  if (ui.sc.compact == null) ui.sc.compact = lsGet('otsumiki-scpal', innerHeight < 860 && !isPhone ? '1' : '0') === '1';
+  pal.classList.toggle('compact', ui.sc.compact);
+  pal.querySelector('.prow').insertAdjacentHTML('beforeend', `<button class="mini palfold" id="scFold" title="${ui.sc.compact ? '記号・強弱・歌詞・くり返しなどのボタンも出す' : 'ボタンを1行にして、楽譜を広く見る'}">${ui.sc.compact ? '▾ もっと' : '▴ たたむ'}</button>`);
+  $('#scFold').onclick = () => { ui.sc.compact = !ui.sc.compact; lsSet('otsumiki-scpal', ui.sc.compact ? '1' : '0'); renderScorePal(); renderScoreEdit(); };
   pal.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { ui.sc.input = b.dataset.m === '1'; renderScorePal(); }));
   pal.querySelectorAll('.sdur').forEach((b) => (b.onclick = () => { ui.sc.dur = +b.dataset.d; scApplyDurToSel(); renderScorePal(); }));
   $('#scDot').onclick = () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); };
