@@ -327,14 +327,15 @@ const MusicXMLImport = (() => {
     const partInfo = {};
     for (const sp of kids(kid(root, 'part-list'), 'score-part')) {
       const id = sp.getAttribute('id');
-      const pi = { name: txt(sp, 'part-name') || txt(sp, 'part-abbreviation'), program: null, perc: false, unpitched: {} };
+      const pi = { name: txt(sp, 'part-name') || txt(sp, 'part-abbreviation'), program: null, perc: false, unpitched: {}, instName: {} };
+      for (const si of kids(sp, 'score-instrument')) pi.instName[si.getAttribute('id')] = txt(si, 'instrument-name');
       for (const mi of kids(sp, 'midi-instrument')) {
         const ch = txt(mi, 'midi-channel');
         if (ch === '10') pi.perc = true;
         const pg = txt(mi, 'midi-program');
         if (pg && pi.program == null) pi.program = Math.round(num(pg, 1));
         const un = txt(mi, 'midi-unpitched');
-        if (un) pi.unpitched[mi.getAttribute('id')] = Math.round(num(un, 0));
+        if (un) pi.unpitched[mi.getAttribute('id')] = Math.round(num(un, 0)) - 1; // MusicXML は1から、GM は0から
       }
       partInfo[id] = pi;
     }
@@ -586,9 +587,12 @@ const MusicXMLImport = (() => {
         if (it.kind !== 'note' || it.tieStop) continue;
         let id = null;
         let gm = null;
-        if (it.inst && unp[it.inst] != null) gm = unp[it.inst];
+        // おつみきで書き出した楽譜は、楽器の名前がそのままドラムの名前
+        const nm = it.inst && p.meta.instName ? p.meta.instName[it.inst] : null;
+        if (nm && typeof Sound !== 'undefined' && Sound.DRUMS[nm]) id = nm;
+        else if (it.inst && unp[it.inst] != null) gm = unp[it.inst];
         else if (!it.inst && unpIds.length === 1) gm = unp[unpIds[0]];
-        if (gm != null) id = GM_DRUM[gm] || 'snare';
+        if (id) { /* 名前でわかった */ } else if (gm != null) id = GM_DRUM[gm] || 'snare';
         else if (it.dstep) id = drumByStaff(it.dstep, it.doct, it.head);
         else if (it.p != null) id = GM_DRUM[it.p] || 'snare'; // 音の高さで書かれたドラム
         else id = 'snare';

@@ -947,7 +947,8 @@ const Notation = (() => {
     if (meta.lyricist) x.push(`<creator type="lyricist">${esc(meta.lyricist)}</creator>`);
     x.push('<encoding><software>おとつみき</software></encoding></identification>');
     x.push('<part-list>');
-    parts.forEach((p, i) => x.push(`<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${p.gm != null ? `<score-instrument id="P${i + 1}-I1"><instrument-name>${esc(p.name)}</instrument-name></score-instrument><midi-instrument id="P${i + 1}-I1">${p.perc ? '<midi-channel>10</midi-channel>' : ''}<midi-program>${(p.gm || 0) + 1}</midi-program></midi-instrument>` : ''}</score-part>`));
+    const drumIds = parts.map((p) => (p.perc ? [...new Set(p.notes.map((n) => n.id))] : null));
+    parts.forEach((p, i) => x.push(p.perc && drumIds[i].length ? `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${drumIds[i].map((id, k) => `<score-instrument id="P${i + 1}-I${k + 1}"><instrument-name>${esc(id)}</instrument-name></score-instrument>`).join('')}${drumIds[i].map((id, k) => `<midi-instrument id="P${i + 1}-I${k + 1}"><midi-channel>10</midi-channel><midi-unpitched>${((opts.drumGm || {})[id] || 38) + 1}</midi-unpitched></midi-instrument>`).join('')}</score-part>` : `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${p.gm != null ? `<score-instrument id="P${i + 1}-I1"><instrument-name>${esc(p.name)}</instrument-name></score-instrument><midi-instrument id="P${i + 1}-I1">${p.perc ? '<midi-channel>10</midi-channel>' : ''}<midi-program>${(p.gm || 0) + 1}</midi-program></midi-instrument>` : ''}</score-part>`));
     x.push('</part-list>');
     const HK = { M: 'major', m: 'minor', 7: 'dominant', M7: 'major-seventh', m7: 'minor-seventh', sus4: 'suspended-fourth', dim: 'diminished', aug: 'augmented' };
     const DYN = new Set(['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp']);
@@ -957,7 +958,8 @@ const Notation = (() => {
       let kc = kcs[0];
       let clef = p.clef || 'auto';
       if (p.perc) clef = 'perc';
-      const allN = p.perc ? p.notes.map((n) => ({ ...n, p: 1000 + (DRUM_POS[n.id] || [5, 'n'])[0] * 10 + ((DRUM_POS[n.id] || [5, 'n'])[1] !== 'n' ? 1 : 0) })) : tr ? p.notes.map((n) => ({ ...n, p: n.p + tr })) : p.notes;
+      const dIds = drumIds[pi] || [];
+      const allN = p.perc ? p.notes.map((n) => ({ ...n, p: 2000 + dIds.indexOf(n.id) })) : tr ? p.notes.map((n) => ({ ...n, p: n.p + tr })) : p.notes;
       const notes = allN.filter((n) => n.v !== 2);
       const notes2 = allN.filter((n) => n.v === 2);
       if (clef === 'auto' || clef === 'grand') { const avg = allN.length ? allN.reduce((a, n) => a + n.p, 0) / allN.length : 67; clef = clef === 'grand' ? 'grand' : avg < 57 ? 'bass' : 'treble'; }
@@ -1020,7 +1022,9 @@ const Notation = (() => {
           if (ev.rest) { x.push(`<note><rest${ev.whole ? ' measure="yes"' : ''}/><duration>${ev.len}</duration>${vx}${ev.whole ? '' : typeXml(ev)}</note>`); continue; }
           ev.pitches.forEach((m, k) => {
             let pitch;
-            if (p.perc) pitch = `<unpitched><display-step>${'CDEFGAB'[(Math.floor((m - 1000) / 10) + 2) % 7]}</display-step><display-octave>${4 + Math.floor((Math.floor((m - 1000) / 10) + 2) / 7)}</display-octave></unpitched>`;
+            const did = p.perc ? dIds[m - 2000] : null;
+            const dpos = p.perc ? (DRUM_POS[did] || [5, 'n']) : null;
+            if (p.perc) pitch = `<unpitched><display-step>${'CDEFGAB'[(dpos[0] + 2) % 7]}</display-step><display-octave>${4 + Math.floor((dpos[0] + 2) / 7)}</display-octave></unpitched>`;
             else { const sp = spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
             const ties = (ev.tieEnd ? '<tie type="stop"/>' : '') + (ev.tie ? '<tie type="start"/>' : '');
             let nots = (ev.tieEnd ? '<tied type="stop"/>' : '') + (ev.tie ? '<tied type="start"/>' : '');
@@ -1033,7 +1037,7 @@ const Notation = (() => {
             }
             const ly = k === 0 && ev.first && vi === 0 ? (useNoteLy ? ev.ly : lyr[ev.syll]) : '';
             const lyric = ly ? `<lyric number="1"><syllabic>single</syllabic><text>${esc(ly)}</text></lyric>` : '';
-            x.push(`<note>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${vx}${typeXml(ev)}${p.perc && (m - 1000) % 10 ? '<notehead>x</notehead>' : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);
+            x.push(`<note>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${p.perc ? `<instrument id="P${pi + 1}-I${m - 2000 + 1}"/>` : ''}${vx}${typeXml(ev)}${p.perc && dpos[1] !== 'n' ? `<notehead>${dpos[1] === 'o' ? 'circle-x' : 'x'}</notehead>` : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);
           });
         }
         });

@@ -3654,6 +3654,7 @@ function scoreOpts(trackIds, withDrums) {
     tempos: (() => { const t = { ...song.tempos }; for (const b in song.ramps || {}) for (let i = 0; i < song.ramps[b].n; i++) delete t[+b + i]; return t; })(),
     words: Object.fromEntries(Object.entries(song.ramps || {}).map(([b, r]) => [b, r.type === 'rit' ? 'rit.' : 'accel.'])),
     soundTempos: { ...song.tempos },
+    drumGm: Object.fromEntries(Object.entries(Sound.DRUMS).map(([k, v]) => [k, v.gm])),
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
