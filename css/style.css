@@ -1114,3 +1114,8 @@ body.phone #btnAuto { padding: 0 10px; }
 @media (prefers-color-scheme: dark) { .ovtools b, .tracks h2 { color: var(--accent-text); } }
 .primary, .tbtn.primary { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 78%, #000), color-mix(in srgb, var(--accent2) 70%, #000)); }
 :root[data-theme="neon"] .primary, :root[data-theme="neon"] .tbtn.primary { background: var(--grad); color: #04121c; }
+
+/* ミキサー：左右の位置 */
+.mixch .panrow { display: flex; align-items: center; gap: 2px; }
+.mixch .panrow small { font-size: 10px; color: var(--muted); }
+.mixch .panrow input.pan { width: 70px; }

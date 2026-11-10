@@ -157,6 +157,7 @@ function sanitizeSong(s) {
       tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => (c && Number.isInteger(c.r) && c.r >= 0 && c.r < 12 && CHORD_Q[c.q] ? c : null));
     }
     tr.vol = num(t.vol, 0.8, 0, 1.5);
+    tr.pan = num(t.pan, 0, -1, 1);
     if (t.name != null) tr.name = String(t.name).slice(0, 40);
     return tr;
   });
@@ -517,16 +518,24 @@ function buildGraph(ctx, dest, live) {
   const send = ctx.createGain();
   session.connect(send); send.connect(g.rev);
   const outs = {};
+  const pans = {};
   for (const tr of song.tracks) {
     const tg = ctx.createGain();
     tg.gain.value = tr.vol;
-    tg.connect(session);
+    // 左右の位置（パン）：-1＝左、0＝まん中、1＝右
+    if (ctx.createStereoPanner) {
+      const pn = ctx.createStereoPanner();
+      pn.pan.value = clamp(+tr.pan || 0, -1, 1);
+      tg.connect(pn);
+      pn.connect(session);
+      pans[tr.id] = pn;
+    } else tg.connect(session);
     outs[tr.id] = tg;
   }
   const metro = ctx.createGain();
   metro.gain.value = song.metro.vol;
   metro.connect(g.out);
-  return Object.assign(Object.create(g), { session, send, outs, metro, base: g });
+  return Object.assign(Object.create(g), { session, send, outs, pans, metro, base: g });
 }
 
 function chordEvents(tr) {
@@ -2848,7 +2857,8 @@ function openPalette() {
   const box = $('#palBody');
   box.innerHTML = `
     <section><h4>ミキサー</h4><div class="mixer">${song.tracks.map((t, i) => `
-      <label class="mixch" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><input type="range" min="0" max="1" step="0.01" value="${t.vol}" data-i="${i}" ${t.locked ? 'disabled' : ''}><span>${i + 1}. ${escapeHtml(t.name)}</span></label>`).join('')}
+      <div class="mixch" style="--tc:${TRACK_COLORS[i % TRACK_COLORS.length]}"><input type="range" min="0" max="1" step="0.01" value="${t.vol}" data-i="${i}" aria-label="${escapeHtml(t.name)}の音量" ${t.locked ? 'disabled' : ''}><span>${i + 1}. ${escapeHtml(t.name)}</span>
+        <div class="panrow" title="左右の位置（ダブルクリックでまん中）"><small>左</small><input type="range" class="pan" min="-1" max="1" step="0.1" value="${+t.pan || 0}" data-p="${i}" aria-label="${escapeHtml(t.name)}の左右の位置" ${t.locked ? 'disabled' : ''}><small>右</small></div></div>`).join('')}
       <label class="mixch master"><input type="range" min="0" max="1.2" step="0.01" value="${song.master}" id="mMaster"><span>全体の音量</span></label></div></section>
     <section><h4>イコライザー <small class="muted">音域ごとのバランス</small></h4>
       <div class="eqrow"><label>低音 <input type="range" min="-12" max="12" step="1" value="${song.eq.low}" data-eq="low"></label>
@@ -2863,6 +2873,12 @@ function openPalette() {
       <div class="fxsel">${Object.entries(FX).map(([k, v]) => `<button class="mini ${k === fxKind ? 'on' : ''}" data-fx="${k}">${v[0]}</button>`).join('')}</div>
       <div class="fxpad" id="fxPad"><span id="fxHint">${FX[fxKind][1]}</span><i id="fxDot"></i></div>
       <button class="mini accent" id="fxPlay">${player.on ? '止める' : '再生してためす'}</button></section>`;
+  box.querySelectorAll('.mixch input[data-p]').forEach((inp) => {
+    const set = (v) => { const t = song.tracks[+inp.dataset.p]; t.pan = Math.abs(v) < 0.05 ? 0 : v; inp.value = t.pan; if (player.graph && player.graph.pans[t.id]) player.graph.pans[t.id].pan.setTargetAtTime(t.pan, actx.currentTime, 0.02); };
+    inp.oninput = () => set(+inp.value);
+    inp.onchange = () => autosaveSoon();
+    inp.ondblclick = () => { set(0); autosaveSoon(); };
+  });
   box.querySelectorAll('.mixch input[data-i]').forEach((inp) => {
     inp.oninput = () => { const t = song.tracks[+inp.dataset.i]; t.vol = +inp.value; liveVolume(t); };
     inp.onchange = () => { renderTracks(); autosaveSoon(); };
