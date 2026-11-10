@@ -125,6 +125,46 @@ function migrate(s) {
   return s;
 }
 
+// 曲のデータをととのえる（ファイル・共有URLがこわれていても、アプリが止まらないように）
+function sanitizeSong(s) {
+  if (!s || typeof s !== 'object' || !Array.isArray(s.tracks)) throw new Error('曲データの形式がちがいます');
+  const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? clamp(n, lo, hi) : d; };
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const out = { ...s };
+  out.bars = Math.round(num(s.bars, 8, 1, 128));
+  out.bpm = num(s.bpm, 100, 20, 300);
+  out.key = Math.round(num(s.key, 0, -12, 12));
+  out.meter = Array.isArray(s.meter) && s.meter.length === 2 && s.meter.every((x) => Number.isInteger(x) && x > 0 && x <= 32) ? s.meter : [4, 4];
+  for (const k of ['tempos', 'meters', 'keys', 'jumps', 'eq', 'metro', 'locks']) out[k] = obj(s[k]);
+  for (const b in out.tempos) if (!Number.isFinite(+out.tempos[b])) delete out.tempos[b];
+  for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
+  out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
+  const T = s.v >= 2 ? 1 : 0; // migrate のあと
+  out.tracks = s.tracks.filter((t) => t && typeof t === 'object' && ['melody', 'drum', 'chord'].includes(t.type)).map((t) => {
+    const tr = { ...t };
+    if (t.type === 'melody') {
+      tr.notes = (Array.isArray(t.notes) ? t.notes : []).filter((n) => n && Number.isFinite(+n.s) && Number.isFinite(+n.p) && Number.isFinite(+n.l) && +n.l > 0 && +n.s >= 0)
+        .map((n) => ({ ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) }));
+      for (const k of ['dyn', 'hairpins', 'slurs']) if (!Array.isArray(tr[k])) tr[k] = [];
+    } else if (t.type === 'drum') {
+      const g = {};
+      for (const id in obj(t.grid)) {
+        const row = obj(t.grid[id]);
+        for (const st in row) if (Number.isFinite(+st) && +st >= 0 && (row[st] === 1 || row[st] === 2)) { if (!g[id]) g[id] = {}; g[id][st] = row[st]; }
+      }
+      tr.grid = g;
+    } else {
+      tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => (c && Number.isInteger(c.r) && c.r >= 0 && c.r < 12 && CHORD_Q[c.q] ? c : null));
+    }
+    tr.vol = num(t.vol, 0.8, 0, 1.5);
+    if (t.name != null) tr.name = String(t.name).slice(0, 40);
+    return tr;
+  });
+  if (!out.tracks.length) throw new Error('読みこめるトラックがありません');
+  void T;
+  return out;
+}
+
 /* ---------- 状態 ---------- */
 let song = newSong();
 let cur = 0;
@@ -342,9 +382,9 @@ function edit(fn, label = '編集') {
 }
 function restore(json) {
   song = JSON.parse(json);
+  cur = clamp(cur, 0, song.tracks.length - 1);
   nsel.clear();
   updateSelBar();
-  cur = clamp(cur, 0, song.tracks.length - 1);
   changed(true);
 }
 function undo() {
@@ -392,7 +432,7 @@ function changed(full = false) {
   updateMini();
   clearTimeout(autosaveTimer);
   saveState('saving');
-  autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); saveState('saved'); } catch (e) { saveState('error'); } }, 500);
+  autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); saveState('saved'); } catch (e) { saveState('error'); warnSaveFailed(); } }, 500);
   if (ui.showScore) { clearTimeout(scoreTimer); scoreTimer = setTimeout(renderScorePanel, 250); }
   if (ui.view === 'score') renderScoreEdit();
 }
@@ -2482,8 +2522,9 @@ function renderTracks() {
       <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${tr.type === 'drum' ? PIC('kit', tr.kit) : PIC('inst', tr.inst)}<span class="instname">${escapeHtml(instLabel)}</span>${badge}${I('chevron')}</button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
     d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details') && !ev.target.closest('.tstrip')) selectTrack(i); });
-    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); autosaveSoon(); };
-    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); autosaveSoon(); };
+    d.addEventListener('focusin', (ev) => { if (cur !== i && !ev.target.closest('details')) { const id = ev.target.className; selectTrack(i); const again = $$('#trackList .track')[i]; const el = again && [...again.querySelectorAll('button, input, summary')].find((x) => x.className === id); if (el) el.focus(); } });
+    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.mute').focus(); };
+    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.solo').focus(); };
     d.querySelector('.instbtn').onclick = (ev) => { ev.stopPropagation(); openInstPicker(i); };
     d.querySelectorAll('.tmenu [data-a]').forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
@@ -3268,7 +3309,7 @@ function letterPitch(letter, ref) {
   for (let m = pc; m <= 127; m += 12) if (best == null || Math.abs(m - ref) < Math.abs(best - ref)) best = m;
   return best;
 }
-function selNotes(tr) { return tr.notes.filter((n) => ui.sc.sel.has(n.s + ':' + n.p)); }
+function selNotes(tr) { return tr && Array.isArray(tr.notes) ? tr.notes.filter((n) => ui.sc.sel.has(n.s + ':' + n.p)) : []; }
 function scEditSel(fn, label) {
   const tr = scEditable();
   if (!tr) return;
@@ -4167,10 +4208,10 @@ function keepSong(sg) {
 function loadSong(s, opts = {}) {
   stop();
   if (!s || !Array.isArray(s.tracks)) throw new Error('曲データの形式がちがいます');
+  s = sanitizeSong(migrate(JSON.parse(JSON.stringify(s)))); // ここでだめなら、今の曲はそのまま
   // 自分で作った・開いた曲だけしまう（はじめのサンプルなどは、しまわない）
   const prevSnap = opts.keep === false || !songOwn || !song || !song.tracks ? null : snapshot();
   const kept = prevSnap ? keepSong(JSON.parse(prevSnap)) : null;
-  s = migrate(s);
   const base = newSong();
   song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
   song.tracks = s.tracks.slice(0, MAX_TRACKS).map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
@@ -4487,7 +4528,7 @@ function importMidi(buf, fname) {
   for (let t = 0; t < ntr && p < buf.length; t++) {
     if (id() !== 'MTrk') break;
     const len = u32();
-    const end = p + len;
+    const end = Math.min(p + len, buf.length);
     let tick = 0;
     let rs = 0;
     const on = new Map();
@@ -4551,6 +4592,18 @@ function importMidi(buf, fname) {
 }
 
 let toastTimer;
+let saveWarned = false;
+function warnSaveFailed() {
+  if (saveWarned) return;
+  saveWarned = true;
+  const b = document.createElement('div');
+  b.className = 'savewarn';
+  b.setAttribute('role', 'alert');
+  b.innerHTML = `<span>⚠ このブラウザに自動で保存できません（保存の場所がいっぱい、またはプライベートモード）。曲が消えないよう、ファイルに書き出してください。</span><button class="tbtn primary">ファイルに書き出す</button><button class="tbtn" aria-label="とじる">×</button>`;
+  b.querySelector('.primary').onclick = () => $('#btnExportJson').click();
+  b.querySelector('[aria-label]').onclick = () => b.remove();
+  document.body.appendChild(b);
+}
 function toast(msg, ms = 2600) {
   const t = $('#toast');
   t.textContent = msg;
@@ -4760,6 +4813,7 @@ function init() {
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (e.key === 'Escape') { const op = $$('details.pop[open]'); if (op.length) { op.forEach((d) => (d.open = false)); const s0 = op[0].querySelector('summary'); if (s0) s0.focus(); return; } }
     if (e.key === '?' && !$$('dialog').some((d) => d.open)) { e.preventDefault(); openKeys(); return; }
     if (ui.view === 'score' && !$$('dialog').some((d) => d.open) && scoreKey(e)) return;
     if (ui.view !== 'score' && !$$('dialog').some((d) => d.open) && noteKeys(e)) return;
@@ -4771,7 +4825,7 @@ function init() {
     const otherDialog = $$('dialog').some((d) => d.open && d.id !== 'dlgInst');
     if (otherDialog) return;
     const inPicker = $('#dlgInst').open;
-    if (e.code === 'Space' && !inPicker) { e.preventDefault(); player.on ? stop() : play(); return; }
+    if (e.code === 'Space' && !inPicker && !(e.target.closest && e.target.closest('button, summary, a, [role="button"]') && e.target.matches(':focus-visible'))) { e.preventDefault(); player.on ? stop() : play(); return; }
     const k = e.key.toLowerCase();
     if (k === 'z' || k === 'x') {
       ui.kbOct = clamp(ui.kbOct + (k === 'z' ? -1 : 1), 1, 7);
@@ -4807,6 +4861,12 @@ function init() {
     const k = e.key.toLowerCase();
     if (held.has(k)) { held.delete(k); noteOff(); }
   });
+  window.addEventListener('hashchange', async () => {
+    const m = location.hash.match(/#song=(.+)$/);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    try { loadSong(await unpackSong(m[1])); toast('共有された曲を開きました'); } catch (e) { alert('共有URLの曲を読み込めませんでした'); }
+  });
   window.addEventListener('beforeunload', () => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } });
 
   (async () => {
@@ -4814,10 +4874,11 @@ function init() {
     if (m) {
       try {
         // 自分の続きの曲は、マイ曲にしまっておく（友だちの曲で上書きされないように）
+        history.replaceState(null, '', location.pathname + location.search);
         let kept = null;
         try { const a = localStorage.getItem('otsumiki-autosave'); if (a) kept = keepSong(JSON.parse(a)); } catch (er) { /* なし */ }
         loadSong(await unpackSong(m[1]), { keep: false });
-        toast(kept ? `共有された曲を開きました（自分の曲は「マイ曲」の「${kept}」に）` : '共有された曲を開きました'); history.replaceState(null, '', location.pathname + location.search); return; } catch (e) { alert('共有URLの曲を読み込めませんでした'); }
+        toast(kept ? `共有された曲を開きました（自分の曲は「マイ曲」の「${kept}」に）` : '共有された曲を開きました'); history.replaceState(null, '', location.pathname + location.search); return; } catch (e) { history.replaceState(null, '', location.pathname + location.search); alert('共有URLの曲を読み込めませんでした（URLが途中で切れているかもしれません）'); }
     }
     try {
       const auto = localStorage.getItem('otsumiki-autosave');

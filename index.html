@@ -172,7 +172,7 @@
           </span>
         </div>
         <div id="ovWrap" class="ovwrap">
-          <canvas id="ov"></canvas>
+          <canvas id="ov" role="img" aria-label="キャンバス（曲全体の地図）"></canvas>
           <div id="ovScroller" class="ovscroller"><div id="ovSpacer"></div></div>
           <div id="ovTrash" class="ovtrash"><svg class="i"><use href="#i-trash"/></svg>ここに落とすと消す</div>
         </div>
@@ -199,7 +199,7 @@
         </div>
       </div>
       <div id="editorWrap" class="editorwrap">
-        <canvas id="cv"></canvas>
+        <canvas id="cv" role="img" aria-label="オトグラフ（音を置くマス目）"></canvas>
         <div id="scroller" class="scroller"><div id="spacer"></div></div>
         <div class="zoombox" title="マス目の大きさ（2本指でつまむ・ひろげる、Ctrl＋ホイールでも）">
           <button id="zOut" aria-label="小さく">－</button>
@@ -428,7 +428,7 @@
     <div id="phoneMoreBody" class="sheetbody"></div>
   </div>
 
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="js/sound.js"></script>
   <script src="js/glyphs.js"></script>
