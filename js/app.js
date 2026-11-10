@@ -290,14 +290,16 @@ function playTickOf(st) {
   return (k < 0 ? barStart(b) : playStarts()[k]) + (st - barStart(b));
 }
 let timeCache = { key: '' };
+// 練習用：再生だけゆっくり（曲の速さは変えない・書き出しには入らない）。play() で ui.speed、stop() で 1 にもどす
+let playSpeed = 1;
 function timeTable() {
   const o = playOrder();
-  const key = orderCache.key + geo().key;
+  const key = orderCache.key + geo().key + ':' + playSpeed;
   if (timeCache.key === key) return timeCache;
   const start = [0];
   const spt = [];
   for (let k = 0; k < o.length; k++) {
-    spt.push(60 / (bpmAt(o[k]) * TPQ));
+    spt.push(60 / (bpmAt(o[k]) * TPQ * playSpeed));
     start.push(start[k] + spt[k] * barLen(o[k]));
   }
   timeCache = { key, start, spt, n: o.length };
@@ -324,7 +326,9 @@ function swingSec(tick) {
 
 /* ---------- 元に戻す・履歴 ---------- */
 function snapshot() { return JSON.stringify(song); }
+let songOwn = false; // この曲は自分のもの（さわった・自分で開いた）
 function pushUndo(snap, label) {
+  songOwn = true;
   undoStack.push({ snap, label });
   if (undoStack.length > 300) undoStack.shift();
   redoStack.length = 0;
@@ -605,6 +609,10 @@ function loopBounds() {
 function firstIdx(list, t) { let i = 0; while (i < list.length && list[i].t < t) i++; return i; }
 function play() {
   const ctx = ensureAudio();
+  const fresh = !player.on;
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) {
+    if (lsGet('otsumiki-silenthint', '') !== '1') { lsSet('otsumiki-silenthint', '1'); setTimeout(() => toast('音が出ないときは、マナーモード（横のスイッチ）を切ってね', 5000), 400); }
+  }
   stop(true);
   const [ls, le] = loopBounds();
   player.graph = buildGraph(ctx, ctx._comp, true);
@@ -613,7 +621,25 @@ function play() {
   let st0 = playTickOf(ui.startTick);
   if (st0 === 0 && song.pickup > 0 && !(ui.loopOn && ui.loopRange)) st0 = barLen(0) - song.pickup; // 弱起は休みをとばす
   const start = st0 >= ls && st0 < le ? st0 : ls;
-  player.seg = { tick: start, time: ctx.currentTime + 0.05 };
+  playSpeed = ui.speed || 1;
+  // カウント（はじめる前にメトロノームで1〜2小節）
+  let lead = 0;
+  if (fresh && ui.countIn > 0) {
+    const b0 = barOf(srcTick(start));
+    const beat = beatAt(b0);
+    const per = Math.max(1, Math.round(barLen(b0) / beat));
+    const n = per * ui.countIn;
+    const sec = (60 / (bpmAt(b0) * TPQ * playSpeed)) * beat;
+    for (let i = 0; i < n; i++) {
+      const when = ctx.currentTime + 0.08 + i * sec;
+      Sound.click(ctx, player.graph.metro, when, i % per === 0, song.metro.kind);
+      const left = n - i;
+      setTimeout(() => { if (player.on) countHud(left); }, (when - ctx.currentTime) * 1000);
+    }
+    lead = n * sec + 0.03;
+    setTimeout(() => countHud(0), (lead + 0.05) * 1000);
+  }
+  player.seg = { tick: start, time: ctx.currentTime + 0.05 + lead };
   player.segs = [player.seg];
   player.idx = firstIdx(eventList(), start);
   player.lastT = start - 1;
@@ -671,6 +697,8 @@ function stop(silent = false) {
   }
   player.graph = null;
   player.on = false;
+  playSpeed = 1;
+  countHud(0);
   player.segs = [];
   if (!silent) {
     $('#btnPlay').classList.remove('on');
@@ -734,6 +762,13 @@ function vizFade() {
   cancelAnimationFrame(vizFadeRaf);
   const step = () => { vizFadeRaf = !player.on && drawViz(true) ? requestAnimationFrame(step) : 0; };
   vizFadeRaf = requestAnimationFrame(step);
+}
+function countHud(n) {
+  const h = $('#countHud');
+  if (!h) return;
+  h.textContent = n || '';
+  h.classList.toggle('show', !!n);
+  if (n) { h.classList.remove('pop'); void h.offsetWidth; h.classList.add('pop'); }
 }
 function playheadPlay() {
   if (!player.on || !actx) return null;
@@ -2371,7 +2406,7 @@ function showMini(midi) {
   box.innerHTML = `${Notation.single(midi, song.key, isMinor())}<div><b>${noteName(midi)}</b><small>${sciName(midi)}</small></div>`;
   box.classList.add('show');
   clearTimeout(miniTimer);
-  miniTimer = setTimeout(() => box.classList.remove('show'), 5000);
+  miniTimer = setTimeout(() => box.classList.remove('show'), isPhone ? 1500 : 5000); // スマホでは下のボタンをかくさないよう短く
 }
 function updateMini(pos) {
   if (pos === undefined) pos = playheadTick();
@@ -2383,7 +2418,7 @@ function updateMini(pos) {
   $('#miniPos').textContent = `${bar + 1}小節 ${beat + 1}拍`;
   { const k = keyAt(bar); $('#miniKey').textContent = keyLabel(k.key, k.minor); }
   $('#miniMeter').textContent = meterAt(bar).join('/');
-  $('#miniBpm').textContent = '♩=' + bpmAt(bar);
+  $('#miniBpm').textContent = '♩=' + bpmAt(bar) + ((ui.speed || 1) !== 1 ? `（練習${Math.round(ui.speed * 100)}%）` : '');
 }
 
 /* ============================================================
@@ -2573,7 +2608,7 @@ function renderEditorTools() {
   let others = [];
   if (tr.type === 'melody') {
     others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}${isPhone ? '' : '<span>おまかせ</span>'}</button>`;
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}<span class="keep">おまかせ</span></button>`;
     const [rlo, rhi] = trackRange(tr);
     html += `<details class="pop" data-pop="range"><summary class="mini" title="表示する音の高さのはんい">${I('piano')}<span>${SOLFA_OCT(rlo)}〜${SOLFA_OCT(rhi)}</span></summary><div class="popbody">
       <div class="sub">はんいをえらぶ</div>
@@ -2987,7 +3022,12 @@ function openScore() {
   if (!mel.some((t) => t.type === 'melody')) return alert('楽譜にできるメロディのトラックがありません');
   const S = scoreSettings();
   if (!S.trans) S.trans = {};
-  if (!scoreSel) scoreSel = new Set(song.tracks.filter((t) => (t.type === 'melody' && t.notes.length)).map((t) => t.id));
+  // えらんであるパートを、今の曲に合わせる（曲を開きなおしたあと、からっぽにならないように）
+  if (scoreSel) for (const id of [...scoreSel]) if (!song.tracks.some((t) => t.id === id)) scoreSel.delete(id);
+  if (!scoreSel || !scoreSel.size) {
+    scoreSel = new Set(song.tracks.filter((t) => t.type === 'melody' && t.notes.length).map((t) => t.id));
+    if (!scoreSel.size) scoreSel = new Set(song.tracks.filter((t) => t.type === 'melody').slice(0, 1).map((t) => t.id));
+  }
   const bt = barTicks();
   const pickOpts = [[0, 'なし']];
   for (let t = 24; t < bt; t += 24) pickOpts.push([t, `${t / 48}拍ぶん`.replace('0.5拍', '8分音符1つ').replace('.5拍', '拍半')]);
@@ -4006,7 +4046,7 @@ function applyPhone() {
   document.body.classList.toggle('phone', on);
   if (on) {
     // パソコンでは上のバーにある部品を「その他」シートへ移す
-    for (const sel of ['.topbar .tempo', '#btnMetro', '#popKey', '#popRules', '#btnPal', '#btnShare', '.menu details.dropdown']) {
+    for (const sel of ['.topbar .tempo', '#btnMetro', '#popPractice', '#popKey', '#popRules', '#btnPal', '#btnShare', '.menu details.dropdown']) {
       const el = $(sel);
       if (!el) continue;
       const mark = document.createComment('phone');
@@ -4104,9 +4144,32 @@ function renderPhoneKbd() {
 /* ============================================================
    保存・読み込み・共有・書き出し
    ============================================================ */
-function loadSong(s) {
+// 曲に何か入っているか
+function songHasContent(sg) {
+  return !!(sg && Array.isArray(sg.tracks) && sg.tracks.some((t) => (t.notes && t.notes.length) || (t.grid && Object.values(t.grid).some((g) => Object.keys(g).length)) || (t.chords && t.chords.some(Boolean))));
+}
+// ほかの曲を開く前に、今の曲を「マイ曲」へしまっておく（同じ中身がもうあれば、しない）
+function keepSong(sg) {
+  if (!songHasContent(sg)) return null;
+  const all = savedList();
+  const json = JSON.stringify(sg);
+  for (const n in all) if (JSON.stringify(all[n].song) === json) return null;
+  const d = new Date();
+  const stamp = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  let name = sg.title || 'むだいの曲';
+  if (all[name]) name = `${name}（${stamp}）`;
+  all[name] = { t: Date.now(), song: sg, auto: true };
+  // 自動でしまったものは、新しい20曲まで
+  const autos = Object.keys(all).filter((n) => all[n].auto).sort((a, b) => all[b].t - all[a].t);
+  for (const n of autos.slice(20)) delete all[n];
+  try { localStorage.setItem('otsumiki-songs', JSON.stringify(all)); return name; } catch (e) { return null; }
+}
+function loadSong(s, opts = {}) {
   stop();
   if (!s || !Array.isArray(s.tracks)) throw new Error('曲データの形式がちがいます');
+  // 自分で作った・開いた曲だけしまう（はじめのサンプルなどは、しまわない）
+  const prevSnap = opts.keep === false || !songOwn || !song || !song.tracks ? null : snapshot();
+  const kept = prevSnap ? keepSong(JSON.parse(prevSnap)) : null;
   s = migrate(s);
   const base = newSong();
   song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
@@ -4129,10 +4192,14 @@ function loadSong(s) {
   ui.selBar = 0;
   undoStack.length = 0;
   redoStack.length = 0;
+  // 「元に戻す」で、前の曲にもどれる
+  if (prevSnap && songHasContent(JSON.parse(prevSnap))) pushUndo(prevSnap, '別の曲を開く');
   changed(true);
   scrollToNotes();
   draw();
   preloadSamples();
+  songOwn = !!opts.own;
+  if (kept) setTimeout(() => toast(`前の曲は「マイ曲」に「${kept}」としてしまいました`), 1600);
 }
 // 曲の小さな絵（メロディを線で、リズムを点で）
 function songThumb(sg) {
@@ -4185,7 +4252,7 @@ function openDialog() {
     row.innerHTML = `<span class="openthumb">${songThumb(sg)}</span><span class="openname"><b>${escapeHtml(n)}</b><small>${info}　${relTime(all[n].t)}</small></span><button class="mini primary">開く</button><button class="mini icon danger" title="削除">${I('trash')}</button>`;
     const [bOpen, bDel] = row.querySelectorAll('button');
     row.querySelector('.openthumb').onclick = () => bOpen.click();
-    bOpen.onclick = () => { loadSong(all[n].song); $('#dlgOpen').close(); };
+    bOpen.onclick = () => { loadSong(all[n].song, { own: true }); $('#dlgOpen').close(); };
     bDel.onclick = () => { if (!confirm(`「${n}」を削除しますか？`)) return; delete all[n]; localStorage.setItem('otsumiki-songs', JSON.stringify(all)); openDialog(); };
     box.appendChild(row);
   }
@@ -4206,18 +4273,18 @@ function importFile(file) {
   if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
     r.onload = () => {
       MusicXMLImport.readFile(r.result, file.name)
-        .then((sg) => { loadSong(sg); toast('MusicXMLを読み込みました'); })
+        .then((sg) => { loadSong(sg, { own: true }); toast('MusicXMLを読み込みました'); })
         .catch((e) => alert('MusicXMLを読み込めませんでした：' + e.message));
     };
     r.readAsArrayBuffer(file);
     return;
   }
   if (/\.midi?$/i.test(file.name)) {
-    r.onload = () => { try { loadSong(importMidi(new Uint8Array(r.result), file.name)); toast('MIDIファイルを読み込みました'); } catch (e) { alert('MIDIを読み込めませんでした：' + e.message); } };
+    r.onload = () => { try { loadSong(importMidi(new Uint8Array(r.result), file.name), { own: true }); toast('MIDIファイルを読み込みました'); } catch (e) { alert('MIDIを読み込めませんでした：' + e.message); } };
     r.readAsArrayBuffer(file);
     return;
   }
-  r.onload = () => { try { loadSong(JSON.parse(r.result)); toast('読み込みました'); } catch (e) { alert('読み込めませんでした：' + e.message); } };
+  r.onload = () => { try { loadSong(JSON.parse(r.result), { own: true }); toast('読み込みました'); } catch (e) { alert('読み込めませんでした：' + e.message); } };
   r.readAsText(file);
 }
 
@@ -4245,10 +4312,18 @@ async function unpackSong(str) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 async function shareDialog() {
-  const url = location.href.split('#')[0] + '#song=' + (await packSong());
+  // ?notour などの表示の設定は、送る先にはいらないので外す
+  const url = location.origin + location.pathname + '#song=' + (await packSong());
   $('#shareUrl').value = url;
+  $('#btnSendUrl').hidden = !navigator.share;
+  $('#shareTitle').textContent = `「${song.title}」`;
   $('#dlgShare').showModal();
-  $('#shareUrl').select();
+  if (!isPhone) $('#shareUrl').select();
+}
+async function sendShare() {
+  const url = $('#shareUrl').value;
+  try { await navigator.share({ title: song.title, text: `「${song.title}」をつくったよ！ ひらくと聴けます🎵`, url }); }
+  catch (e) { if (e && e.name !== 'AbortError') toast('送れませんでした。「コピー」を使ってね'); }
 }
 
 // 曲を音にする（WAV・MP3 で共通）
@@ -4476,12 +4551,12 @@ function importMidi(buf, fname) {
 }
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, ms = 2600) {
   const t = $('#toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 /* ============================================================
@@ -4544,11 +4619,26 @@ function init() {
     draw();
   };
   $('#btnMetro').onclick = () => { ui.metro = !ui.metro; $('#btnMetro').classList.toggle('on', ui.metro); };
+  // 練習：カウント・ゆっくり（このブラウザだけでおぼえる。曲には入らない）
+  ui.countIn = +lsGet('otsumiki-countin', '0') || 0;
+  ui.speed = 1;
+  const practiceUi = () => {
+    $$('#countSeg button').forEach((b) => b.classList.toggle('on', +b.dataset.c === ui.countIn));
+    $('#speedVal').textContent = Math.round(ui.speed * 100) + '%';
+    $('#speedRange').value = ui.speed;
+    $('#popPractice > summary').classList.toggle('on', ui.countIn > 0 || ui.speed !== 1);
+    updateMini();
+  };
+  $$('#countSeg button').forEach((b) => (b.onclick = () => { ui.countIn = +b.dataset.c; lsSet('otsumiki-countin', String(ui.countIn)); practiceUi(); }));
+  $('#speedRange').oninput = (e) => { ui.speed = +e.target.value; practiceUi(); };
+  $('#speedRange').onchange = () => { if (player.on) play(); };
+  $$('#speedPre button').forEach((b) => (b.onclick = () => { ui.speed = +b.dataset.s; practiceUi(); if (player.on) play(); }));
+  practiceUi();
   $('#btnUndo').onclick = undo;
   $('#btnRedo').onclick = redo;
   $('#btnHist').onclick = openHistory;
   $('#btnNew').onclick = () => openStart(false);
-  $('#btnSample').onclick = () => { if (confirm('注意：保存していないデータは消えてしまいます。サンプル曲を開きますか？')) loadSong(sampleSong()); };
+  $('#btnSample').onclick = () => loadSong(sampleSong());
   $('#btnSave').onclick = saveToBrowser;
   $('#btnOpen').onclick = openDialog;
   $('#btnExportJson').onclick = exportJSON;
@@ -4575,6 +4665,7 @@ function init() {
   $('#btnPal').onclick = openPalette;
   $('#btnTeach').onclick = openTeacher;
   $('#btnShare').onclick = () => shareDialog().catch((err) => alert('URLを作れませんでした：' + err.message));
+  $('#btnSendUrl').onclick = () => sendShare();
   $('#btnCopyUrl').onclick = async () => { try { await navigator.clipboard.writeText($('#shareUrl').value); toast('コピーしました'); } catch (e) { $('#shareUrl').select(); document.execCommand('copy'); toast('コピーしました'); } };
   $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
   $('#btnMidiIn').onclick = connectMidi;
@@ -4616,6 +4707,13 @@ function init() {
   applyPhone();
   loadZoom();
   setupSelBar();
+  {
+    const tb = document.querySelector('.toolbar');
+    const upd = () => tb.classList.toggle('more', isPhone && tb.scrollLeft + tb.clientWidth < tb.scrollWidth - 4);
+    tb.addEventListener('scroll', upd, { passive: true });
+    new ResizeObserver(upd).observe(tb);
+    new MutationObserver(upd).observe($('#editorTools'), { childList: true });
+  }
   try { const tm = localStorage.getItem('otsumiki-touch'); if (tm) { ui.touchMode = tm; ui.touchEdit = tm !== 'scroll'; } } catch (er) { /* なし */ }
   sc.classList.toggle('touchedit', ui.touchEdit);
   renderSettings();
@@ -4714,11 +4812,16 @@ function init() {
   (async () => {
     const m = location.hash.match(/#song=(.+)$/);
     if (m) {
-      try { loadSong(await unpackSong(m[1])); toast('共有された曲を開きました'); history.replaceState(null, '', location.pathname + location.search); return; } catch (e) { alert('共有URLの曲を読み込めませんでした'); }
+      try {
+        // 自分の続きの曲は、マイ曲にしまっておく（友だちの曲で上書きされないように）
+        let kept = null;
+        try { const a = localStorage.getItem('otsumiki-autosave'); if (a) kept = keepSong(JSON.parse(a)); } catch (er) { /* なし */ }
+        loadSong(await unpackSong(m[1]), { keep: false });
+        toast(kept ? `共有された曲を開きました（自分の曲は「マイ曲」の「${kept}」に）` : '共有された曲を開きました'); history.replaceState(null, '', location.pathname + location.search); return; } catch (e) { alert('共有URLの曲を読み込めませんでした'); }
     }
     try {
       const auto = localStorage.getItem('otsumiki-autosave');
-      if (auto) { loadSong(JSON.parse(auto)); toast('前回の続きから開きました'); return; }
+      if (auto) { loadSong(JSON.parse(auto), { keep: false, own: true }); toast('前回の続きから開きました'); return; }
     } catch (e) { /* 何もしない */ }
     loadSong(sampleSong());
     openStart(true);
