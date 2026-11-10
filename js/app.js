@@ -162,6 +162,7 @@ function sanitizeSong(s) {
     if (t.name != null) tr.name = String(t.name).slice(0, 40);
     return tr;
   });
+  if (s.voice && !(typeof s.voice.data === 'string' && Number.isFinite(+s.voice.sr) && +s.voice.sr >= 8000 && +s.voice.sr <= 96000 && s.voice.data.length < 400000)) delete out.voice;
   if (!out.tracks.length) throw new Error('読みこめるトラックがありません');
   void T;
   return out;
@@ -654,6 +655,96 @@ function audible(tr) {
   if (tr.mute) return false;
   const anySolo = song.tracks.some((t) => t.solo);
   return anySolo ? tr.solo : true;
+}
+/* ---------- じぶんの音（マイクで録った声・手びょうしを楽器にする） ----------
+   song.voice = { sr, data（16bit を base64）, root: 60 }。ドレミの高さは、再生の速さを変えて出す */
+Sound.INSTRUMENTS.myvoice = 'じぶんの音';
+Sound.GM.myvoice = 53; // MIDI では「声」
+let voiceCache = { key: '', buf: null };
+function voiceBuffer(ctx) {
+  const v = song.voice;
+  if (!v || !v.data) return null;
+  const key = v.data.length + ':' + v.data.slice(0, 40);
+  if (voiceCache.key === key && voiceCache.buf) return voiceCache.buf;
+  const bin = atob(v.data);
+  const n = bin.length >> 1;
+  const buf = ctx.createBuffer(1, n, v.sr);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) { let x = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8); if (x >= 32768) x -= 65536; ch[i] = x / 32768; }
+  voiceCache = { key, buf };
+  return buf;
+}
+const rawPlayNote = Sound.playNote;
+Sound.playNote = function (ctx, out, inst, midi, t, dur, vel, real) {
+  if (inst !== 'myvoice') return rawPlayNote.apply(this, arguments);
+  const buf = voiceBuffer(ctx);
+  if (!buf) return rawPlayNote.call(this, ctx, out, 'piano', midi, t, dur, vel, real);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midi - ((song.voice && song.voice.root) || 60)) / 12);
+  const g = ctx.createGain();
+  const end = t + Math.max(0.08, dur);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vel, t + 0.005);
+  g.gain.setValueAtTime(vel, end - 0.04);
+  g.gain.linearRampToValueAtTime(0, end);
+  src.connect(g);
+  g.connect(out);
+  src.start(t);
+  src.stop(end + 0.01);
+};
+// 録った音を、しずかな所を切って・大きさをそろえて・22kHz のモノラルにしてしまう
+function storeVoice(buf) {
+  const sr = 22050;
+  const src = buf.getChannelData(0);
+  const ratio = buf.sampleRate / sr;
+  const n0 = Math.floor(src.length / ratio);
+  const mono = new Float32Array(n0);
+  for (let i = 0; i < n0; i++) {
+    let x = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) x += buf.getChannelData(c)[Math.floor(i * ratio)];
+    mono[i] = x / buf.numberOfChannels;
+  }
+  let peak = 0;
+  for (const x of mono) peak = Math.max(peak, Math.abs(x));
+  if (peak < 0.02) return false; // 音が小さすぎる
+  const th = peak * 0.12;
+  let a = 0;
+  while (a < mono.length && Math.abs(mono[a]) < th) a++;
+  a = Math.max(0, a - Math.round(sr * 0.01));
+  const len = Math.min(mono.length - a, Math.round(sr * 1.5));
+  const out = new Int16Array(len);
+  const fade = Math.round(sr * 0.03);
+  for (let i = 0; i < len; i++) {
+    let x = (mono[a + i] / peak) * 0.9;
+    if (i > len - fade) x *= (len - i) / fade;
+    out[i] = Math.round(clamp(x, -1, 1) * 32767);
+  }
+  const bytes = new Uint8Array(out.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  song.voice = { sr, data: btoa(bin), root: 60 };
+  voiceCache = { key: '', buf: null };
+  return true;
+}
+async function recordVoice(onState) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) throw new Error('このブラウザでは録音できません');
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+  try {
+    for (const n of [3, 2, 1]) { onState(String(n)); await new Promise((r) => setTimeout(r, 450)); }
+    onState('●');
+    const mr = new MediaRecorder(stream);
+    const chunks = [];
+    mr.ondataavailable = (e) => chunks.push(e.data);
+    const done = new Promise((r) => (mr.onstop = r));
+    mr.start();
+    await new Promise((r) => setTimeout(r, 1800));
+    mr.stop();
+    await done;
+    const ab = await new Blob(chunks).arrayBuffer();
+    const buf = await audioCtx().decodeAudioData(ab);
+    return buf;
+  } finally { stream.getTracks().forEach((t) => t.stop()); }
 }
 function scheduleEvent(ctx, graph, e, when, withMetro) {
   if (e.kind === 'metro') { if (withMetro) Sound.click(ctx, graph.metro, when, e.acc, song.metro.kind); return; }
@@ -2983,6 +3074,22 @@ function renderPicker() {
     box.innerHTML = `${toggle}<div class="cats">${Sound.CATS.map((c) => `<button class="catbtn ${c.id === cat.id ? 'on' : ''}" data-c="${c.id}">${PIC('cat', c.id)}${c.name}</button>`).join('')}</div>
       <div class="insts">${cat.list.map(([id, name]) => `<button class="instopt ${id === p.val ? 'on' : ''}" data-id="${id}">${PIC('inst', id)}<span class="iname">${name}</span>${p.real ? (Sound.Samples.has(id) ? `<small class="rec" title="本物の録音">${I('mic')}</small>` : `<small class="rec syn" title="録音がないので電子音で鳴ります">${I('wave')}</small>`) : ''}</button>`).join('')}</div>
       <div class="kbd" id="pickKbd"></div>`;
+    box.insertAdjacentHTML('afterbegin', `<div class="myvoice ${p.val === 'myvoice' ? 'on' : ''}"><b>${I('mic')}じぶんの音</b><span>声や手びょうしを録音して、楽器にします（ド＝録った高さ）</span>
+      <button class="mini accent" id="mvRec">${song.voice ? '録りなおす' : '録音する（2秒）'}</button>${song.voice ? '<button class="mini" id="mvUse">これにする</button>' : ''}<span id="mvState" class="mvstate"></span></div>`);
+    $('#mvRec').onclick = async () => {
+      try {
+        const buf = await recordVoice((st) => { $('#mvState').textContent = st; });
+        $('#mvState').textContent = '';
+        if (!storeVoice(buf)) { toast('音が小さすぎました。マイクに近づいて、もう一度'); return; }
+        autosaveSoon();
+        p.val = 'myvoice';
+        renderPicker();
+        ensureAudio();
+        [60, 64, 67, 72].forEach((m, i) => Sound.playNote(ctx, previewOut, 'myvoice', m, ctx.currentTime + 0.05 + i * 0.25, 0.3, 0.8));
+        toast('録れました！ ドミソド で鳴らしてみたよ');
+      } catch (e) { $('#mvState').textContent = ''; toast(e && e.name === 'NotAllowedError' ? 'マイクを使えるように許可してね' : '録音できませんでした：' + (e.message || e)); }
+    };
+    if ($('#mvUse')) $('#mvUse').onclick = () => { p.val = 'myvoice'; renderPicker(); ensureAudio(); [60, 64, 67, 72].forEach((m, i) => Sound.playNote(ctx, previewOut, 'myvoice', m, ctx.currentTime + 0.05 + i * 0.25, 0.3, 0.8)); };
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.cat = b.dataset.c; renderPicker(); }));
     const demo = async () => {
       if (p.real && Sound.Samples.has(p.val) && !Sound.Samples.ready(p.val)) { toast('録音を読み込んでいます…'); try { await Sound.Samples.load(p.val, ctx); } catch (e) { /* 電子音で鳴らす */ } }
@@ -4723,7 +4830,9 @@ function importFile(file) {
 }
 
 async function packSong() {
-  const bytes = new TextEncoder().encode(JSON.stringify(song));
+  let sg = song;
+  if (song.voice) { sg = JSON.parse(JSON.stringify(song)); delete sg.voice; for (const t of sg.tracks) if (t.inst === 'myvoice') t.inst = 'piano'; }
+  const bytes = new TextEncoder().encode(JSON.stringify(sg));
   let data = bytes;
   let prefix = 'j';
   if (window.CompressionStream) {
@@ -4750,6 +4859,7 @@ async function shareDialog() {
   const url = location.origin + location.pathname + '#song=' + (await packSong());
   $('#shareUrl').value = url;
   $('#btnSendUrl').hidden = !navigator.share;
+  if (song.voice && song.tracks.some((t) => t.inst === 'myvoice')) toast('「じぶんの音」はリンクでは送れないので、相手にはピアノで聞こえます（ファイルに書き出すと送れます）', 5000);
   $('#shareTitle').textContent = `「${song.title}」`;
   $('#dlgShare').showModal();
   if (!isPhone) $('#shareUrl').select();

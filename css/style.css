@@ -1168,3 +1168,10 @@ body.kids .mini-info { font-size: 13px; }
 .tbtn.rec.on { background: color-mix(in srgb, #e03131 14%, transparent); }
 .tbtn.rec.on .recdot { animation: recBlink 1s steps(2, start) infinite; }
 @keyframes recBlink { to { opacity: .25; } }
+
+/* じぶんの音 */
+.myvoice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; margin-bottom: 10px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--border)); background: var(--accent-soft); }
+.myvoice b { display: inline-flex; align-items: center; gap: 6px; }
+.myvoice > span { font-size: 12px; color: var(--muted); flex: 1 1 200px; }
+.myvoice.on { border-style: solid; box-shadow: 0 0 0 2px var(--accent); }
+.mvstate { font: 800 22px/1 system-ui, sans-serif; color: #e03131; min-width: 1.2em; text-align: center; }
