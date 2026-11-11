@@ -181,7 +181,7 @@ function sanitizeSong(s) {
   for (const b in out.ramps) { const r = out.ramps[b]; if (!(r && (r.type === 'rit' || r.type === 'acc') && Number.isInteger(r.n) && r.n > 0 && r.n <= 16)) delete out.ramps[b]; }
   for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
   if (!SCALES[out.scale]) out.scale = 'major';
-  if (out.cp && !(typeof out.cp === 'object' && [1, 2].includes(out.cp.species) && typeof out.cp.cfId === 'string' && typeof out.cp.cpId === 'string')) delete out.cp;
+  if (out.cp && !(typeof out.cp === 'object' && [1, 2, 3, 4].includes(out.cp.species) && typeof out.cp.cfId === 'string' && typeof out.cp.cpId === 'string')) delete out.cp;
   out.master = num(s.master, 0.9, 0, 1.5);
   out.reverb = num(s.reverb, 0.25, 0, 1);
   out.swing = num(s.swing, 0, 0, 1);
@@ -5299,6 +5299,17 @@ function cpIvNum(cpP, s) {
   const num = [1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7][ic] + 7 * Math.floor(v / 12);
   return ic === 0 && v ? String(1 + 7 * Math.floor(v / 12)) : String(num);
 }
+const CP_HOW = { 1: '全音符', 2: '2分音符', 3: '4分音符', 4: '2拍目からタイでのばす2分音符' };
+const CP_KIND = { 1: '1対1：全音符に全音符', 2: '2対1：全音符に2分音符', 3: '4対1：全音符に4分音符', 4: '掛留：小節線をこえてのばし、ずらしてぶつける' };
+// 第4類で小節線をこえてのばした音は「準備の音程→小節の頭の音程」（例 6→7）
+function cpLabel(n, notes) {
+  const a = cpIvNum(n.p, n.s);
+  if (song.cp.species !== 4 || n.s % 192 === 0) return a;
+  const nb = (Math.floor(n.s / 192) + 1) * 192;
+  const r = cpResult();
+  if (n.s + n.l <= nb || nb >= r.cf.length * 192 || notes.some((x) => x.s === nb && x.p !== n.p)) return a;
+  return a + '→' + cpIvNum(n.p, nb);
+}
 function updateCp() {
   const bar = $('#cpBar');
   if (!bar) return;
@@ -5312,7 +5323,7 @@ function updateCp() {
   const done = r.filled === r.total;
   const sp = song.cp.species;
   let html;
-  if (!r.notes) html = `<b>第${sp}類</b> 定旋律の${song.cp.above ? '上' : '下'}に、${sp === 1 ? '全音符' : '2分音符'}で対旋律を書こう`;
+  if (!r.notes) html = `<b>第${sp}類</b> 定旋律の${song.cp.above ? '上' : '下'}に、${CP_HOW[sp]}で対旋律を書こう`;
   else if (done && !e && !w) html = `<b>できました！</b> きまりは全部まもれています${h ? `（ヒント ${h}）` : ''}`;
   else html = `<b>第${sp}類</b> ${r.filled}/${r.total}小節　<span class="bad">まちがい ${e}</span>　<span class="warnc">注意 ${w}</span>${h ? `　<span class="hintc">ヒント ${h}</span>` : ''}`;
   $('#cpText').innerHTML = html;
@@ -5330,7 +5341,7 @@ function cpMarks(g2, X, rowIndex, rh, sy, k) {
     const ri = rowIndex.get(n.p);
     if (ri == null) continue;
     g2.fillStyle = C('--muted');
-    g2.fillText(cpIvNum(n.p, n.s), X(n.s) + 4, RH + (ri + 1) * rh - sy + 12);
+    g2.fillText(cpLabel(n, cpT.notes), X(n.s) + 4, RH + (ri + 1) * rh - sy + 12);
   }
   const seen = new Map();
   for (const is of r.issues) {
@@ -5371,7 +5382,7 @@ function cpScoreMarks() {
   }
   const cpT = song.tracks.find((t) => t.id === song.cp.cpId);
   const ivNums = {};
-  for (const n of cpT.notes) ivNums[n.s] = cpIvNum(n.p, n.s);
+  for (const n of cpT.notes) ivNums[n.s] = cpLabel(n, cpT.notes);
   return { marks, ivNums, ivPart: song.cp.cpId };
 }
 function cpStart(cantus, species, above) {
@@ -5385,10 +5396,11 @@ function cpStart(cantus, species, above) {
     cp: { on: true, species, above, cantus: c.id, cfId: cfTr.id, cpId: cpTr.id },
   }, { own: true });
   selectTrack(song.tracks.findIndex((t) => t.id === song.cp.cpId));
-  setGrid(species === 1 ? 192 : 96);
-  ui.sc.dur = species === 1 ? 192 : 96; ui.sc.dot = false; ui.sc.trip = false;
+  const g = { 1: 192, 2: 96, 3: 48, 4: 96 }[species];
+  setGrid(g);
+  ui.sc.dur = g; ui.sc.dot = false; ui.sc.trip = false;
   scrollToNotes();
-  toast(`定旋律の${above ? '上' : '下'}に、対旋律を書いてみよう。まちがいは赤、注意はオレンジで出ます`);
+  toast(species === 4 ? `定旋律の${above ? '上' : '下'}に、2拍目から音を出して次の小節の頭までのばそう（同じ音の2分音符2つでもOK）` : `定旋律の${above ? '上' : '下'}に、対旋律を書いてみよう。まちがいは赤、注意はオレンジで出ます`);
 }
 function cpDialog(mode) {
   const d = $('#dlgCp');
@@ -5412,14 +5424,14 @@ function cpDialog(mode) {
   } else if (mode === 'rules') {
     body.innerHTML = `<h3>対位法のきまり</h3>
       <p class="muted">対位法は、いくつかのメロディを、それぞれ生き生きと、しかもきれいにひびくように重ねる作曲の技術です。ここでは、J. J. フックス『パルナッソス山への階梯』（1725年）の「類」の順に練習します。</p>
-      ${[1, 2].map((k) => `<h4>第${k}類（${k === 1 ? '1対1：全音符に全音符' : '2対1：全音符に2分音符'}）</h4><ul>${Counterpoint.RULES[k].map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`).join('')}
+      ${[1, 2, 3, 4].map((k) => `<h4>第${k}類（${CP_KIND[k]}）</h4><ul>${Counterpoint.RULES[k].map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`).join('')}
       <p class="muted">音程の数え方：同じ高さ＝1（同度）、となり＝2度、ド〜ミ＝3度、ド〜ソ＝5度、ド〜ラ＝6度、ド〜上のド＝8度。ピアノロールと楽譜では、対旋律の音の下に、定旋律との音程の数字が出ます。</p>
       <div class="btnrow">${cpOn() ? '<button class="tbtn" data-x="list">チェックの結果</button>' : ''}<button class="tbtn primary close">とじる</button></div>`;
   } else {
     body.innerHTML = `<h3>対位法れんしゅう</h3>
       <p class="muted">決まったメロディ（定旋律）に、もう1つのメロディ（対旋律）をつけます。書くたびに、きまり（平行5度・不協和音程など）をその場でチェックします。</p>
       <label class="row">定旋律 <select id="cpCf">${Counterpoint.CANTI.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}（${c.notes.length}小節）</option>`).join('')}</select></label>
-      <fieldset class="row"><legend>類</legend><label><input type="radio" name="cpSp" value="1" checked> 第1類（1対1：全音符）</label><label><input type="radio" name="cpSp" value="2"> 第2類（2対1：2分音符）</label></fieldset>
+      <fieldset class="row"><legend>類</legend><label><input type="radio" name="cpSp" value="1" checked> 第1類（1対1：全音符）</label><label><input type="radio" name="cpSp" value="2"> 第2類（2対1：2分音符）</label><label><input type="radio" name="cpSp" value="3"> 第3類（4対1：4分音符）</label><label><input type="radio" name="cpSp" value="4"> 第4類（掛留：ずらしてのばす）</label></fieldset>
       <fieldset class="row"><legend>対旋律の位置</legend><label><input type="radio" name="cpAb" value="1" checked> 定旋律の上</label><label><input type="radio" name="cpAb" value="0"> 定旋律の下</label></fieldset>
       <div class="btnrow"><button class="tbtn" data-x="rules">きまりを見る</button><button class="tbtn close">やめる</button><button class="tbtn primary" id="cpGo">はじめる</button></div>`;
     $('#cpGo').onclick = () => {

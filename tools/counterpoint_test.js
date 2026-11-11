@@ -39,6 +39,21 @@ const SHOT = process.argv[2];
   // 第2類・下で はじめなおす
   await p.evaluate(() => { cpStart('c', 2, false); });
   r['第2類・下'] = await p.evaluate(() => ({ grid: ui.grid, order: song.tracks.map((t) => t.name).join(','), text: document.querySelector('#cpText').textContent }));
+  // 第4類・上：掛留の模範（2分音符2つで書く）→ まちがい0、数字は「6→7」の形
+  await p.evaluate(() => { cpStart('d', 4, true); });
+  r['第4類'] = await p.evaluate(() => {
+    const t = track();
+    const ps = [69, 74, 72, 71, 74, 81, 77, 76, 74, 73, 74];
+    edit(() => { t.notes = []; ps.forEach((q, b) => { if (b === 10) t.notes.push({ s: 1920, p: q, l: 192 }); else { t.notes.push({ s: b * 192 + 96, p: q, l: 96 }); if (b < 9) t.notes.push({ s: (b + 1) * 192, p: q, l: 96 }); } }); }, 'cp');
+    const tied = t.notes.map((n) => ({ ...n }));
+    const r1 = cpResult().issues.filter((x) => x.level !== 'hint').length;
+    edit(() => { t.notes = ps.map((q, b) => (b === 10 ? { s: 1920, p: q, l: 192 } : { s: b * 192 + 96, p: q, l: b === 9 ? 96 : 192 })); }, 'cp');
+    const lab = cpLabel(t.notes[1], t.notes);
+    return { grid: ui.grid, split: r1, tied: cpResult().issues.filter((x) => x.level !== 'hint').length, label: lab, text: document.querySelector('#cpText').textContent, n: tied.length };
+  });
+  if (SHOT) { await p.evaluate(() => setView('score')); await p.waitForTimeout(400); await p.screenshot({ path: SHOT + '_s4.png' }); }
+  await p.evaluate(() => { cpStart('c', 3, true); });
+  r['第3類'] = await p.evaluate(() => ({ grid: ui.grid, dur: ui.sc.dur, text: document.querySelector('#cpText').textContent }));
   // おわる
   await p.evaluate(() => document.querySelector('#cpClose').click()); await p.waitForTimeout(100);
   r['おわる'] = await p.evaluate(() => document.querySelector('#cpBar').hidden);
