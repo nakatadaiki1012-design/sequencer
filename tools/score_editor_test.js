@@ -17,10 +17,10 @@ await p.keyboard.press('ArrowUp');
 await p.evaluate(() => { scArt('stac'); scDynamic('p'); ui.sc.sel=new Set(song.tracks[1].notes.filter(n=>n.s<192).map(n=>n.s+':'+n.p)); scSlur(); scHairpin('cresc'); });
 console.log('after edit', await p.evaluate(() => JSON.stringify({n:song.tracks[1].notes.slice(0,3), dyn:song.tracks[1].dyn, sl:song.tracks[1].slurs, hp: song.tracks[1].hairpins})));
 // クリックで入力（楽譜上の位置→高さ）
-const clickRes = await p.evaluate(() => { const box=document.querySelector('#scoreEditView'); const L=box._layout; const sys=L.systems[0]; const st=sys.staves.find(s=>s.pi===scoreParts.indexOf(track())); const B=sys.bars[2]; const svg=box.querySelector('svg'); const r=svg.getBoundingClientRect(); const k=r.width/L.width;
+const clickRes = await p.evaluate(() => { const box=document.querySelector('#scoreEditView'); const L=box._layout; const sys=L.systems[0]; const st=sys.staves.find(s=>s.pi===scoreParts.indexOf(track())); const B=sys.bars[Math.min(2, sys.bars.length-1)]; const svg=box.querySelector('svg'); const r=svg.getBoundingClientRect(); const k=r.width/L.width;
   const x=B.xs[0]+2, y=st.top+4*8-2*4; // 第2線＝G4（ト音記号）
   const before=track().notes.length; ui.sc.input=true;
-  scoreClick({clientX:r.left+x*k, clientY:r.top+y*k, target:svg, shiftKey:false}); return [before, track().notes.length, JSON.stringify(track().notes.find(n=>n.s===2*barTicks()))]; });
+  scoreClick({clientX:r.left+x*k, clientY:r.top+y*k, target:svg, shiftKey:false}); return [before, track().notes.length, JSON.stringify(track().notes.find(n=>n.s===B.b*barTicks()))]; });
 console.log('click insert', clickRes);
 // くり返し：1〜2小節くり返し、playOrder
 console.log('order', await p.evaluate(() => { song.repeats={start:[0],end:[3],volta:{3:1,4:2}}; changed(); return JSON.stringify(playOrder()); }));
