@@ -140,6 +140,7 @@
           <button id="btnScoreMenu" hidden></button>
           <div class="ddh">授業・発表</div>
           <button id="btnPresent"><svg class="i"><use href="#i-screen"/></svg>発表モード（全画面）</button>
+          <button id="btnCp"><svg class="i"><use href="#i-layers"/></svg>対位法れんしゅう（2つのメロディ）</button>
           <button id="btnCompare"><svg class="i"><use href="#i-file"/></svg>お手本とくらべる（答え合わせ）</button>
           <button id="btnTeach"><svg class="i"><use href="#i-teacher"/></svg>先生用設定（機能の制限）</button>
           <button id="btnHist"><svg class="i"><use href="#i-clock"/></svg>これまでの操作（履歴）</button>
@@ -341,6 +342,8 @@
     <div class="dlgfoot"><span id="expPct" class="hint">0%</span><button id="expCancel" class="tbtn">やめる</button></div>
   </dialog>
 
+  <div id="cpBar" class="cmpbar cpbar" hidden role="status"><span id="cpText"></span><button id="cpList" class="mini" title="どこが、なぜだめかを一覧で">どこ？</button><button id="cpRules" class="mini" title="対位法のきまり">きまり</button><button id="cpNew" class="mini" title="ほかの定旋律・類で練習">新しい課題</button><button id="cpClose" class="mini" title="チェックをおわる"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <dialog id="dlgCp" class="wide cpdlg"><div id="cpBody"></div></dialog>
   <dialog id="dlgBatch" class="wide"><h3>まとめて採点</h3><div id="batchBody"></div></dialog>
 
   <dialog id="dlgShare">
@@ -433,6 +436,7 @@
       <li><b>発表モード</b>：メニュー → 発表モード。全画面でマス目を大きく表示します（Esc でおわる）。</li>
       <li><b>歌詞を大きく</b>：歌詞を入れた曲を発表モードで再生すると、カラオケのように歌詞が出ます。</li>
       <li><b>まとめて採点</b>：お手本とくらべている間に出るバーの「まとめて採点」で、クラス全員のファイルをいっしょにえらぶと一覧になります（CSVで保存できます）。</li>
+      <li><b>対位法れんしゅう</b>：メニュー → 対位法れんしゅう。決まったメロディ（定旋律）に、もう1つのメロディ（対旋律）をつけます。第1類（全音符）・第2類（2分音符）、上・下をえらべます。平行5度・不協和音程などのきまりをやぶると、その場で赤（まちがい）・オレンジ（注意）の印が出て、「どこ？」で理由が読めます。音の下の数字は、定旋律との音程です。</li>
       <li><b>お手本とくらべる</b>：メニュー → お手本とくらべる。お手本のファイルをえらぶと、たりない音（緑の点線）・ちがう音（赤い×）と、あっている割合が出ます。</li>
       <li><b>プリント</b>：楽譜の画面で「名前を書くらん」「穴うめにする小節」「リコーダーの指づかい」がえらべます。</li>
       <li><b>こどもモード</b>：表示 → こどもモード。むずかしい漢字にふりがながつき、ボタンが大きくなります。</li>
@@ -487,6 +491,7 @@
   <script src="js/glyphs.js"></script>
   <script src="js/notation.js"></script>
   <script src="js/musicxml.js"></script>
+  <script src="js/counterpoint.js"></script>
   <script src="js/insticons.js"></script>
   <script src="js/mp3.js"></script>
   <script src="js/app.js"></script>

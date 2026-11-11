@@ -284,7 +284,7 @@ const Notation = (() => {
       for (const n of st.notes2) if (n.s >= 0 && n.s < bS(bars)) st.has2[barOfT(n.s)] = true;
       st.evAt = (b) => (st.has2[b] ? st.bars[b].concat(st.bars2[b]) : st.bars[b]);
       st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'bass' ? 18 : 30;
-      st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean));
+      st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean) || (opts.ivPart && st.part.id === opts.ivPart));
       st.hasDyn = st.sub === (st.grand ? 1 : 0) && ((st.part.dyn || []).length || (st.part.hairpins || []).length);
       st.dynAbove = !!(st.hasDyn && st.sub === 0 && !st.grand && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean)));
       // 五線の外にはみ出す音（加線）の分だけ、段の上下をあける
@@ -384,7 +384,7 @@ const Notation = (() => {
     }
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
-    const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0);
+    const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0);
     const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const dynRoom = (st) => (st.dynAbove ? 18 : 0); // 上に強弱を書くぶん
     const systemH = topRow + staves.reduce((a, s) => a + staffH(s), 0) + 16;
@@ -630,6 +630,8 @@ const Notation = (() => {
             }
             const lyr = ev.first ? (ev.ly || (st.notes.some((n) => n.ly) ? '' : st.lyrics[ev.syll])) : '';
             if (st.sub === 0 && lyr && stream === 'A') o.push(`<text x="${x}" y="${lyrY}" font-size="12" text-anchor="middle" fill="#111">${esc(lyr)}</text>`);
+            // 対位法：定旋律との音程の数字
+            if (opts.ivNums && st.part.id === opts.ivPart && ev.first && stream === 'A' && opts.ivNums[ev.src] != null) o.push(`<text x="${x}" y="${lyrY}" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1e3a8a">${esc(opts.ivNums[ev.src])}</text>`);
             if (lyOwn && stream === 'A') {
               if (lyr) { melFlush(); mel = { x0: x + textW(lyr) / 2 + 2, last: null, s: ev.abs }; }
               else if (mel && (!ev.first || ev.abs < lastLy || inSlur(mel.s, ev.abs))) mel.last = x;
@@ -690,6 +692,12 @@ const Notation = (() => {
               o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[0])}</text>`);
               o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[1])}</text>`);
             } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
+          }
+          // 対位法のチェックの印（赤＝まちがい、オレンジ＝注意）
+          if (si === 0 && opts.marks && opts.marks[bb]) {
+            let mx = B.xs[0] - 4;
+            const my = stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0) - (opts.words && opts.words[bb] ? 15 : 0);
+            for (const m of opts.marks[bb]) { o.push(`<text x="${mx}" y="${my}" font-size="11" font-weight="bold" fill="${m.err ? '#e03131' : '#e67700'}">${esc(m.t)}</text>`); mx += textW(m.t) * 0.95 + 6; }
           }
           // rit. / accel. はコード名の上に（かさならないように）
           if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);

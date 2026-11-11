@@ -1297,3 +1297,20 @@ body.phone .tpl-grid { gap: 8px; }
 body.phone .tpl-opts { padding: 8px 10px; gap: 6px 10px; }
 body.phone .tpl-links { gap: 4px; }
 body.phone dialog.start > h3 { font-size: 19px; margin: 0 0 2px; }
+
+/* 対位法れんしゅう */
+.cmpbar.cpbar { position: fixed; left: 50%; right: auto; transform: translateX(-50%); bottom: 18px; z-index: 40; max-width: calc(100vw - 24px); }
+body.phone .cmpbar.cpbar { top: auto; bottom: 66px; left: 8px; right: 8px; transform: none; max-width: none; }
+body.phone .cpbar #cpText { flex: 1 1 100%; }
+body.phone .cpbar #cpClose { margin-left: auto; }
+.cpbar .warnc { color: #e67700; font-weight: 600; }
+.cpbar .hintc { color: var(--muted); }
+.cpdlg .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; border: 0; padding: 0; }
+.cpdlg legend { font-weight: 600; margin-right: 8px; float: left; }
+.cpdlg select { max-width: 100%; }
+.cplist { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; max-height: 50vh; overflow: auto; }
+.cplist button { width: 100%; text-align: left; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; color: var(--text); }
+.cplist .err button { border-color: #ffa8a8; }
+.cplist .warn button { border-color: #ffd8a8; }
+.cplist button:hover { background: var(--sel); }
+@media print { .cpbar { display: none !important; } }

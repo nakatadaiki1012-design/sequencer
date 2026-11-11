@@ -181,6 +181,7 @@ function sanitizeSong(s) {
   for (const b in out.ramps) { const r = out.ramps[b]; if (!(r && (r.type === 'rit' || r.type === 'acc') && Number.isInteger(r.n) && r.n > 0 && r.n <= 16)) delete out.ramps[b]; }
   for (const b in out.meters) { const m = out.meters[b]; if (!(Array.isArray(m) && m.length === 2 && m.every((x) => Number.isInteger(x) && x > 0 && x <= 32))) delete out.meters[b]; }
   if (!SCALES[out.scale]) out.scale = 'major';
+  if (out.cp && !(typeof out.cp === 'object' && [1, 2].includes(out.cp.species) && typeof out.cp.cfId === 'string' && typeof out.cp.cpId === 'string')) delete out.cp;
   out.master = num(s.master, 0.9, 0, 1.5);
   out.reverb = num(s.reverb, 0.25, 0, 1);
   out.swing = num(s.swing, 0, 0, 1);
@@ -508,6 +509,7 @@ function changed(full = false) {
   version++;
   if (mission.on) setTimeout(missionCheck, 0);
   if (refSong) setTimeout(updateCompare, 0);
+  setTimeout(updateCp, 0);
   if (full) { renderSettings(); renderTracks(); }
   renderEditorTools();
   resizeEditor();
@@ -1563,6 +1565,7 @@ function draw(playPos) {
     drawChordNotes(tr, X, k, y + rh, H, t0, t1, playPos);
   }
   if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
+  if (cpOn() && tr.id === song.cp.cpId) cpMarks(g2, X, rowIndex, rh, sy, k);
   if (rubber && tr.type !== 'chord') {
     const ta = Math.min(rubber.t0, rubber.t1);
     const tb = Math.max(rubber.t0, rubber.t1);
@@ -3957,6 +3960,7 @@ function renderScoreEditNow() {
   o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
+  if (cpOn()) Object.assign(o, cpScoreMarks());
   const keepTop = box.scrollTop;
   box.innerHTML = Notation.render(o);
   box.scrollTop = keepTop;
@@ -5266,6 +5270,167 @@ function readSongFile(file) {
 /* ---------- お手本とくらべる ----------
    お手本の曲を読みこんで、今の曲のメロディと1音ずつくらべます。
    マス目に「たりない音」（緑の点線）と「ちがう音」（赤い×）を出し、あっている割合を出します */
+/* ---------- 対位法れんしゅう（定旋律に対旋律をつけて、きまりを自動でチェック） ---------- */
+const cpOn = () => !!(song.cp && song.cp.on && song.tracks.some((t) => t.id === song.cp.cfId) && song.tracks.some((t) => t.id === song.cp.cpId));
+let cpCache = { key: '', res: null };
+function cpResult() {
+  if (!cpOn()) return null;
+  const key = version + ':' + JSON.stringify(song.cp);
+  if (cpCache.key === key) return cpCache.res;
+  const cfT = song.tracks.find((t) => t.id === song.cp.cfId);
+  const cpT = song.tracks.find((t) => t.id === song.cp.cpId);
+  const cf = [];
+  for (let b = 0; b < song.bars; b++) {
+    const n = cfT.notes.filter((x) => x.s >= barStart(b) && x.s < barStart(b + 1)).sort((a, c) => a.s - c.s)[0];
+    cf.push(n ? n.p : b ? cf[b - 1] : 60);
+  }
+  const res = Counterpoint.check({ cf, cp: cpT.notes, species: song.cp.species, above: song.cp.above });
+  res.cf = cf;
+  cpCache = { key, res };
+  return res;
+}
+// 2つの声の音程の数字（3・5・6・8 …）
+function cpIvNum(cpP, s) {
+  const r = cpResult();
+  const c = r.cf[Math.floor(s / 192)];
+  if (c == null) return '';
+  const v = Math.abs(cpP - c);
+  const ic = v % 12;
+  const num = [1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7][ic] + 7 * Math.floor(v / 12);
+  return ic === 0 && v ? String(1 + 7 * Math.floor(v / 12)) : String(num);
+}
+function updateCp() {
+  const bar = $('#cpBar');
+  if (!bar) return;
+  if (!cpOn()) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const r = cpResult();
+  const cnt = (lv) => r.issues.filter((x) => x.level === lv).length;
+  const e = cnt('err');
+  const w = cnt('warn');
+  const h = cnt('hint');
+  const done = r.filled === r.total;
+  const sp = song.cp.species;
+  let html;
+  if (!r.notes) html = `<b>第${sp}類</b> 定旋律の${song.cp.above ? '上' : '下'}に、${sp === 1 ? '全音符' : '2分音符'}で対旋律を書こう`;
+  else if (done && !e && !w) html = `<b>できました！</b> きまりは全部まもれています${h ? `（ヒント ${h}）` : ''}`;
+  else html = `<b>第${sp}類</b> ${r.filled}/${r.total}小節　<span class="bad">まちがい ${e}</span>　<span class="warnc">注意 ${w}</span>${h ? `　<span class="hintc">ヒント ${h}</span>` : ''}`;
+  $('#cpText').innerHTML = html;
+  bar.classList.toggle('perfect', done && !e && !w);
+}
+function cpMarks(g2, X, rowIndex, rh, sy, k) {
+  const r = cpResult();
+  if (!r) return;
+  const cpT = song.tracks.find((t) => t.id === song.cp.cpId);
+  g2.save();
+  g2.font = 'bold 11px sans-serif';
+  g2.textBaseline = 'alphabetic';
+  // 音程の数字（定旋律との間）
+  for (const n of cpT.notes) {
+    const ri = rowIndex.get(n.p);
+    if (ri == null) continue;
+    g2.fillStyle = C('--muted');
+    g2.fillText(cpIvNum(n.p, n.s), X(n.s) + 4, RH + (ri + 1) * rh - sy + 12);
+  }
+  const seen = new Map();
+  for (const is of r.issues) {
+    if (!is.note || is.level === 'hint') continue;
+    const n = is.note;
+    const ri = rowIndex.get(n.p);
+    if (ri == null) continue;
+    const x = X(n.s);
+    const y = RH + ri * rh - sy;
+    const col = is.level === 'err' ? '#e03131' : '#e67700';
+    g2.strokeStyle = col;
+    g2.lineWidth = 2.5;
+    roundRect(g2, x + 1, y + 1, Math.max(10, (n.l || 48) * k - 2), rh - 2, 6);
+    g2.stroke();
+    const key = n.s + ':' + n.p;
+    const c = seen.get(key) || 0;
+    seen.set(key, c + 1);
+    const label = Counterpoint.SHORT[is.rule] || is.rule;
+    const tw = g2.measureText(label).width + 8;
+    g2.fillStyle = col;
+    roundRect(g2, x + 2, y - 16 - c * 15, tw, 14, 4);
+    g2.fill();
+    g2.fillStyle = '#fff';
+    g2.fillText(label, x + 6, y - 5 - c * 15);
+  }
+  g2.restore();
+}
+// 楽譜で編集：小節の上に印、対旋律の下に音程の数字
+function cpScoreMarks() {
+  const r = cpResult();
+  const marks = {};
+  for (const is of r.issues) {
+    if (is.level === 'hint' || is.bar == null) continue;
+    const t = Counterpoint.SHORT[is.rule] || is.rule;
+    const b = is.note ? Math.floor(is.note.s / 192) : is.bar;
+    if (!marks[b]) marks[b] = [];
+    if (!marks[b].some((m) => m.t === t)) marks[b].push({ t, err: is.level === 'err' });
+  }
+  const cpT = song.tracks.find((t) => t.id === song.cp.cpId);
+  const ivNums = {};
+  for (const n of cpT.notes) ivNums[n.s] = cpIvNum(n.p, n.s);
+  return { marks, ivNums, ivPart: song.cp.cpId };
+}
+function cpStart(cantus, species, above) {
+  const c = Counterpoint.CANTI.find((x) => x.id === cantus) || Counterpoint.CANTI[0];
+  const n = c.notes.length;
+  const cfTr = newTrack('melody', { name: '定旋律', inst: 'organ', range: above ? 'alto' : 'soprano', locked: true, notes: c.notes.map((p, i) => ({ s: i * 192, p, l: 192 })) });
+  const cpTr = newTrack('melody', { name: '対旋律', inst: above ? 'flute' : 'bassoon', range: above ? 'soprano' : 'tenor', notes: [] });
+  loadSong({
+    v: 2, title: `対位法 第${species}類（${c.name.split('・')[0].split('（')[0]}）`, bpm: 80, bars: n, meter: [4, 4], key: 0, scale: 'major',
+    tracks: above ? [cpTr, cfTr] : [cfTr, cpTr],
+    cp: { on: true, species, above, cantus: c.id, cfId: cfTr.id, cpId: cpTr.id },
+  }, { own: true });
+  selectTrack(song.tracks.findIndex((t) => t.id === song.cp.cpId));
+  setGrid(species === 1 ? 192 : 96);
+  ui.sc.dur = species === 1 ? 192 : 96; ui.sc.dot = false; ui.sc.trip = false;
+  scrollToNotes();
+  toast(`定旋律の${above ? '上' : '下'}に、対旋律を書いてみよう。まちがいは赤、注意はオレンジで出ます`);
+}
+function cpDialog(mode) {
+  const d = $('#dlgCp');
+  const body = $('#cpBody');
+  const sp = song.cp ? song.cp.species : 1;
+  if (mode === 'list' && cpOn()) {
+    const r = cpResult();
+    const icon = { err: '❌', warn: '⚠️', hint: '💡' };
+    const st = r.stats;
+    body.innerHTML = `<h3>対位法のチェック（第${sp}類）</h3>
+      <p class="muted">反進行 ${st.contrary}回・斜進行 ${st.oblique}回・並進行 ${st.similar}回。反進行が多いほど、2つのメロディがよく聞き分けられます。</p>
+      ${r.issues.length ? `<ol class="cplist">${r.issues.map((x, i) => `<li class="${x.level}"><button data-i="${i}">${icon[x.level]} ${escapeHtml(x.msg)}</button></li>`).join('')}</ol>` : `<p>${r.notes ? 'きまりをやぶっているところはありません 🎉' : 'まだ対旋律がありません。'}</p>`}
+      <div class="btnrow"><button class="tbtn" data-x="rules">きまりを見る</button><button class="tbtn primary close">とじる</button></div>`;
+    body.querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => {
+      const is = r.issues[+b.dataset.i];
+      d.close();
+      ui.selBar = is.bar;
+      selectBars(cur, is.bar, is.bar2 != null ? is.bar2 : is.bar);
+      if (ui.view === 'score') { ui.sc.cursor = is.bar * 192; renderScoreEdit(); } else { const sc = $('#scroller'); sc.scrollLeft = Math.max(0, barStart(is.bar) * ppt() - 80); draw(); drawOverview(); }
+    }));
+  } else if (mode === 'rules') {
+    body.innerHTML = `<h3>対位法のきまり</h3>
+      <p class="muted">対位法は、いくつかのメロディを、それぞれ生き生きと、しかもきれいにひびくように重ねる作曲の技術です。ここでは、J. J. フックス『パルナッソス山への階梯』（1725年）の「類」の順に練習します。</p>
+      ${[1, 2].map((k) => `<h4>第${k}類（${k === 1 ? '1対1：全音符に全音符' : '2対1：全音符に2分音符'}）</h4><ul>${Counterpoint.RULES[k].map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`).join('')}
+      <p class="muted">音程の数え方：同じ高さ＝1（同度）、となり＝2度、ド〜ミ＝3度、ド〜ソ＝5度、ド〜ラ＝6度、ド〜上のド＝8度。ピアノロールと楽譜では、対旋律の音の下に、定旋律との音程の数字が出ます。</p>
+      <div class="btnrow">${cpOn() ? '<button class="tbtn" data-x="list">チェックの結果</button>' : ''}<button class="tbtn primary close">とじる</button></div>`;
+  } else {
+    body.innerHTML = `<h3>対位法れんしゅう</h3>
+      <p class="muted">決まったメロディ（定旋律）に、もう1つのメロディ（対旋律）をつけます。書くたびに、きまり（平行5度・不協和音程など）をその場でチェックします。</p>
+      <label class="row">定旋律 <select id="cpCf">${Counterpoint.CANTI.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}（${c.notes.length}小節）</option>`).join('')}</select></label>
+      <fieldset class="row"><legend>類</legend><label><input type="radio" name="cpSp" value="1" checked> 第1類（1対1：全音符）</label><label><input type="radio" name="cpSp" value="2"> 第2類（2対1：2分音符）</label></fieldset>
+      <fieldset class="row"><legend>対旋律の位置</legend><label><input type="radio" name="cpAb" value="1" checked> 定旋律の上</label><label><input type="radio" name="cpAb" value="0"> 定旋律の下</label></fieldset>
+      <div class="btnrow"><button class="tbtn" data-x="rules">きまりを見る</button><button class="tbtn close">やめる</button><button class="tbtn primary" id="cpGo">はじめる</button></div>`;
+    $('#cpGo').onclick = () => {
+      d.close();
+      cpStart($('#cpCf').value, +body.querySelector('[name=cpSp]:checked').value, body.querySelector('[name=cpAb]:checked').value === '1');
+    };
+  }
+  body.querySelectorAll('.close').forEach((b) => (b.onclick = () => d.close()));
+  body.querySelectorAll('[data-x]').forEach((b) => (b.onclick = () => cpDialog(b.dataset.x)));
+  if (!d.open) d.showModal();
+}
 let refSong = null;
 function refTrackFor(i) {
   if (!refSong) return null;
@@ -6380,6 +6545,11 @@ $('#btnPresent').onclick = () => { closePops(); setPresent(true); };
 $('#presentExit').onclick = () => setPresent(false);
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setPresent(false); });
 $('#btnCompare').onclick = () => { closePops(); startCompare(); };
+$('#btnCp').onclick = () => { closePops(); cpDialog('start'); };
+$('#cpList').onclick = () => cpDialog('list');
+$('#cpRules').onclick = () => cpDialog('rules');
+$('#cpNew').onclick = () => cpDialog('start');
+$('#cpClose').onclick = () => { if (song.cp) { song.cp.on = false; changed(); toast('対位法のチェックをおわりました（曲はそのままです）'); } };
 $('#cmpClose').onclick = () => stopCompare();
 $('#cmpOther').onclick = () => startCompare();
 $('#cmpBatch').onclick = () => batchCompare();
