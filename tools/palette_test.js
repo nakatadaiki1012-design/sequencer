@@ -40,8 +40,27 @@ const SHOT = process.argv[2];
     const f = (s) => ns.filter((n) => n.s === s).map((n) => (n.art || []).join('+') + (n.fg ? ' f' + n.fg : '') + (n.gr != null ? ' g' + n.gr : '')).join('|');
     return { a: [0, 96, 144, 192, 288, 384, 480, 576].map(f).join(' / '), reh: JSON.stringify(j.rehearsal), texts: JSON.stringify(j.tracks[0].texts) };
   });
-  // パレットから入れる
-  await p.evaluate(() => { ui.sc.sel = new Set(['480:71']); ui.sc.selByInput = false; selectTrack(0); scPalette(); });
+  // パレットを開いても、楽譜や道具の行はずれない（うかぶ小窓）
+  const geo0 = await p.evaluate(() => { const v = document.querySelector('#scoreEditView').getBoundingClientRect(); const pal = document.querySelector('#scorePal').getBoundingClientRect(); return [Math.round(v.width), Math.round(v.top), Math.round(pal.height)].join(','); });
+  await p.evaluate(() => { ui.sc.sel = new Set(['480:71']); ui.sc.selByInput = false; selectTrack(0); document.querySelector('#scPalB').click(); });
+  await p.waitForTimeout(300);
+  const geo1 = await p.evaluate(() => { const v = document.querySelector('#scoreEditView').getBoundingClientRect(); const pal = document.querySelector('#scorePal').getBoundingClientRect(); return [Math.round(v.width), Math.round(v.top), Math.round(pal.height)].join(','); });
+  r['パレットで楽譜がずれない'] = geo0 === geo1 ? true : geo0 + ' → ' + geo1;
+  r['道具の行の高さ'] = await p.evaluate(() => Math.round(document.querySelector('#scorePal').getBoundingClientRect().height));
+  r['パレットの大きさ'] = await p.evaluate(() => { const rc = document.querySelector('#dlgSym').getBoundingClientRect(); return `${Math.round(rc.width)}x${Math.round(rc.height)}`; });
+  // 見出しをドラッグして動かす → 次に開いても同じ場所
+  const hb = await p.evaluate(() => { const rc = document.querySelector('#dlgSym .palhead').getBoundingClientRect(); return [rc.left + 30, rc.top + 10]; });
+  await p.mouse.move(hb[0], hb[1]); await p.mouse.down(); await p.mouse.move(hb[0] - 400, hb[1] + 150, { steps: 5 }); await p.mouse.up();
+  const pos1 = await p.evaluate(() => { const rc = document.querySelector('#dlgSym').getBoundingClientRect(); return Math.round(rc.left) + ',' + Math.round(rc.top); });
+  await p.keyboard.press('F9'); await p.keyboard.press('F9'); await p.waitForTimeout(400);
+  const pos2 = await p.evaluate(() => { const rc = document.querySelector('#dlgSym').getBoundingClientRect(); return Math.round(rc.left) + ',' + Math.round(rc.top); });
+  r['ドラッグで動かす・場所をおぼえる'] = pos1 === pos2 && pos1 !== '' ? pos1 : pos1 + ' / ' + pos2;
+  // くり返し・D.C. もパレットから（たたんである見出しをひらく）
+  await p.evaluate(() => { document.querySelectorAll('#dlgSym details').forEach((d) => (d.open = true)); ui.sc.cursor = 192; });
+  await p.click('#dlgSym [data-bar="start"]');
+  await p.click('#dlgSym [data-jump="fine"]');
+  r['くり返し・Fine'] = await p.evaluate(() => JSON.stringify({ start: song.repeats.start, fine: song.jumps.fine }));
+  await p.evaluate(() => { undo(); undo(); ui.sc.sel = new Set(['480:71']); });
   await p.waitForTimeout(200);
   r['パレット'] = await p.evaluate(() => document.querySelector('#dlgSym').open && document.querySelectorAll('#dlgSym .palb').length);
   await p.click('#dlgSym [data-art="tr"]');

@@ -1315,19 +1315,25 @@ body.phone .cpbar #cpClose { margin-left: auto; }
 .cplist button:hover { background: var(--sel); }
 @media print { .cpbar { display: none !important; } }
 
-/* 記号パレット（MuseScore のパレットのように、楽譜の横にうかぶ） */
-dialog.paldlg { position: fixed; top: 110px; right: 12px; left: auto; margin: 0; width: 290px; max-height: calc(100vh - 140px); overflow: auto; padding: 10px 12px 12px; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.18); z-index: 60; background: var(--panel); color: var(--text); }
-.paldlg .palhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.paldlg .palhead .muted { font-size: 11px; flex: 1; }
-.paldlg .palsec { margin-top: 8px; }
-.paldlg .palt { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
-.paldlg .palgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.paldlg .palgrid:has(.num) { grid-template-columns: repeat(6, 1fr); }
-.paldlg .palgrid:has(.num) .palb span { font-size: 9.5px; }
-.paldlg .palb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 48px; padding: 4px 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: inherit; cursor: pointer; font: inherit; }
+/* 記号パレット：うかぶ小窓（ほかのボタン・楽譜をずらさない）。見出しをドラッグで動かせる */
+dialog.paldlg { position: fixed; top: 120px; right: 16px; left: auto; margin: 0; width: 214px; max-height: min(70vh, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; padding: 0; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.16); z-index: 60; background: var(--panel); color: var(--text); }
+.paldlg .palhead { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; cursor: move; user-select: none; touch-action: none; border-bottom: 1px solid var(--border); }
+.paldlg .palhead .muted { font-size: 10.5px; flex: 1; white-space: nowrap; }
+.paldlg .palhead .close { cursor: pointer; }
+.paldlg .palbody { overflow-y: auto; padding: 2px 8px 8px; }
+.paldlg .palsec summary { font-size: 11px; font-weight: 700; color: var(--muted); padding: 5px 0 3px; cursor: pointer; list-style: none; }
+.paldlg .palsec summary::before { content: '▸ '; }
+.paldlg .palsec[open] summary::before { content: '▾ '; }
+.paldlg .palsec summary::-webkit-details-marker { display: none; }
+.paldlg .palgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.paldlg .palb { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: inherit; cursor: pointer; font: inherit; font-size: 13px; }
 .paldlg .palb:hover { border-color: var(--accent); }
-.paldlg .palb span { font-size: 10.5px; line-height: 1.15; text-align: center; word-break: keep-all; }
-.paldlg .palb.num b { font-size: 18px; }
-.paldlg .palb .rehb { border: 1.5px solid currentColor; padding: 0 5px; font-size: 14px; }
-body.phone dialog.paldlg { top: auto; bottom: 66px; left: 8px; right: 8px; width: auto; max-height: 45vh; }
-body.palopen:not(.phone) #scoreEdit { padding-right: 300px; }
+.paldlg .palb svg { max-width: 26px; max-height: 24px; }
+.paldlg .palb i { position: absolute; right: 2px; bottom: 0; font-style: normal; font-size: 10px; }
+.paldlg .palb.txt { font-size: 12px; font-weight: 600; }
+.paldlg .palb.sm { font-size: 10px; }
+.paldlg .palb.num { font-size: 15px; font-weight: 700; }
+.paldlg .palb .rehb { border: 1.5px solid currentColor; padding: 0 4px; font-size: 13px; }
+.paldlg .palclr { margin-top: 8px; width: 100%; }
+body.phone dialog.paldlg { top: auto; bottom: 66px; left: 8px; right: 8px; width: auto; max-height: 42vh; }
+body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }

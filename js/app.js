@@ -4414,6 +4414,14 @@ function palGlyph(name) {
   const pad = 0.3;
   return `<svg viewBox="${bb[0] - pad} ${bb[1] - pad} ${bb[2] - bb[0] + pad * 2} ${bb[3] - bb[1] + pad * 2}" width="${Math.max(14, (bb[2] - bb[0] + pad * 2) * 9)}" height="${Math.max(14, (bb[3] - bb[1] + pad * 2) * 9)}" style="max-width:34px;max-height:30px"><path d="${g.d}" fill="currentColor"/></svg>`;
 }
+// パレットは「うかぶ小窓」：ほかのボタンや楽譜をずらさない。見出しをドラッグで動かせて、場所とたたみ方をおぼえる
+const PAL_MORE = [
+  ['装飾音符', () => `<button class="palb" data-gr="1" title="装飾音符（上のとなりの音から）">${palGlyph('grace')}<i>↑</i></button><button class="palb" data-gr="-1" title="装飾音符（下のとなりの音から）">${palGlyph('grace')}<i>↓</i></button><button class="palb" data-gr="0" title="装飾音符を消す">✕</button>`],
+  ['指番号', () => `${[1, 2, 3, 4, 5].map((k) => `<button class="palb num" data-fg="${k}" title="指番号 ${k}">${k}</button>`).join('')}<button class="palb" data-fg="0" title="指番号を消す">✕</button>`],
+  ['音を重ねる', () => [[3, '3度上'], [4, '4度上'], [5, '5度上'], [6, '6度上'], [8, '8度上'], [-3, '3度下'], [-8, '8度下']].map(([k, t]) => `<button class="palb txt" data-iv="${k}" title="えらんだ音の${t}に音を足す（Alt＋${Math.abs(k)}）">${Math.abs(k)}${k > 0 ? '↑' : '↓'}</button>`).join('')],
+  ['テキスト', () => `<button class="palb txt" id="palText" title="譜表テキスト：音の上にことばを書く（Alt+T）"><b>T</b></button><button class="palb" id="palReh" title="リハーサル記号 A・B・C…（Alt+M）"><b class="rehb">A</b></button>`],
+  ['くり返し・D.C.', () => `<button class="palb" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="palb" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="palb txt" data-bar="1" title="1番かっこ">1.</button><button class="palb txt" data-bar="2" title="2番かっこ">2.</button>${JUMPS.map(([k, t]) => `<button class="palb ${k === 'segno' || k === 'coda' ? '' : 'txt sm'}" data-jump="${k}" title="${t}">${k === 'segno' ? palGlyph('segno') : k === 'coda' ? palGlyph('coda') : { tocoda: 'To⊕', fine: 'Fine', dc: 'D.C.', ds: 'D.S.' }[k]}</button>`).join('')}<button class="palb" data-jump="-" title="この小節の D.C.・コーダなどを消す">✕</button>`],
+];
 function scPalette() {
   let d = $('#dlgSym');
   if (!d) {
@@ -4421,24 +4429,65 @@ function scPalette() {
     d = $('#dlgSym');
   }
   if (d.open) { d.close(); return; }
-  d.innerHTML = `<div class="palhead"><b>記号パレット</b><span class="muted">音符をえらんでから、記号をおす</span><button class="mini icon close" title="とじる">✕</button></div>
-    ${PAL.map(([name, items]) => `<div class="palsec"><div class="palt">${name}</div><div class="palgrid">${items.map(([a, g, t]) => `<button class="palb" data-art="${a}" title="${t}">${palGlyph(g)}<span>${t.split('（')[0]}</span></button>`).join('')}</div></div>`).join('')}
-    <div class="palsec"><div class="palt">装飾音符（前打音）</div><div class="palgrid"><button class="palb" data-gr="1" title="上のとなりの音から">${palGlyph('grace')}<span>上から</span></button><button class="palb" data-gr="-1" title="下のとなりの音から">${palGlyph('grace')}<span>下から</span></button><button class="palb" data-gr="0"><span>消す</span></button></div></div>
-    <div class="palsec"><div class="palt">指番号</div><div class="palgrid">${[1, 2, 3, 4, 5].map((k) => `<button class="palb num" data-fg="${k}" title="指番号 ${k}"><b>${k}</b></button>`).join('')}<button class="palb" data-fg="0"><span>消す</span></button></div></div>
-    <div class="palsec"><div class="palt">音を重ねる（Alt＋数字）</div><div class="palgrid">${[[3, '3度上'], [4, '4度上'], [5, '5度上'], [6, '6度上'], [8, '8度上'], [-3, '3度下'], [-8, '8度下']].map(([k, t]) => `<button class="palb" data-iv="${k}" title="えらんだ音の${t}に音を足す（和音にする）"><span>${t}</span></button>`).join('')}</div></div>
-    <div class="palsec"><div class="palt">テキスト</div><div class="palgrid"><button class="palb" id="palText" title="音の上に、ことばを書く（Alt+T）"><b>T</b><span>譜表テキスト</span></button><button class="palb" id="palReh" title="練習番号 A・B・C…（Alt+M）"><b class="rehb">A</b><span>リハーサル記号</span></button></div></div>
-    <div class="palsec"><div class="palgrid"><button class="palb" id="palClr"><span>えらんだ所の記号を消す</span></button></div></div>`;
+  let shut = {};
+  try { shut = JSON.parse(lsGet('otsumiki-palshut', '') || '{"装飾音符":1,"指番号":1,"音を重ねる":1,"テキスト":1,"くり返し・D.C.":1}'); } catch (e) { shut = {}; }
+  const sec = (name, inner) => `<details class="palsec" data-sec="${name}" ${shut[name] ? '' : 'open'}><summary>${name}</summary><div class="palgrid">${inner}</div></details>`;
+  d.innerHTML = `<div class="palhead" title="ドラッグで動かせます"><b>記号</b><span class="muted">音符をえらんでおす</span><button class="mini icon close" title="とじる（F9）">✕</button></div>
+    <div class="palbody">
+    ${PAL.map(([name, items]) => sec(name, items.map(([a, g, t]) => `<button class="palb" data-art="${a}" title="${t}">${palGlyph(g)}</button>`).join(''))).join('')}
+    ${PAL_MORE.map(([name, f]) => sec(name, f())).join('')}
+    <button class="mini palclr" id="palClr" title="えらんだ音符の記号・強弱・スラーなどを消す">記号を消す</button>
+    </div>`;
   d.querySelector('.close').onclick = () => d.close();
   d.querySelectorAll('[data-art]').forEach((b) => (b.onclick = () => scArt(b.dataset.art)));
   d.querySelectorAll('[data-gr]').forEach((b) => (b.onclick = () => scGrace(+b.dataset.gr)));
   d.querySelectorAll('[data-fg]').forEach((b) => (b.onclick = () => scFinger(+b.dataset.fg)));
   d.querySelectorAll('[data-iv]').forEach((b) => (b.onclick = () => scAddInterval(+b.dataset.iv)));
+  d.querySelectorAll('[data-bar]').forEach((b) => (b.onclick = () => scBarMark(b.dataset.bar)));
+  d.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => { setJump(barOf(Math.min(ui.sc.cursor, totalTicks() - 1)), b.dataset.jump); renderScoreEdit(); }));
   $('#palText').onclick = scStaffText;
   $('#palReh').onclick = scRehearsal;
   $('#palClr').onclick = scClearMarks;
-  d.onclose = () => document.body.classList.remove('palopen');
-  document.body.classList.add('palopen');
+  // ボタンをおしても、キー操作は楽譜にもどす
+  d.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => b.blur()));
+  d.querySelectorAll('details').forEach((x) => (x.ontoggle = () => { shut[x.dataset.sec] = x.open ? 0 : 1; lsSet('otsumiki-palshut', JSON.stringify(shut)); }));
+  // 見出しをドラッグして動かす
+  const head = d.querySelector('.palhead');
+  head.onpointerdown = (e) => {
+    if (e.target.closest('button') || document.body.classList.contains('phone')) return;
+    const r = d.getBoundingClientRect();
+    const ox = e.clientX - r.left;
+    const oy = e.clientY - r.top;
+    head.setPointerCapture(e.pointerId);
+    head.onpointermove = (ev) => { palPlace(d, ev.clientX - ox, ev.clientY - oy); };
+    head.onpointerup = () => { head.onpointermove = null; const rr = d.getBoundingClientRect(); lsSet('otsumiki-palpos', JSON.stringify([Math.round(rr.left), Math.round(rr.top)])); };
+  };
+  d.onclose = () => { const b = $('#scPalB'); if (b) b.classList.remove('on'); };
   d.show();
+  const b0 = $('#scPalB');
+  if (b0) b0.classList.add('on');
+  if (!document.body.classList.contains('phone')) {
+    let pos = null;
+    try { pos = JSON.parse(lsGet('otsumiki-palpos', '') || 'null'); } catch (e) { pos = null; }
+    const view = $('#scoreEditView').getBoundingClientRect();
+    if (pos) palPlace(d, pos[0], pos[1]);
+    else palPlace(d, innerWidth - d.offsetWidth - 16, Math.max(80, view.top + 8));
+  } else { d.style.left = ''; d.style.top = ''; }
+}
+addEventListener('resize', () => setTimeout(() => {
+  const d = $('#dlgSym');
+  if (!d || !d.open) return;
+  if (document.body.classList.contains('phone')) { d.style.left = d.style.top = d.style.right = d.style.maxHeight = ''; return; }
+  const r = d.getBoundingClientRect();
+  palPlace(d, r.left, r.top);
+}, 50));
+function palPlace(d, x, y) {
+  d.style.left = clamp(x, 4, Math.max(4, innerWidth - d.offsetWidth - 4)) + 'px';
+  const top = clamp(y, 4, Math.max(4, innerHeight - 180));
+  d.style.top = top + 'px';
+  d.style.right = 'auto';
+  // 画面の下にはみ出さない（中はスクロール）
+  d.style.maxHeight = Math.max(160, innerHeight - top - 8) + 'px';
 }
 // 装飾音符：dir=1 上のとなり、-1 下のとなり、0 消す
 function scGrace(dir) {
@@ -4592,15 +4641,13 @@ function renderScorePal() {
       <span class="grp"><button class="mini" id="scSharp" title="半音上げる">♯</button><button class="mini" id="scFlat" title="半音下げる">♭</button><button class="mini" id="scNat" title="調号の音にもどす">♮</button><button class="mini" id="scUp" title="1音上げる（↑）">↑</button><button class="mini" id="scDn" title="1音下げる（↓）">↓</button><button class="mini" id="scOct" title="オクターブ上げる（Ctrl+↑）">8va</button></span>
     </div>
     <div class="prow">
-      <span class="grp">${ARTS.map(([a, ic, t]) => `<button class="mini" data-art="${a}" title="${t}">${ic}</button>`).join('')}</span>
       <span class="grp"><select id="scDyn" title="強弱記号（カーソルか、えらんだ音符の所に）"><option value="">強弱…</option>${DYNS.map((d) => `<option>${d}</option>`).join('')}<option value="-">（消す）</option></select><button class="mini" id="scCresc" title="クレッシェンド（だんだん強く）">cresc.＜</button><button class="mini" id="scDim" title="デクレッシェンド（だんだん弱く）">dim.＞</button></span>
       <span class="grp"><button class="mini" id="scSlur" title="スラー（なめらかに）・キー S">⌒ スラー</button><button class="mini" id="scTieB" title="タイ（同じ高さをつなぐ）・キー +">‿ タイ</button></span>
-      <button class="mini" id="scPalB" title="記号パレット：トリル・装飾音符・指番号・テキスト・リハーサル記号など（キー F9）">${I('palette')}<span>パレット</span></button>
       <span class="grp"><button class="mini" id="scLyr" title="歌詞・キー L">あ 歌詞</button><button class="mini" id="scChd" title="コードネーム">C7 コード</button></span>
-      <span class="grp"><button class="mini ${scVoice() === 2 ? 'on' : ''}" id="scVoice" title="声部（1段に2つのメロディ）：1＝上の声部（ぼう上）、2＝下の声部（ぼう下）。キー V">声部${scVoice()}</button><button class="mini" id="scBarSet" title="カーソルの小節から、テンポ・拍子・調を変える／D.C.・コーダなど">拍子・調…</button><select id="scJump" title="D.C.・D.S.・コーダ・Fine（カーソルの小節）"><option value="">D.C./コーダ…</option>${JUMPS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}<option value="-">（この小節の記号を消す）</option></select></span>
-      <span class="grp"><button class="mini" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="mini" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="mini" data-bar="1" title="1番かっこ">1.</button><button class="mini" data-bar="2" title="2番かっこ">2.</button></span>
-      <span class="grp"><button class="mini icon" id="scCopyB" title="コピー（Ctrl+C）">${I('copy')}</button><button class="mini icon" id="scPasteB" title="貼りつけ（Ctrl+V）">${I('paste')}</button><button class="mini" id="scClr" title="えらんだ所の強弱・スラーなどの記号を消す">記号を消す</button><button class="mini icon danger" id="scDel" title="消す（Delete）">${I('trash')}</button></span>
+      <span class="grp"><button class="mini ${scVoice() === 2 ? 'on' : ''}" id="scVoice" title="声部（1段に2つのメロディ）：1＝上の声部（ぼう上）、2＝下の声部（ぼう下）。キー V">声部${scVoice()}</button><button class="mini" id="scBarSet" title="カーソルの小節から、テンポ・拍子・調を変える">拍子・調…</button></span>
+      <span class="grp"><button class="mini icon" id="scCopyB" title="コピー（Ctrl+C）">${I('copy')}</button><button class="mini icon" id="scPasteB" title="貼りつけ（Ctrl+V）">${I('paste')}</button><button class="mini icon danger" id="scDel" title="消す（Delete）">${I('trash')}</button></span>
       <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button></span>
+      <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す</span></div>`;
   // パレットをたたむ（1行だけ：入力・長さ・休符・ドレミ・♯♭）。画面が低いときは、はじめからたたむ
@@ -4621,7 +4668,6 @@ function renderScorePal() {
   $('#scUp').onclick = () => scEditSel((ns) => ns.forEach((n) => { n.p = diatonicStep(n.p, 1); }), '1音上げる');
   $('#scDn').onclick = () => scEditSel((ns) => ns.forEach((n) => { n.p = diatonicStep(n.p, -1); }), '1音下げる');
   $('#scOct').onclick = () => scEditSel((ns) => ns.forEach((n) => { n.p = clamp(n.p + 12, 21, 108); }), 'オクターブ上げる');
-  pal.querySelectorAll('[data-art]').forEach((b) => (b.onclick = () => scArt(b.dataset.art)));
   $('#scDyn').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (v) scDynamic(v === '-' ? null : v); };
   $('#scCresc').onclick = () => scHairpin('cresc');
   $('#scDim').onclick = () => scHairpin('dim');
@@ -4630,13 +4676,10 @@ function renderScorePal() {
   $('#scLyr').onclick = scLyric;
   $('#scPalB').onclick = scPalette;
   $('#scChd').onclick = scChord;
-  pal.querySelectorAll('[data-bar]').forEach((b) => (b.onclick = () => scBarMark(b.dataset.bar)));
   $('#scVoice').onclick = scToggleVoice;
   $('#scBarSet').onclick = () => openBarDialog(barOf(Math.min(ui.sc.cursor, totalTicks() - 1)));
-  $('#scJump').onchange = (e) => { const v = e.target.value; e.target.value = ''; if (v) { setJump(barOf(Math.min(ui.sc.cursor, totalTicks() - 1)), v); renderScoreEdit(); } };
   $('#scCopyB').onclick = () => scCopy(false);
   $('#scPasteB').onclick = scPaste;
-  $('#scClr').onclick = scClearMarks;
   $('#scDel').onclick = scDelete;
   $('#scZoomIn').onclick = () => { ui.sc.zoom = Math.min(2, ui.sc.zoom + 0.15); renderScoreEdit(); };
   $('#scZoomOut').onclick = () => { ui.sc.zoom = Math.max(0.6, ui.sc.zoom - 0.15); renderScoreEdit(); };
@@ -4916,6 +4959,7 @@ function renderPhonePad() {
         <div class="btnrow"><button class="mini ${ui.sc.rangeTap ? 'on' : ''}" data-x="range">${ui.sc.rangeTap ? '✓ ' : ''}はんい：1つめの音をタップ → さいごの音をタップ</button></div>
         <div class="sub">記号（えらんだ音符に）</div>
         <div class="btnrow">${ARTS.map(([a, ic, t]) => `<button class="mini" data-art="${a}">${ic} ${t.split('（')[0]}</button>`).join('')}</div>
+        <div class="btnrow"><button class="mini" data-x="palette">${I('palette')} もっと記号（トリル・装飾音符・指番号…）</button></div>
         <div class="btnrow"><button class="mini" data-x="tie">タイ</button><button class="mini" data-x="slur">スラー</button><button class="mini" data-x="cresc">cresc.</button><button class="mini" data-x="dim">dim.</button></div>
         <div class="sub">強弱</div>
         <div class="btnrow">${DYNS.map((d) => `<button class="mini dynb" data-dyn="${d}">${d}</button>`).join('')}</div>
@@ -4939,6 +4983,7 @@ function renderPhonePad() {
   }));
   const act = {
     dot: () => { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); },
+    palette: () => { closePops(); scPalette(); },
     insert: () => { ui.sc.insert = !ui.sc.insert; toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); },
     range: () => { ui.sc.rangeTap = !ui.sc.rangeTap; if (ui.sc.rangeTap) ui.sc.sel = new Set(); toast(ui.sc.rangeTap ? 'はんい：1つめの音、さいごの音の順にタップしてね' : 'はんいをやめました'); },
     trip: () => { ui.sc.trip = !ui.sc.trip; },
