@@ -769,7 +769,7 @@ body.phone .instopt .pic { width: 44px; height: 44px; }
 /* 使い方ツアー */
 .tour { position: fixed; inset: 0; z-index: 9000; }
 .tour-hole { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15, 18, 30, .55); transition: all .25s ease; pointer-events: none; outline: 2px solid rgba(255,255,255,.9); }
-.tour-card { position: fixed; background: var(--panel, #fff); color: var(--text, #111); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); transition: top .25s ease, left .25s ease; }
+.tour-card { position: fixed; background: var(--panel); color: var(--text); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); transition: top .25s ease, left .25s ease; }
 .tour-step { font-size: 12px; color: var(--accent, #4f46e5); font-weight: 600; margin-bottom: 2px; }
 .tour-title { font-size: 16px; }
 .tour-text { margin: 6px 0 12px; line-height: 1.6; font-size: 14px; }
@@ -1314,3 +1314,20 @@ body.phone .cpbar #cpClose { margin-left: auto; }
 .cplist .warn button { border-color: #ffd8a8; }
 .cplist button:hover { background: var(--sel); }
 @media print { .cpbar { display: none !important; } }
+
+/* 記号パレット（MuseScore のパレットのように、楽譜の横にうかぶ） */
+dialog.paldlg { position: fixed; top: 110px; right: 12px; left: auto; margin: 0; width: 290px; max-height: calc(100vh - 140px); overflow: auto; padding: 10px 12px 12px; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,.18); z-index: 60; background: var(--panel); color: var(--text); }
+.paldlg .palhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.paldlg .palhead .muted { font-size: 11px; flex: 1; }
+.paldlg .palsec { margin-top: 8px; }
+.paldlg .palt { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.paldlg .palgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.paldlg .palgrid:has(.num) { grid-template-columns: repeat(6, 1fr); }
+.paldlg .palgrid:has(.num) .palb span { font-size: 9.5px; }
+.paldlg .palb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 48px; padding: 4px 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: inherit; cursor: pointer; font: inherit; }
+.paldlg .palb:hover { border-color: var(--accent); }
+.paldlg .palb span { font-size: 10.5px; line-height: 1.15; text-align: center; word-break: keep-all; }
+.paldlg .palb.num b { font-size: 18px; }
+.paldlg .palb .rehb { border: 1.5px solid currentColor; padding: 0 5px; font-size: 14px; }
+body.phone dialog.paldlg { top: auto; bottom: 66px; left: 8px; right: 8px; width: auto; max-height: 45vh; }
+body.palopen:not(.phone) #scoreEdit { padding-right: 300px; }

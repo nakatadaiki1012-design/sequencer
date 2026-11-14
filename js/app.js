@@ -195,13 +195,25 @@ function sanitizeSong(s) {
     out.repeats = { start: ints(R.start), end: ints(R.end), volta: obj(R.volta) };
   }
   out.pickup = Math.max(0, Math.round(num(s.pickup, 0, 0, 192 * 4)));
+  out.rehearsal = {};
+  for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < 128 && v) out.rehearsal[b] = v; }
+  if (!Object.keys(out.rehearsal).length) delete out.rehearsal;
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
   out.tracks = s.tracks.filter((t) => t && typeof t === 'object' && ['melody', 'drum', 'chord'].includes(t.type)).map((t) => {
     const tr = { ...t };
     if (t.type === 'melody') {
       tr.notes = (Array.isArray(t.notes) ? t.notes : []).filter((n) => n && Number.isFinite(+n.s) && Number.isFinite(+n.p) && Number.isFinite(+n.l) && +n.l > 0 && +n.s >= 0)
-        .map((n) => { const o = { ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) }; if (n.vel != null) { const v = Number(n.vel); if (Number.isFinite(v) && v !== 1) o.vel = clamp(v, 0.1, 1.5); else delete o.vel; } return o; });
+        .map((n) => {
+          const o = { ...n, s: Math.round(+n.s), p: clamp(Math.round(+n.p), 0, 127), l: Math.max(1, Math.round(+n.l)) };
+          if (n.vel != null) { const v = Number(n.vel); if (Number.isFinite(v) && v !== 1) o.vel = clamp(v, 0.1, 1.5); else delete o.vel; }
+          if (o.art != null) { o.art = Array.isArray(o.art) ? [...new Set(o.art.filter((a) => ART_IDS.has(a)))] : []; if (!o.art.length) delete o.art; }
+          if (o.fg != null) { o.fg = String(o.fg).replace(/[^0-5]/g, '').slice(0, 5); if (!o.fg) delete o.fg; }
+          if (o.gr != null) { const g = Math.round(+o.gr); if (Number.isFinite(g) && g >= 21 && g <= 108) o.gr = g; else delete o.gr; }
+          return o;
+        });
+      tr.texts = (Array.isArray(t.texts) ? t.texts : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.x === 'string' && x.x.trim()).map((x) => ({ t: Math.round(+x.t), x: x.x.slice(0, 80) }));
+      if (!tr.texts.length) delete tr.texts;
       for (const k of ['dyn', 'hairpins', 'slurs']) tr[k] = (Array.isArray(tr[k]) ? tr[k] : []).filter((x) => x && typeof x === 'object' && (k === 'dyn' ? Number.isFinite(+x.t) && typeof x.v === 'string' : Number.isFinite(+x.s) && Number.isFinite(+x.e)));
     } else if (t.type === 'drum') {
       const g = {};
@@ -732,7 +744,15 @@ function eventList() {
   for (const tr of song.tracks) {
     if (tr.type === 'melody') {
       const ex = expression(tr);
-      for (const n of tr.notes) if (n.s < total) { const x = ex(n); put(n.s, { tr, kind: 'note', p: n.p, l: Math.min(n.l, total - n.s), v: clamp(x.v * (n.vel || 1), 0.05, 1.3), lf: x.lf }); }
+      const arpAt = new Map();
+      for (const n of tr.notes) if ((n.art || []).includes('arp')) { const g = tr.notes.filter((m) => m.s === n.s && voiceOf(m) === voiceOf(n)).sort((a, b) => a.p - b.p); arpAt.set(n, g.indexOf(n)); }
+      for (const n of tr.notes) {
+        if (n.s >= total) continue;
+        const x = ex(n);
+        const v = clamp(x.v * (n.vel || 1), 0.05, 1.3);
+        const l = Math.min(n.l, total - n.s);
+        for (const o of ornamentNotes(n, l, arpAt.get(n))) put(n.s + o.dt, { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1 });
+      }
     } else if (tr.type === 'chord') for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
     else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) put(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
   }
@@ -750,6 +770,33 @@ function eventList() {
   list.sort((a, b) => a.t - b.t);
   evCache = { v: key, list };
   return list;
+}
+// 装飾記号を、じっさいに鳴らす音の列にする（トリル・モルデント・ターン・トレモロ・アルペジオ・装飾音符）
+const ART_IDS = new Set(['stac', 'ten', 'acc', 'marc', 'ferm', 'stacc2', 'tr', 'prall', 'mord', 'turn', 'trem', 'arp', 'breath', 'caes', 'upb', 'dnb']);
+function ornamentNotes(n, l, arpIdx) {
+  const art = n.art || [];
+  const out = [];
+  let t0 = 0;
+  // 装飾音符（短前打音）：拍の頭で短く鳴らしてから主音符
+  if (n.gr != null && l > 8) { const g = Math.min(6, Math.floor(l / 4)); out.push({ dt: 0, p: n.gr, l: g, vf: 0.85 }); t0 = g; }
+  // アルペジオ：下の音から少しずつおくらせる
+  if (arpIdx != null && arpIdx > 0) t0 += Math.min(arpIdx * 3, Math.floor(l / 2));
+  const L = l - t0;
+  const up = diatonicStep(n.p, 1);
+  const dn = diatonicStep(n.p, -1);
+  const seq = (ps, u) => { let t = t0; ps.forEach((p, i) => { const last = i === ps.length - 1; const len = last ? L - (t - t0) : u; if (len > 0) out.push({ dt: t, p, l: len, last }); t += u; }); };
+  if (art.includes('tr') && L >= 12) {
+    const u = L >= 48 ? 6 : 4;
+    const ps = [];
+    for (let k = 0; k * u < L - u; k++) ps.push(k % 2 ? n.p : up);
+    ps.push(n.p);
+    seq(ps, u);
+  } else if (art.includes('prall') && L >= 12) seq([n.p, up, n.p], 4);
+  else if (art.includes('mord') && L >= 12) seq([n.p, dn, n.p], 4);
+  else if (art.includes('turn') && L >= 16) { const u = Math.min(8, Math.floor(L / 5)); seq([up, n.p, dn, n.p], u); }
+  else if (art.includes('trem') && L >= 12) { const ps = []; for (let k = 0; k * 6 < L - 6; k++) ps.push(n.p); ps.push(n.p); seq(ps, 6); }
+  else out.push({ dt: t0, p: n.p, l: L, last: true });
+  return out;
 }
 // 強弱記号・クレッシェンド・アーティキュレーション・スラーを音の大きさと長さに反映
 const DYN_V = { ppp: 0.28, pp: 0.38, p: 0.5, mp: 0.6, mf: 0.72, f: 0.85, ff: 0.95, fff: 1, sf: 1, sfz: 1, fp: 0.85 };
@@ -779,6 +826,9 @@ function expression(tr) {
     if (art.includes('marc')) { v *= 1.3; lf = Math.min(lf, 0.7); }
     if (art.includes('acc')) v *= 1.25;
     if (art.includes('stac')) lf = 0.45;
+    if (art.includes('stacc2')) lf = 0.25;
+    if (art.includes('breath')) lf = Math.min(lf, 0.8);
+    if (art.includes('caes')) lf = Math.min(lf, 0.6);
     if (art.includes('ferm')) lf = 1.6;
     return { v: clamp(v, 0.15, 1), lf };
   };
@@ -2708,6 +2758,7 @@ function shiftBarMarks(fromBar, n) {
   song.ramps = mv(song.ramps || {});
   song.meters = mv(song.meters || {});
   song.keys = mv(song.keys || {});
+  if (song.rehearsal) song.rehearsal = mv(song.rehearsal);
   const R = song.repeats || { start: [], end: [], volta: {} };
   const mvArr = (arr) => arr.map((b) => (b >= fromBar ? b + n : n < 0 && b >= fromBar + n ? -1 : b)).filter((b) => b >= 0);
   song.repeats = { start: mvArr(R.start || []), end: mvArr(R.end || []), volta: mv(R.volta || {}) };
@@ -2722,7 +2773,7 @@ function shiftAll(fromBar, n) {
   for (const tr of song.tracks) {
     if (tr.type === 'melody') {
       tr.notes = tr.notes.filter((x) => keep(x.s)).map((x) => (x.s >= a ? { ...x, s: x.s + d } : x));
-      for (const k of ['dyn', 'hairpins', 'slurs']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
+      for (const k of ['dyn', 'hairpins', 'slurs', 'texts']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
     } else if (tr.type === 'drum') {
       for (const id in tr.grid) {
         const ng = {};
@@ -3708,7 +3759,7 @@ function scoreOpts(trackIds, withDrums) {
   for (const t of song.tracks) {
     if (!trackIds.includes(t.id)) continue;
     if (t.type === 'melody') {
-      parts.push({ id: t.id, name: t.name, notes: t.notes, clef: S.clefs[t.id] || 'auto', transpose: +S.trans[t.id] || 0, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, notes: t.notes, clef: S.clefs[t.id] || 'auto', transpose: +S.trans[t.id] || 0, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -3750,7 +3801,7 @@ function scoreOpts(trackIds, withDrums) {
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
     chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; return c ? (c.h ? { ...c, hAt: chordHalf(b) } : c) : null; }) : null,
     nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780,
-    pickup: song.pickup, repeats: song.repeats,
+    pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
 }
 // 歌詞の文字列を、音の始まりごとに1つずつ入れる
@@ -3854,6 +3905,24 @@ function printScore() {
   // 1ページに1枚ずつ。段のとちゅうで切れないように、ページを分けてあります
   w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}.pg{break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}svg{display:block;width:100%;height:auto}.pg svg.page{width:auto;height:268mm;margin:0 auto}</style>${pages.map((pg) => `<div class="pg">${pg}</div>`).join('')}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
   w.document.close();
+}
+// パート譜：えらんだパートを1つずつ、べつのページにして印刷（MuseScore の「パート」）
+function printParts() {
+  const ids = [...(scoreSel || [])].filter((id) => { const t = song.tracks.find((x) => x.id === id); return t && t.type !== 'chord'; });
+  if (!ids.length) return alert('パートをえらんでください');
+  const pages = [];
+  for (const id of ids) {
+    const t = song.tracks.find((x) => x.id === id);
+    const o = scoreOpts([id], true);
+    o.partHeader = t.name;
+    const svg = Notation.render(o);
+    const pg = Notation.paginate(svg, Notation.lastLayout);
+    pages.push(...(pg.length ? pg : [svg]));
+  }
+  const keep = scorePages;
+  scorePages = pages;
+  printScore();
+  scorePages = keep;
 }
 function exportPng() {
   if (!scoreFull) return;
@@ -4017,7 +4086,7 @@ function scInsert(pitches, chordAdd) {
       const lastEnd = Math.max(t, ...tr.notes.filter((n) => mine(n) && n.s >= t).map((n) => n.s + n.l));
       ensureLength(lastEnd + d);
       for (const n of tr.notes) if (mine(n) && n.s >= t) n.s += d;
-      for (const k of ['dyn']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
+      for (const k of ['dyn', 'texts']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
       for (const k of ['hairpins', 'slurs']) for (const x of tr[k] || []) { if (x.s >= t) x.s += d; if (x.e >= t) x.e += d; }
     }
     ensureLength(t + d);
@@ -4258,14 +4327,15 @@ function scTie() {
     }
   }, 'タイ');
 }
+// いっしょにつけられない記号のなかま
+const ART_EXCL = [['stac', 'stacc2', 'ten'], ['acc', 'marc'], ['tr', 'prall', 'mord', 'turn', 'trem'], ['upb', 'dnb'], ['breath', 'caes']];
 function scArt(a) {
   scEditSel((ns) => {
     const allHave = ns.every((n) => (n.art || []).includes(a));
     for (const n of ns) {
       n.art = (n.art || []).filter((x) => x !== a);
       if (!allHave) {
-        if (a === 'stac' || a === 'ten') n.art = n.art.filter((x) => x !== 'stac' && x !== 'ten');
-        if (a === 'acc' || a === 'marc') n.art = n.art.filter((x) => x !== 'acc' && x !== 'marc');
+        for (const grp of ART_EXCL) if (grp.includes(a)) n.art = n.art.filter((x) => !grp.includes(x));
         n.art.push(a);
       }
       if (!n.art.length) delete n.art;
@@ -4323,8 +4393,130 @@ function scClearMarks() {
     tr.dyn = (tr.dyn || []).filter((d) => d.t < r.s || d.t >= r.end);
     tr.hairpins = (tr.hairpins || []).filter((h) => h.e <= r.s || h.s >= r.end);
     tr.slurs = (tr.slurs || []).filter((x) => x.e < r.s || x.s > r.e);
-    for (const n of selNotes(tr)) delete n.art;
+    for (const n of selNotes(tr)) { delete n.art; delete n.fg; delete n.gr; }
+    if (tr.texts) { tr.texts = tr.texts.filter((x) => x.t < r.s || x.t >= r.end); if (!tr.texts.length) delete tr.texts; }
   }, '記号を消す');
+  renderScoreEdit();
+}
+/* ---------- 記号パレット（MuseScore のパレットのように、記号をえらんでつける） ---------- */
+const PAL = [
+  ['アーティキュレーション', [['stac', 'articStaccatoAbove', 'スタッカート（短く）'], ['stacc2', 'articStaccatissimoAbove', 'スタッカーティッシモ（とても短く）'], ['ten', 'articTenutoAbove', 'テヌート（たっぷり）'], ['acc', 'articAccentAbove', 'アクセント（強く）'], ['marc', 'articMarcatoAbove', 'マルカート（とても強く）'], ['ferm', 'fermataAbove', 'フェルマータ（のばす）']]],
+  ['装飾記号', [['tr', 'ornamentTrill', 'トリル（となりの音とすばやく交互に）'], ['prall', 'ornamentShortTrill', 'プラルトリラー（上の音へ1回）'], ['mord', 'ornamentMordent', 'モルデント（下の音へ1回）'], ['turn', 'ornamentTurn', 'ターン（上・元・下・元）'], ['trem', 'tremolo3', 'トレモロ（同じ音をきざむ）']]],
+  ['和音・息つぎ', [['arp', null, 'アルペジオ（和音を下から順に）'], ['breath', 'breathMarkComma', 'ブレス（息つぎ）'], ['caes', 'caesura', 'カエスーラ（区切って止まる）']]],
+  ['弦楽器の弓', [['dnb', 'stringsDownBow', 'ダウン・ボウ（下げ弓）'], ['upb', 'stringsUpBow', 'アップ・ボウ（上げ弓）']]],
+];
+function palGlyph(name) {
+  if (name === 'grace') return `<svg viewBox="-0.6 -3.4 3 4.2" width="22" height="30"><path d="${Glyphs.g.noteheadBlack.d}" transform="scale(0.7)" fill="currentColor"/><path d="M0.82 -0.1V-3" stroke="currentColor" stroke-width="0.12"/><path d="M0.82 -3 q0.9 0.6 0.9 1.6" fill="none" stroke="currentColor" stroke-width="0.14"/><path d="M0.2 -1.2 L1.6 -2.4" stroke="currentColor" stroke-width="0.12"/></svg>`;
+  if (!name) return '<svg viewBox="-8 -14 16 28" width="18" height="26"><path d="M0 12 Q3 9 0 6 Q-3 3 0 0 Q3 -3 0 -6 Q-3 -9 0 -12" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+  const g = Glyphs.g[name];
+  if (!g) return '';
+  const bb = g.bbox || [0, -1, g.w || 1, 0];
+  const pad = 0.3;
+  return `<svg viewBox="${bb[0] - pad} ${bb[1] - pad} ${bb[2] - bb[0] + pad * 2} ${bb[3] - bb[1] + pad * 2}" width="${Math.max(14, (bb[2] - bb[0] + pad * 2) * 9)}" height="${Math.max(14, (bb[3] - bb[1] + pad * 2) * 9)}" style="max-width:34px;max-height:30px"><path d="${g.d}" fill="currentColor"/></svg>`;
+}
+function scPalette() {
+  let d = $('#dlgSym');
+  if (!d) {
+    document.body.insertAdjacentHTML('beforeend', '<dialog id="dlgSym" class="paldlg" aria-label="記号パレット"></dialog>');
+    d = $('#dlgSym');
+  }
+  if (d.open) { d.close(); return; }
+  d.innerHTML = `<div class="palhead"><b>記号パレット</b><span class="muted">音符をえらんでから、記号をおす</span><button class="mini icon close" title="とじる">✕</button></div>
+    ${PAL.map(([name, items]) => `<div class="palsec"><div class="palt">${name}</div><div class="palgrid">${items.map(([a, g, t]) => `<button class="palb" data-art="${a}" title="${t}">${palGlyph(g)}<span>${t.split('（')[0]}</span></button>`).join('')}</div></div>`).join('')}
+    <div class="palsec"><div class="palt">装飾音符（前打音）</div><div class="palgrid"><button class="palb" data-gr="1" title="上のとなりの音から">${palGlyph('grace')}<span>上から</span></button><button class="palb" data-gr="-1" title="下のとなりの音から">${palGlyph('grace')}<span>下から</span></button><button class="palb" data-gr="0"><span>消す</span></button></div></div>
+    <div class="palsec"><div class="palt">指番号</div><div class="palgrid">${[1, 2, 3, 4, 5].map((k) => `<button class="palb num" data-fg="${k}" title="指番号 ${k}"><b>${k}</b></button>`).join('')}<button class="palb" data-fg="0"><span>消す</span></button></div></div>
+    <div class="palsec"><div class="palt">音を重ねる（Alt＋数字）</div><div class="palgrid">${[[3, '3度上'], [4, '4度上'], [5, '5度上'], [6, '6度上'], [8, '8度上'], [-3, '3度下'], [-8, '8度下']].map(([k, t]) => `<button class="palb" data-iv="${k}" title="えらんだ音の${t}に音を足す（和音にする）"><span>${t}</span></button>`).join('')}</div></div>
+    <div class="palsec"><div class="palt">テキスト</div><div class="palgrid"><button class="palb" id="palText" title="音の上に、ことばを書く（Alt+T）"><b>T</b><span>譜表テキスト</span></button><button class="palb" id="palReh" title="練習番号 A・B・C…（Alt+M）"><b class="rehb">A</b><span>リハーサル記号</span></button></div></div>
+    <div class="palsec"><div class="palgrid"><button class="palb" id="palClr"><span>えらんだ所の記号を消す</span></button></div></div>`;
+  d.querySelector('.close').onclick = () => d.close();
+  d.querySelectorAll('[data-art]').forEach((b) => (b.onclick = () => scArt(b.dataset.art)));
+  d.querySelectorAll('[data-gr]').forEach((b) => (b.onclick = () => scGrace(+b.dataset.gr)));
+  d.querySelectorAll('[data-fg]').forEach((b) => (b.onclick = () => scFinger(+b.dataset.fg)));
+  d.querySelectorAll('[data-iv]').forEach((b) => (b.onclick = () => scAddInterval(+b.dataset.iv)));
+  $('#palText').onclick = scStaffText;
+  $('#palReh').onclick = scRehearsal;
+  $('#palClr').onclick = scClearMarks;
+  d.onclose = () => document.body.classList.remove('palopen');
+  document.body.classList.add('palopen');
+  d.show();
+}
+// 装飾音符：dir=1 上のとなり、-1 下のとなり、0 消す
+function scGrace(dir) {
+  scEditSel((ns) => {
+    const tops = new Map();
+    for (const n of ns) if (!tops.has(n.s) || tops.get(n.s).p < n.p) tops.set(n.s, n);
+    for (const n of ns) delete n.gr;
+    if (dir) for (const n of tops.values()) n.gr = diatonicStep(n.p, dir);
+  }, '装飾音符');
+}
+function scFinger(k) {
+  scEditSel((ns) => {
+    const all = ns.every((n) => n.fg === String(k));
+    for (const n of ns) { if (!k || all) delete n.fg; else n.fg = String(k); }
+  }, '指番号');
+}
+// えらんだ音に、音階で k 度はなれた音を足す（MuseScore の Alt＋数字）
+function scAddInterval(k) {
+  const tr = scEditable();
+  if (!tr) return;
+  let ns = selNotes(tr);
+  if (!ns.length && ui.sc.lastIns && ui.sc.lastIns.p != null) ns = tr.notes.filter((n) => n.s === ui.sc.lastIns.t && n.p === ui.sc.lastIns.p);
+  if (!ns.length) return toast('先に音符をえらんでください');
+  const added = [];
+  edit(() => {
+    const byS = new Map();
+    for (const n of ns) { const o = byS.get(n.s); if (!o || (k > 0 ? n.p > o.p : n.p < o.p)) byS.set(n.s, n); }
+    for (const n of byS.values()) {
+      let p = n.p;
+      if (Math.abs(k) === 8) p += k > 0 ? 12 : -12;
+      else for (let i = 1; i < Math.abs(k); i++) p = diatonicStep(p, Math.sign(k));
+      p = clamp(p, 21, 108);
+      if (tr.notes.some((m) => m.s === n.s && m.p === p)) continue;
+      const nn = { s: n.s, p, l: n.l, ...(n.v === 2 ? { v: 2 } : {}) };
+      tr.notes.push(nn);
+      added.push(nn);
+    }
+  }, '音を重ねる');
+  if (added.length) {
+    preview(tr, added[0].p, 0.3);
+    ui.sc.sel = new Set(added.map((n) => n.s + ':' + n.p));
+    ui.sc.lastIns = { t: added[0].s, d: added[0].l, p: added[0].p };
+  }
+  renderScoreEdit();
+}
+function scStaffText() {
+  const tr = scEditable();
+  if (!tr) return;
+  const r = selRange(tr);
+  const t = r ? r.s : ui.sc.cursor;
+  const old = (tr.texts || []).find((x) => x.t === t);
+  const v = prompt('音の上に書くことば（れい：やさしく、dolce、pizz.、arco）\n空にすると消します', old ? old.x : '');
+  if (v === null) return;
+  edit(() => {
+    tr.texts = (tr.texts || []).filter((x) => x.t !== t);
+    if (v.trim()) tr.texts.push({ t, x: v.trim().slice(0, 80) });
+    tr.texts.sort((a, b) => a.t - b.t);
+    if (!tr.texts.length) delete tr.texts;
+  }, '譜表テキスト');
+  renderScoreEdit();
+}
+function scRehearsal() {
+  const tr = track();
+  const r = tr.type === 'melody' ? selRange(tr) : null;
+  const b = barOf(Math.min(r ? r.s : ui.sc.cursor, totalTicks() - 1));
+  const R = song.rehearsal || {};
+  edit(() => {
+    if (R[b] != null) delete R[b];
+    else {
+      const before = Object.keys(R).filter((k) => +k < b).length;
+      R[b] = before < 26 ? String.fromCharCode(65 + before) : String(before + 1);
+      // うしろの記号は、A・B・C… の順にふりなおす
+      let i = 0;
+      for (const k of Object.keys(R).map(Number).sort((x, y) => x - y)) { if (/^[A-Z]$/.test(R[k])) R[k] = String.fromCharCode(65 + Math.min(25, i)); i++; }
+    }
+    song.rehearsal = R;
+    if (!Object.keys(R).length) delete song.rehearsal;
+  }, 'リハーサル記号');
   renderScoreEdit();
 }
 function scLyric() {
@@ -4403,6 +4595,7 @@ function renderScorePal() {
       <span class="grp">${ARTS.map(([a, ic, t]) => `<button class="mini" data-art="${a}" title="${t}">${ic}</button>`).join('')}</span>
       <span class="grp"><select id="scDyn" title="強弱記号（カーソルか、えらんだ音符の所に）"><option value="">強弱…</option>${DYNS.map((d) => `<option>${d}</option>`).join('')}<option value="-">（消す）</option></select><button class="mini" id="scCresc" title="クレッシェンド（だんだん強く）">cresc.＜</button><button class="mini" id="scDim" title="デクレッシェンド（だんだん弱く）">dim.＞</button></span>
       <span class="grp"><button class="mini" id="scSlur" title="スラー（なめらかに）・キー S">⌒ スラー</button><button class="mini" id="scTieB" title="タイ（同じ高さをつなぐ）・キー +">‿ タイ</button></span>
+      <button class="mini" id="scPalB" title="記号パレット：トリル・装飾音符・指番号・テキスト・リハーサル記号など（キー F9）">${I('palette')}<span>パレット</span></button>
       <span class="grp"><button class="mini" id="scLyr" title="歌詞・キー L">あ 歌詞</button><button class="mini" id="scChd" title="コードネーム">C7 コード</button></span>
       <span class="grp"><button class="mini ${scVoice() === 2 ? 'on' : ''}" id="scVoice" title="声部（1段に2つのメロディ）：1＝上の声部（ぼう上）、2＝下の声部（ぼう下）。キー V">声部${scVoice()}</button><button class="mini" id="scBarSet" title="カーソルの小節から、テンポ・拍子・調を変える／D.C.・コーダなど">拍子・調…</button><select id="scJump" title="D.C.・D.S.・コーダ・Fine（カーソルの小節）"><option value="">D.C./コーダ…</option>${JUMPS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}<option value="-">（この小節の記号を消す）</option></select></span>
       <span class="grp"><button class="mini" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="mini" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="mini" data-bar="1" title="1番かっこ">1.</button><button class="mini" data-bar="2" title="2番かっこ">2.</button></span>
@@ -4435,6 +4628,7 @@ function renderScorePal() {
   $('#scSlur').onclick = scSlur;
   $('#scTieB').onclick = scTie;
   $('#scLyr').onclick = scLyric;
+  $('#scPalB').onclick = scPalette;
   $('#scChd').onclick = scChord;
   pal.querySelectorAll('[data-bar]').forEach((b) => (b.onclick = () => scBarMark(b.dataset.bar)));
   $('#scVoice').onclick = scToggleVoice;
@@ -4528,8 +4722,17 @@ function scoreKey(e) {
   if (!ctrl && (k === 'i' || k === 'I') && !e.shiftKey) { e.preventDefault(); ui.sc.insert = !ui.sc.insert; renderScorePal(); toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); return true; }
   // ♯・♭（えらんだ音符を半音上げる・下げる）
   if (!ctrl && (k === '#' || k === '-')) { e.preventDefault(); scAccidental(k === '#' ? '#' : 'b'); return true; }
+  // MuseScore と同じ：Alt＋数字で音程を重ねる、Alt+T 譜表テキスト、Alt+M リハーサル記号、F9 パレット
+  if (e.altKey && !ctrl) {
+    const dg = /^Digit([1-9])$/.exec(e.code || '');
+    if (dg && +dg[1] >= 2) { e.preventDefault(); scAddInterval(+dg[1] === 8 ? 8 : +dg[1]); return true; }
+    if (e.code === 'KeyT') { e.preventDefault(); scStaffText(); return true; }
+    if (e.code === 'KeyM') { e.preventDefault(); scRehearsal(); return true; }
+  }
+  if (k === 'F9') { e.preventDefault(); scPalette(); return true; }
   if (ctrl) {
     const kl = k.toLowerCase();
+    if (e.shiftKey && kl === 'm') { e.preventDefault(); scRehearsal(); return true; }
     if (kl === 'c') { e.preventDefault(); scCopy(false); return true; }
     if (kl === 'x') { e.preventDefault(); scCopy(true); return true; }
     if (kl === 'v') { e.preventDefault(); scPaste(); return true; }
@@ -6131,6 +6334,7 @@ function init() {
   $('#btnScore').onclick = openScore;
   $('#btnScoreMenu').onclick = openScore;
   $('#btnPrintScore').onclick = printScore;
+  $('#btnPrintParts').onclick = printParts;
   $('#btnPngScore').onclick = exportPng;
   $('#btnXmlScore').onclick = exportMusicXML;
   $('#btnSvgScore').onclick = () => download(new Blob([scoreFull], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
@@ -6238,21 +6442,23 @@ function init() {
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
   if (mq.addEventListener) mq.addEventListener('change', () => applyTheme());
 
+  // 記号パレット（うかんでいる窓）は、開いていてもキー操作をじゃましない
+  const modalOpen = () => $$('dialog').some((d) => d.open && !d.classList.contains('paldlg'));
   document.addEventListener('keydown', (e) => {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
-    if (e.key === 'Escape' && document.body.classList.contains('present') && !$$('dialog').some((d) => d.open)) { setPresent(false); return; }
+    if (e.key === 'Escape' && document.body.classList.contains('present') && !modalOpen()) { setPresent(false); return; }
     if (e.key === 'Escape') { const op = $$('details.pop[open]'); if (op.length) { op.forEach((d) => (d.open = false)); const s0 = op[0].querySelector('summary'); if (s0) s0.focus(); return; } }
-    if (e.key === '?' && !$$('dialog').some((d) => d.open)) { e.preventDefault(); openKeys(); return; }
-    if (ui.view === 'score' && !$$('dialog').some((d) => d.open) && scoreKey(e)) return;
-    if (ui.view !== 'score' && !$$('dialog').some((d) => d.open) && noteKeys(e)) return;
+    if (e.key === '?' && !modalOpen()) { e.preventDefault(); openKeys(); return; }
+    if (ui.view === 'score' && !modalOpen() && scoreKey(e)) return;
+    if (ui.view !== 'score' && !modalOpen() && noteKeys(e)) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveToBrowser(); return; }
     if (e.ctrlKey || e.metaKey) {
       if (e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       else if (e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
       return;
     }
-    const otherDialog = $$('dialog').some((d) => d.open && d.id !== 'dlgInst');
+    const otherDialog = $$('dialog').some((d) => d.open && d.id !== 'dlgInst' && !d.classList.contains('paldlg'));
     if (otherDialog) return;
     const inPicker = $('#dlgInst').open;
     if (e.code === 'Space' && !inPicker && !(e.target.closest && e.target.closest('button, summary, a, [role="button"]') && e.target.matches(':focus-visible'))) { e.preventDefault(); player.on ? stop() : play(); return; }

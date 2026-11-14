@@ -45,7 +45,11 @@ GLYPHS = (
     'dynamicPiano dynamicMezzo dynamicForte dynamicSforzando dynamicZ dynamicRinforzando '
     'repeatDot segno coda brace tuplet3 '
     'metNoteQuarterUp metNoteHalfUp metNote8thUp metAugmentationDot '
-    'keyboardPedalPed keyboardPedalUp'
+    'keyboardPedalPed keyboardPedalUp '
+    'ornamentTrill ornamentShortTrill ornamentMordent ornamentTurn ornamentTurnInverted '
+    'breathMarkComma caesura wiggleArpeggiatoUp wiggleTrill '
+    'articStaccatissimoAbove articStaccatissimoBelow tremolo1 tremolo2 tremolo3 '
+    'stringsUpBow stringsDownBow graceNoteSlashStemUp'
 ).split()
 
 

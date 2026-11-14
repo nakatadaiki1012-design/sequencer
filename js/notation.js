@@ -14,6 +14,9 @@ const Notation = (() => {
   // 楽譜フォント Bravura の形（js/glyphs.js）で記号を描く
   const G = (name, x, y, attrs = '', sp = SP) => Glyphs.svg(name, +x.toFixed(2), +y.toFixed(2), sp, attrs || 'fill="#111"');
   const GW = (name, sp = SP) => (Glyphs.g[name] ? Glyphs.g[name].w : 1) * sp;
+  // 五線の上に書く記号（装飾記号・弓）。'ferm' はべつに書く
+  const ABOVE_ART = new Set(['tr', 'prall', 'mord', 'turn', 'upb', 'dnb', 'ferm']);
+  const ORN_G = { tr: 'ornamentTrill', prall: 'ornamentShortTrill', mord: 'ornamentMordent', turn: 'ornamentTurn', upb: 'stringsUpBow', dnb: 'stringsDownBow' };
   const ACC_G = { 1: 'accidentalSharp', '-1': 'accidentalFlat', 0: 'accidentalNatural', 2: 'accidentalDoubleSharp', '-2': 'accidentalDoubleFlat' };
   const DYN_G = { p: 'dynamicPiano', m: 'dynamicMezzo', f: 'dynamicForte', s: 'dynamicSforzando', z: 'dynamicZ', r: 'dynamicRinforzando' };
   const headName = (base, shape) => (shape === 1 ? 'noteheadXBlack' : shape === 2 ? 'noteheadCircleX' : base >= 192 ? 'noteheadWhole' : base >= 96 ? 'noteheadHalf' : 'noteheadBlack');
@@ -148,7 +151,9 @@ const Notation = (() => {
       if (s > t) segs.push({ s: t, e: s, pitches: null });
       const art = [...new Set(g.flatMap((n) => n.art || []))];
       const ly = (g.find((n) => n.ly) || {}).ly || '';
-      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
+      const fg = g.filter((n) => n.fg).sort((a, b) => b.p - a.p).map((n) => n.fg).join('');
+      const gr = (g.find((n) => n.gr != null) || {}).gr;
+      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
       t = Math.max(t, end);
     });
     if (t < total) segs.push({ s: t, e: total, pitches: null });
@@ -169,7 +174,7 @@ const Notation = (() => {
         } else {
           decompose(s - a0, be - s, beatOf(m), bl, m, isRest).forEach((p) => {
             const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel };
-            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; first = false; }
+            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.fg = sg.fg; ev.gr = sg.gr; first = false; }
             perBar[b].push(ev);
           });
         }
@@ -296,6 +301,12 @@ const Notation = (() => {
         if (pos > hi) hi = pos;
       }
       st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0);
+      // 装飾記号・指番号・弓の記号・譜表テキストの分も、上をあける
+      let stack = 0;
+      for (const n of st.notes) stack = Math.max(stack, (n.art || []).filter((a) => ABOVE_ART.has(a)).length * 1.3 + (n.fg ? String(n.fg).length : 0));
+      st.orn = stack;
+      st.textRoom = st.sub === 0 && (st.part.texts || []).length ? 16 : 0;
+      st.above += stack * 11 + st.textRoom;
       st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0);
     }
 
@@ -318,14 +329,16 @@ const Notation = (() => {
         for (const ev of st.evAt(b)) {
           if (ev.pos < barStartTick(b)) continue;
           set.add(ev.pos);
-          const n = need.get(ev.pos) || { w: 0, acc: false };
+          const n = need.get(ev.pos) || { w: 0, acc: false, pre: 0 };
           if (ev.pitches && st.clef !== 'perc' && ev.pitches.some((p) => !keyPcs.has(((p % 12) + 12) % 12))) n.acc = true;
+          // 装飾音符・アルペジオは、音の前に場所をとる
+          if (ev.first && ev.pitches) n.pre = Math.max(n.pre || 0, (ev.gr != null ? 15 : 0) + ((ev.art || []).includes('arp') ? 9 : 0));
           if (ev.first && st.sub === 0) {
             const ly = ev.ly || (st.notes.some((x) => x.ly) ? '' : st.lyrics[ev.syll]);
             n.w = Math.max(n.w, textW(ly), nameOf && st.clef !== 'perc' && ev.pitches ? ev.pitches.length * 11 : 0);
           }
           need.set(ev.pos, n);
-          if (ev.pitches && ev.pos === barStartTick(b) && n.acc) accRoom = 8;
+          if (ev.pitches && ev.pos === barStartTick(b) && (n.acc || n.pre)) accRoom = Math.max(accRoom, (n.acc ? 8 : 0) + (n.pre || 0));
         }
       }
       if (edit && edit.cursor != null && edit.cursor < bS(bars) && barOfT(edit.cursor) === b) set.add(edit.cursor - bS(b));
@@ -335,7 +348,7 @@ const Notation = (() => {
         const a = need.get(ticks[i]) || { w: 0 };
         const z = need.get(ticks[i + 1]) || { w: 0, acc: false };
         // 音の長さに合った間隔・歌詞が重ならない間隔・臨時記号の分
-        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]), (a.w + z.w) / 2 + 5) + (z.acc ? 9 : 0));
+        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]), (a.w + z.w) / 2 + 5) + (z.acc ? 9 : 0) + (z.pre || 0));
       }
       const nat = 14 + chgRoom + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
       barInfo.push({ ticks, segW, nat, accRoom, chgRoom, keyChg, mChg });
@@ -384,7 +397,8 @@ const Notation = (() => {
     }
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
-    const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0);
+    const anyReh = !!(opts.rehearsal && Object.keys(opts.rehearsal).some((k) => +k < bars));
+    const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0) + (anyReh ? 22 : 0);
     const staffH = (st) => (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const dynRoom = (st) => (st.dynAbove ? 18 : 0); // 上に強弱を書くぶん
     const systemH = topRow + staves.reduce((a, s) => a + staffH(s), 0) + 16;
@@ -397,6 +411,8 @@ const Notation = (() => {
     o.push(`<rect width="100%" height="100%" fill="#fff"/>`);
     o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="21" font-weight="bold" fill="#111">${esc(title)}</text>`);
     if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13" fill="#333">${esc(meta.subtitle)}</text>`);
+    // パート譜：左上にパートの名前
+    if (opts.partHeader) o.push(`<rect x="14" y="${12 + NL}" width="${textW(opts.partHeader) * 1.05 + 14}" height="22" rx="4" fill="none" stroke="#111" stroke-width="1"/><text x="21" y="${28 + NL}" font-size="13.5" font-weight="bold" fill="#111" class="parthead">${esc(opts.partHeader)}</text>`);
     const credits = [meta.lyricist ? '作詞：' + meta.lyricist : '', meta.composer ? '作曲：' + meta.composer : ''].filter(Boolean);
     // 名前を書くらん（プリント用）
     if (meta.nameLine) o.push(`<text x="${width - 340}" y="20" font-size="12" fill="#111">　年　　組　　番　名前</text><line x1="${width - 216}" y1="23" x2="${width - 16}" y2="23" stroke="#111" stroke-width="0.8"/>`);
@@ -598,6 +614,26 @@ const Notation = (() => {
             let accCol = 0;
             let lastAccPos = 99;
             const ysAll = [];
+            // 装飾音符（小さな8分音符・斜線つき）
+            if (!perc && ev.first && ev.gr != null) {
+              const gs = spellPref(ev.gr + st.tr, kcB, 0);
+              const gpos = gs.dn - st.baseDn;
+              const gy = yOf(gpos);
+              const SPg = SP * 0.62;
+              const anyAcc = heads.some((h) => h.accTxt);
+              const gx = x - GW('noteheadBlack') / 2 - (anyAcc ? 11 : 0) - ((ev.art || []).includes('arp') ? 9 : 0) - 11;
+              const gw = GW('noteheadBlack', SPg);
+              for (let lp = -2; lp >= gpos; lp -= 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
+              for (let lp = 10; lp <= gpos; lp += 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
+              o.push(G('noteheadBlack', gx - gw / 2, gy, 'class="grace" fill="#111"', SPg));
+              const sx2 = gx + gw / 2 - 0.4;
+              const sy2 = gy - 2.6 * SP;
+              o.push(`<line x1="${sx2}" x2="${sx2}" y1="${gy - 1}" y2="${sy2}" stroke="#111" stroke-width="0.8"/>`);
+              o.push(G('flag8thUp', sx2 - 0.4, sy2, 'fill="#111"', SPg));
+              o.push(`<line x1="${sx2 - 4}" x2="${sx2 + 5}" y1="${sy2 + 11}" y2="${sy2 + 4}" stroke="#111" stroke-width="0.9"/>`);
+              const gcur = gs.dn in barAcc ? barAcc[gs.dn] : keyAcc[gs.letter];
+              if (gcur !== gs.acc) { const an = ACC_G[gs.acc] || 'accidentalNatural'; o.push(G(an, gx - gw / 2 - GW(an, SPg) - 1.5, gy, 'fill="#111"', SPg)); barAcc[gs.dn] = gs.acc; }
+            }
             for (let i = heads.length - 1; i >= 0; i--) {
               const h = heads[i];
               const hx2 = x + disp[i];
@@ -658,19 +694,55 @@ const Notation = (() => {
             const arts = d.ev.first ? d.ev.art || [] : [];
             let k = 0;
             for (const a of arts) {
-              if (a === 'ferm') continue;
+              if (ABOVE_ART.has(a) || !['stac', 'ten', 'acc', 'marc', 'stacc2'].includes(a)) continue;
               const below = d.up;
               // 符頭から半スペース以上はなし、線の上にかからないように
               let yy = below ? d.yOf(d.lo) + 6 + k * 9 : d.yOf(d.hi) - 6 - k * 9;
-              const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato' }[a] + (below ? 'Below' : 'Above');
+              const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato', stacc2: 'articStaccatissimo' }[a] + (below ? 'Below' : 'Above');
               if (!Glyphs.g[nm]) continue;
               o.push(G(nm, d.x - GW(nm) / 2, yy));
               k++;
             }
+            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : 99999);
             if (arts.includes('ferm')) {
-              const yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up ? stemEnd(d) - 4 : 99999);
               o.push(G('fermataAbove', d.x - GW('fermataAbove') / 2, yy));
+              yy -= 14;
             }
+            // 指番号（音にいちばん近く）
+            if (d.ev.first && d.ev.fg) {
+              const fs = String(d.ev.fg);
+              fs.split('').forEach((c) => { o.push(`<text x="${d.x}" y="${yy}" font-size="10.5" font-weight="600" text-anchor="middle" fill="#111" class="fing">${esc(c)}</text>`); yy -= 10; });
+              yy -= 3;
+            }
+            // 装飾記号・弓の記号（その上へ、積み重ねる）
+            for (const a of arts) {
+              const nm = ORN_G[a];
+              if (!nm || !Glyphs.g[nm]) continue;
+              const bb2 = Glyphs.g[nm].bbox;
+              const bot = bb2 ? bb2[3] * SP : 0;
+              o.push(G(nm, d.x - GW(nm) / 2, yy - bot));
+              yy -= (bb2 ? (bb2[3] - bb2[1]) * SP : 12) + 3;
+            }
+            // トレモロ（ぼうの上に斜線3本）
+            if (arts.includes('trem')) {
+              if (d.hasStem) {
+                const sx3 = stemX(d);
+                const ym = d.up ? d.yOf(d.hi) - 2 * SP : d.yOf(d.lo) + 2 * SP;
+                o.push(G('tremolo3', sx3, ym));
+              } else o.push(G('tremolo3', d.x, d.yOf(d.hi) - 2 * SP));
+            }
+            // アルペジオ（和音の左に波線）
+            if (arts.includes('arp')) {
+              const ax = d.x - 6 - (d.heads.some((h) => h.accTxt) ? 11 : 0) - 8;
+              const ya = d.yOf(d.hi) - 6;
+              const yz = d.yOf(d.lo) + 6;
+              let pth = `M${ax} ${yz}`;
+              for (let yv = yz, k2 = 0; yv > ya; yv -= 4, k2++) pth += ` Q${ax + (k2 % 2 ? -2.6 : 2.6)} ${yv - 2} ${ax} ${yv - 4}`;
+              o.push(`<path d="${pth}" fill="none" stroke="#111" stroke-width="1.1"/>`);
+            }
+            // ブレス（息つぎ）・カエスーラ（区切り）
+            if (arts.includes('breath')) o.push(G('breathMarkComma', d.x + 12, d.yOf(9.5)));
+            if (arts.includes('caes')) o.push(G('caesura', d.x + 12, d.yOf(8)));
           }
           // 小節線（くり返し記号つき）
           const yT = stTop;
@@ -698,6 +770,14 @@ const Notation = (() => {
             let mx = B.xs[0] - 4;
             const my = stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0) - (opts.words && opts.words[bb] ? 15 : 0);
             for (const m of opts.marks[bb]) { o.push(`<text x="${mx}" y="${my}" font-size="11" font-weight="bold" fill="${m.err ? '#e03131' : '#e67700'}">${esc(m.t)}</text>`); mx += textW(m.t) * 0.95 + 6; }
+          }
+          // リハーサル記号（四角でかこんだ文字）：段のいちばん上
+          if (si === 0 && anyReh && opts.rehearsal[bb] != null && opts.rehearsal[bb] !== '') {
+            const t = String(opts.rehearsal[bb]);
+            const ry = sys.y0 + 4;
+            const rw = textW(t) * 1.15 + 10;
+            const rx = B.x0 + (bb === b0 ? 0 : -2);
+            o.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="18" fill="#fff" stroke="#111" stroke-width="1.3"/><text x="${rx + rw / 2}" y="${ry + 14}" font-size="14" font-weight="bold" text-anchor="middle" fill="#111" class="reh">${esc(t)}</text>`);
           }
           // rit. / accel. はコード名の上に（かさならないように）
           if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
@@ -730,6 +810,18 @@ const Notation = (() => {
           const yA = ya;
           const lift = Math.min(18, 6 + (xz - xa) / 14) * (above ? -1 : 1);
           o.push(`<path d="M${xa} ${yA} C${xa + (xz - xa) / 3} ${yA + lift} ${xa + (2 * (xz - xa)) / 3} ${yz + lift} ${xz} ${yz} C${xa + (2 * (xz - xa)) / 3} ${yz + lift * 0.8} ${xa + (xz - xa) / 3} ${yA + lift * 0.8} ${xa} ${yA}" fill="#111" stroke="#111" stroke-width="0.6"/>`);
+        }
+        // 譜表テキスト（音の上に書くことば）
+        if (st.textRoom) {
+          for (const tx2 of st.part.texts || []) {
+            if (tx2.t < bS(b0) || tx2.t >= bS(b1) || !tx2.x) continue;
+            const bb2 = barOfT(tx2.t);
+            // 加線・装飾記号より上、コード名などより上。リハーサル記号にはかからない
+            const tyA = stTop - 2 * SP - st.above - dynRoom(st) + 12;
+            const tyB = stTop - 2.9 * SP - dynRoom(st) - (si === 0 && chords && chords[bb2] ? 15 : 0) - (si === 0 && opts.words && opts.words[bb2] ? 15 : 0) - (si === 0 && opts.marks && opts.marks[bb2] ? 15 : 0);
+            const ty = Math.max(si === 0 ? sys.y0 + (anyReh ? 24 : 0) + 12 : -1e9, Math.min(tyA, tyB));
+            o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="12.5" fill="#111" class="stxt">${esc(tx2.x)}</text>`);
+          }
         }
         // 強弱記号・クレッシェンド
         if (st.hasDyn) {
@@ -1074,7 +1166,9 @@ const Notation = (() => {
             x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[c.h.q] || 'major'}</kind><offset>${c.hAt}</offset></harmony>`);
           }
         }
+        if (pi === 0 && opts.rehearsal && opts.rehearsal[b]) x.push(`<direction placement="above"><direction-type><rehearsal enclosure="square">${esc(opts.rehearsal[b])}</rehearsal></direction-type></direction>`);
         const dirAt = (t) => {
+          for (const tx of p.texts || []) if (tx.t === t && tx.x) x.push(`<direction placement="above"><direction-type><words>${esc(tx.x)}</words></direction-type></direction>`);
           for (const dy of p.dyn || []) if (dy.t === t && DYN.has(dy.v)) x.push(`<direction placement="below"><direction-type><dynamics><${dy.v}/></dynamics></direction-type></direction>`);
           for (const hp of p.hairpins || []) {
             if (hp.s === t) x.push(`<direction placement="below"><direction-type><wedge type="${hp.type === 'cresc' ? 'crescendo' : 'diminuendo'}"/></direction-type></direction>`);
@@ -1101,10 +1195,22 @@ const Notation = (() => {
             if (k === 0 && ev.first) {
               if (slurStarts.has(ev.abs)) nots += `<slur type="start" number="${slurStarts.get(ev.abs) % 6 + 1}"/>`;
               if (slurEnds.has(ev.abs)) nots += `<slur type="stop" number="${slurEnds.get(ev.abs) % 6 + 1}"/>`;
-              const arts = (ev.art || []).filter((a) => a !== 'ferm').map((a) => ({ stac: '<staccato/>', acc: '<accent/>', ten: '<tenuto/>', marc: '<strong-accent/>' }[a])).join('');
+              const A = ev.art || [];
+              const arts = A.map((a) => ({ stac: '<staccato/>', acc: '<accent/>', ten: '<tenuto/>', marc: '<strong-accent type="up"/>', stacc2: '<staccatissimo/>', breath: '<breath-mark/>', caes: '<caesura/>' }[a] || '')).join('');
               if (arts) nots += `<articulations>${arts}</articulations>`;
-              if ((ev.art || []).includes('ferm')) nots += '<fermata type="upright"/>';
+              const orn = A.map((a) => ({ tr: '<trill-mark/>', prall: '<inverted-mordent/>', mord: '<mordent/>', turn: '<turn/>', trem: '<tremolo type="single">3</tremolo>' }[a] || '')).join('');
+              if (orn) nots += `<ornaments>${orn}</ornaments>`;
+              const tech = A.map((a) => ({ upb: '<up-bow/>', dnb: '<down-bow/>' }[a] || '')).join('');
+              if (tech) nots += `<technical>${tech}</technical>`;
+              if (A.includes('ferm')) nots += '<fermata type="upright"/>';
             }
+            if (ev.first && (ev.art || []).includes('arp') && ev.pitches.length > 1) nots += '<arpeggiate/>';
+            if (ev.first && ev.fg && !p.perc) {
+              const fc = String(ev.fg)[ev.pitches.length - 1 - k] || (ev.pitches.length === 1 ? String(ev.fg)[0] : '');
+              if (fc) nots += `<technical><fingering>${esc(fc)}</fingering></technical>`;
+            }
+            // 装飾音符（前打音）は、主音符の前に
+            if (k === 0 && ev.first && ev.gr != null && !p.perc) { const gs = spell(ev.gr, kc); x.push(`<note><grace slash="yes"/><pitch><step>${gs.step}</step>${gs.acc ? `<alter>${gs.acc}</alter>` : ''}<octave>${gs.oct}</octave></pitch>${vx}<type>eighth</type><stem>up</stem></note>`); }
             const ly = k === 0 && ev.first && vi === 0 ? (useNoteLy ? ev.ly : lyr[ev.syll]) : '';
             const lyric = ly ? `<lyric number="1"><syllabic>single</syllabic><text>${esc(ly)}</text></lyric>` : '';
             x.push(`<note${!p.perc && ev.vel && ev.vel !== 1 ? ` dynamics="${Math.round(ev.vel * 100)}"` : ''}>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${p.perc ? `<instrument id="P${pi + 1}-I${m - 2000 + 1}"/>` : ''}${vx}${typeXml(ev)}${p.perc && dpos[1] !== 'n' ? `<notehead>${dpos[1] === 'o' ? 'circle-x' : 'x'}</notehead>` : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);

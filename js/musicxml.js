@@ -128,7 +128,8 @@ const MusicXMLImport = (() => {
     }
   }
 
-  const ART = { staccato: 'stac', staccatissimo: 'stac', spiccato: 'stac', accent: 'acc', tenuto: 'ten', 'strong-accent': 'marc' };
+  const ART = { staccato: 'stac', staccatissimo: 'stacc2', spiccato: 'stacc2', accent: 'acc', tenuto: 'ten', 'strong-accent': 'marc', 'breath-mark': 'breath', caesura: 'caes' };
+  const ORN = { 'trill-mark': 'tr', 'inverted-mordent': 'prall', mordent: 'mord', turn: 'turn', 'delayed-turn': 'turn' };
   const DYN = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp'];
   const HARM = { major: 'M', minor: 'm', dominant: '7', 'major-seventh': 'M7', 'minor-seventh': 'm7', 'suspended-fourth': 'sus4', diminished: 'dim', augmented: 'aug' };
   const TEMPO_WORD = /grave|largo|larghetto|lento|adagio|andante|andantino|moderato|allegretto|allegro|vivace|vivo|presto|prestissimo|maestoso|tempo|ゆっくり|ゆったり|おだやか|はやく|速く|速さ|元気|軽やか|かろやか|歩く|おちついて|落ち着いて/i;
@@ -146,6 +147,7 @@ const MusicXMLImport = (() => {
       let cur = 0; // 小節の中の位置（tick）
       let maxPos = 0;
       let lastStart = 0;
+      let pendingGrace = null;
       const toT = (d) => (num(d, 0) * TPQ) / divisions;
       const at = () => cur;
       for (const el of m.children) {
@@ -178,6 +180,13 @@ const MusicXMLImport = (() => {
           const dur = grace ? 0 : toT(txt(el, 'duration'));
           const start = isChord ? lastStart : cur;
           if (!isChord) { lastStart = cur; cur += dur; maxPos = Math.max(maxPos, cur); }
+          // 装飾音符は、次の音につける（前打音）
+          if (grace && kid(el, 'pitch') && !isChord) {
+            const gp = kid(el, 'pitch');
+            const gs = STEP[txt(gp, 'step').toUpperCase()];
+            if (gs != null) pendingGrace = (Math.round(num(txt(gp, 'octave'), 4)) + 1) * 12 + gs + Math.round(num(txt(gp, 'alter'), 0));
+            continue;
+          }
           if (grace || cue || kid(el, 'rest')) continue;
           const pitchEl = kid(el, 'pitch');
           const unp = kid(el, 'unpitched');
@@ -218,6 +227,20 @@ const MusicXMLImport = (() => {
               }
             }
             if (kid(nt, 'fermata') && !art.includes('ferm')) art.push('ferm');
+            for (const o of kids(nt, 'ornaments')) {
+              for (const c of o.children) {
+                const v = ORN[c.localName] || (c.localName === 'tremolo' && (c.getAttribute('type') || 'single') === 'single' ? 'trem' : null);
+                if (v && !art.includes(v)) art.push(v);
+              }
+            }
+            for (const tq of kids(nt, 'technical')) {
+              for (const c of tq.children) {
+                if (c.localName === 'up-bow' && !art.includes('upb')) art.push('upb');
+                if (c.localName === 'down-bow' && !art.includes('dnb')) art.push('dnb');
+                if (c.localName === 'fingering') { const f = c.textContent.replace(/[^0-5]/g, '').slice(0, 1); if (f) n.fg = f; }
+              }
+            }
+            if (kid(nt, 'arpeggiate') && !art.includes('arp')) art.push('arp');
             for (const s of kids(nt, 'slur')) {
               const no = s.getAttribute('number') || '1';
               const ty = s.getAttribute('type');
@@ -229,6 +252,7 @@ const MusicXMLImport = (() => {
             }
           }
           if (art.length) n.art = art;
+          if (pendingGrace != null) { n.gr = pendingGrace; pendingGrace = null; }
           // 歌詞（1番、なければ最初のもの）
           const lys = kids(el, 'lyric');
           const ly = lys.find((l) => (l.getAttribute('number') || '1') === '1') || lys[0];
@@ -256,6 +280,10 @@ const MusicXMLImport = (() => {
             for (const w of kids(dt, 'words')) {
               const s = w.textContent.trim();
               if (s) M.items.push({ kind: 'words', t, s });
+            }
+            for (const w of kids(dt, 'rehearsal')) {
+              const s = w.textContent.trim();
+              if (s) M.items.push({ kind: 'reh', s: s.slice(0, 8) });
             }
             const met = kid(dt, 'metronome');
             if (met && !gotTempo && kid(met, 'per-minute')) {
@@ -421,6 +449,7 @@ const MusicXMLImport = (() => {
     const rStart = new Set();
     const rEnd = new Set();
     const volta = {};
+    const rehearsal = {};
     parts.forEach((p) => {
       let openEnding = null;
       p.measures.forEach((M, i) => {
@@ -428,6 +457,7 @@ const MusicXMLImport = (() => {
           if (it.kind === 'tempo') tempoEv.push({ tick: absT(i, it.t), bar: i, bpm: it.bpm });
           else if (it.kind === 'jump') { if (jumps[it.type] == null) jumps[it.type] = i; }
           else if (it.kind === 'words' && !tempoText && TEMPO_WORD.test(it.s)) tempoText = it.s.slice(0, 40);
+          else if (it.kind === 'reh' && i < bars && rehearsal[i] == null) rehearsal[i] = it.s;
           else if (it.kind === 'harm') {
             hasHarmony = true;
             if (i < bars && !chords[i]) chords[i] = { r: it.r, q: it.q };
@@ -490,6 +520,7 @@ const MusicXMLImport = (() => {
         volta,
       },
       tempoText,
+      ...(Object.keys(rehearsal).length ? { rehearsal } : {}),
       score,
       tracks: out,
     };
@@ -500,6 +531,7 @@ const MusicXMLImport = (() => {
     const dyn = [];
     const hairpins = [];
     const slurs = [];
+    const texts = [];
     const openTie = {}; // 音の高さ → つながっている音
     const openSlur = {};
     const openWedge = {};
@@ -526,6 +558,8 @@ const MusicXMLImport = (() => {
             if ((+it.voice || 1) !== firstVoice[it.staff]) n.v = 2;
             if (it.art) n.art = it.art.slice();
             if (it.ly) n.ly = it.ly;
+            if (it.fg) n.fg = it.fg;
+            if (it.gr != null) n.gr = it.gr;
             if (it.dynAttr > 0 && Math.abs(it.dynAttr - 100) > 5) n.vel = Math.min(1.25, Math.max(0.25, Math.round((it.dynAttr / 100) * 4) / 4)); // 音ごとの強さ
             notes.push(n);
           }
@@ -538,6 +572,8 @@ const MusicXMLImport = (() => {
             }
           }
           for (const no of it.slurStart) openSlur[no] = s;
+        } else if (it.kind === 'words' && !TEMPO_WORD.test(it.s) && !/^(rit|rall|accel|a tempo|D\.?C|D\.?S|Fine|To Coda)/i.test(it.s)) {
+          texts.push({ t: Math.max(0, absT(i, it.t)), x: it.s.slice(0, 80) });
         } else if (it.kind === 'dyn') {
           dyn.push({ t: Math.max(0, absT(i, it.t)), v: it.v });
         } else if (it.kind === 'wedge') {
@@ -576,6 +612,7 @@ const MusicXMLImport = (() => {
       dyn: dyn2,
       hairpins: hairpins.filter((h) => h.s < limit),
       slurs: slurs.filter((s) => s.s < limit),
+      ...(texts.some((x) => x.t < limit) ? { texts: texts.filter((x) => x.t < limit) } : {}),
     };
   }
 
