@@ -1383,3 +1383,26 @@ body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
 .chded .chdmore summary { cursor: pointer; font-size: 12px; color: var(--muted, #666); }
 .chded .chdroots, .chded .chdqs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
 .ctype { width: 7em; font-size: 14px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); align-self: center; }
+
+/* トラックの並べかえ（ドラッグ） */
+.tgrip { cursor: grab; color: var(--muted); font-size: 12px; letter-spacing: -2px; padding: 2px 3px 2px 0; touch-action: none; user-select: none; opacity: .55; }
+.track:hover .tgrip { opacity: 1; }
+#trackList { position: relative; }
+.track.dragging { position: relative; z-index: 5; opacity: .92; box-shadow: 0 8px 22px rgba(0,0,0,.22); transition: none; }
+body.trackdrag, body.trackdrag * { cursor: grabbing !important; user-select: none; }
+.tdrop { position: absolute; left: 4px; right: 4px; height: 4px; border-radius: 2px; background: var(--accent); pointer-events: none; z-index: 6; }
+/* 画面の区切り：ドラッグで大きさを変える */
+.splitter { flex: none; position: relative; z-index: 3; background: transparent; touch-action: none; }
+.splitter::after { content: ''; position: absolute; border-radius: 2px; background: var(--border); transition: background .15s; }
+.splitter:hover::after, .splitter.on::after, .splitter:focus-visible::after { background: var(--accent); }
+.splitter.v { width: 7px; margin: 0 -3px; cursor: col-resize; }
+.splitter.v::after { top: 0; bottom: 0; left: 3px; width: 1px; }
+.splitter.v:hover::after, .splitter.v.on::after { left: 2px; width: 3px; }
+.splitter.h { height: 7px; margin: -3px 0; cursor: row-resize; }
+.splitter.h::after { left: 0; right: 0; top: 3px; height: 1px; }
+.splitter.h:hover::after, .splitter.h.on::after { top: 2px; height: 3px; }
+body.splitting, body.splitting * { user-select: none; }
+#splitScore:has(+ #scorePanel[hidden]) { display: none; }
+body.view-score #splitScore { display: none; }
+body.phone .splitter { display: none; }
+@media (max-width: 860px) { #splitTracks { display: none; } }

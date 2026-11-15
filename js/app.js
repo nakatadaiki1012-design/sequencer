@@ -3398,7 +3398,7 @@ function renderTracks() {
     const badge = realOk ? (loading ? `<span class="badge wait" title="録音を読み込み中">${I('mic')}</span>` : `<span class="badge" title="本物の楽器の録音">${I('mic')}</span>`) : `<span class="badge syn" title="電子音">${I('wave')}</span>`;
     const lockMute = song.locks.mute;
     d.innerHTML = `
-      <div class="trow"><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
+      <div class="trow"><span class="tgrip" title="ドラッグで順番を入れかえ（楽譜の順番も変わります）" aria-hidden="true">⋮⋮</span><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
         <button class="mini icon mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>M</button>
         <button class="mini icon solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>S</button>
         <details class="pop right tmenu" data-pop="t${i}"><summary class="mini icon" title="名前・並べかえ・複製・削除">${I('more')}</summary><div class="popbody menu-list">
@@ -3409,7 +3409,12 @@ function renderTracks() {
         </div></details></div>
       <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${tr.type === 'drum' ? PIC('kit', tr.kit) : PIC('inst', tr.inst)}<span class="instname">${escapeHtml(instLabel)}</span>${badge}${I('chevron')}</button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value="${tr.vol}" title="音量" ${tr.locked ? 'disabled' : ''}></div>`;
-    d.addEventListener('pointerdown', (ev) => { if (cur !== i && !ev.target.closest('details') && !ev.target.closest('.tstrip')) selectTrack(i); });
+    d.addEventListener('pointerdown', (ev) => {
+      // つまみ（⋮⋮）か、マウスならカードのあいている所をドラッグ → 順番を入れかえ
+      const grip = ev.target.closest('.tgrip');
+      if (grip || (ev.pointerType === 'mouse' && ev.button === 0 && !ev.target.closest('button, input, select, details, .tstrip'))) trackDragStart(ev, i, d, !!grip);
+      if (cur !== i && !ev.target.closest('details') && !ev.target.closest('.tstrip')) selectTrack(i);
+    });
     d.addEventListener('focusin', (ev) => { if (cur !== i && !ev.target.closest('details')) { const id = ev.target.className; selectTrack(i); const again = $$('#trackList .track')[i]; const el = again && [...again.querySelectorAll('button, input, summary')].find((x) => x.className === id); if (el) el.focus(); } });
     d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.mute').focus(); };
     d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.solo').focus(); };
@@ -3501,15 +3506,78 @@ function trackStrip(tr, i) {
   }
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
 }
-function moveTrack(i, dir) {
-  const j = i + dir;
-  if (j < 0 || j >= song.tracks.length) return;
+function moveTrack(i, dir) { moveTrackTo(i, i + dir); }
+// トラックを i 番目から j 番目へ（楽譜のパートの順番も、この順になる）
+function moveTrackTo(i, j) {
+  if (j < 0 || j >= song.tracks.length || i === j) return;
+  if (song.locks.tracks) return toast('トラックの並べかえはロックされています');
+  const curId = track().id;
   edit(() => {
     const [t] = song.tracks.splice(i, 1);
     song.tracks.splice(j, 0, t);
-    if (cur === i) cur = j; else if (cur === j) cur = i;
+    cur = Math.max(0, song.tracks.findIndex((x) => x.id === curId));
+    // オーケストラの楽譜でも、自分でならべた順にする
+    const S = scoreSettings();
+    if (S.orch) S.ordered = true;
   }, 'トラックの並べかえ');
   renderTracks();
+  renderScoreEdit();
+  if (!$('#scorePanel').hidden) renderScorePanel();
+}
+// トラックのカードをドラッグして並べかえる
+function trackDragStart(ev, i, card, fromGrip) {
+  if (song.tracks.length < 2) return;
+  const x0 = ev.clientX;
+  const y0 = ev.clientY;
+  const list = $('#trackList');
+  let on = false;
+  let to = i;
+  let ghost = null;
+  const cards = () => [...list.querySelectorAll('.track')];
+  const move = (e) => {
+    const dy = e.clientY - y0;
+    if (!on) {
+      if (Math.abs(dy) < 6 || Math.abs(e.clientX - x0) > Math.abs(dy) * 1.5) return;
+      on = true;
+      card.classList.add('dragging');
+      document.body.classList.add('trackdrag');
+      ghost = document.createElement('div');
+      ghost.className = 'tdrop';
+      list.appendChild(ghost);
+    }
+    e.preventDefault();
+    card.style.transform = `translateY(${dy}px)`;
+    // どこに入るか：ほかのカードのまん中より上か下か
+    const cs = cards();
+    const lr = list.getBoundingClientRect();
+    to = 0;
+    let lineY = cs[0].getBoundingClientRect().top;
+    cs.forEach((c, k) => {
+      if (k === i) return;
+      const r = c.getBoundingClientRect();
+      if (e.clientY > r.top + r.height / 2) { to = k < i ? k + 1 : k; lineY = r.bottom; }
+      else if (to === 0 && k === 0) lineY = r.top;
+    });
+    if (to > i) to = Math.min(to, cs.length - 1);
+    ghost.style.top = lineY - lr.top + list.scrollTop - 2 + 'px';
+    // リストのはしでは、自動でスクロール
+    if (e.clientY < lr.top + 24) list.scrollTop -= 8; else if (e.clientY > lr.bottom - 24) list.scrollTop += 8;
+  };
+  const up = () => {
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    if (!on) return;
+    card.classList.remove('dragging');
+    card.style.transform = '';
+    document.body.classList.remove('trackdrag');
+    if (ghost) ghost.remove();
+    if (to !== i) { moveTrackTo(i, to); toast(`「${song.tracks[to].name}」を ${to + 1}番目にしました（楽譜の順番も同じです）`); }
+  };
+  addEventListener('pointermove', move, { passive: false });
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
+  if (fromGrip) ev.preventDefault();
 }
 function addTrack(type) {
   if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
@@ -3997,7 +4065,7 @@ function scoreOpts(trackIds, withDrums) {
     }
   }
   // オーケストラの順（木管・金管・打楽器・鍵盤・声・弦、仲間の中は楽器の順）にならべる
-  if (S.orch && parts.length > 1) {
+  if (S.orch && !S.ordered && parts.length > 1) {
     const rank = (p, i) => [ORCH_ORDER.indexOf(p.family || 'kb'), p.inst && ORCH_INST.includes(p.inst) ? ORCH_INST.indexOf(p.inst) : 99, i];
     const idx = parts.map((p, i) => ({ p, t: partTracks[i], r: rank(p, i) }));
     idx.sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.r[2] - b.r[2]);
@@ -6208,9 +6276,79 @@ function applyPhone() {
   renderEditorTools();
   renderPhoneKbd();
   renderPhonePad();
+  applyLayout();
   resizeEditor();
   draw();
   drawOverview();
+}
+/* ---------- 画面の区切りをドラッグして、トラック・キャンバス・下の楽譜の大きさを変える（パソコン・タブレット） ---------- */
+const LAYOUT_KEY = 'otsumiki-layout';
+let layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; } })();
+function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* 保存できなくても動く */ } }
+function applyLayout() {
+  const phone = document.body.classList.contains('phone');
+  const side = $('.main > .tracks');
+  if (side) side.style.width = !phone && layout.tw ? layout.tw + 'px' : '';
+  if (!phone) OV_RH = layout.ovrh || 20;
+  const sp = $('#scorePanel');
+  if (sp) { sp.style.maxHeight = !phone && layout.sph ? layout.sph + 'px' : ''; sp.style.height = !phone && layout.sph ? layout.sph + 'px' : ''; }
+}
+function relayoutAll() {
+  resizeOverview();
+  drawOverview();
+  resizeEditor();
+  draw();
+  if (ui.view === 'score') renderScoreEdit();
+}
+function splitterDrag(el, onMove, onReset) {
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const st = onMove(null);
+    el.classList.add('on');
+    document.body.classList.add('splitting');
+    let raf = 0;
+    const mv = (ev) => { const dx = ev.clientX - x0; const dy = ev.clientY - y0; cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { onMove({ dx, dy, st }); relayoutAll(); }); };
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); el.classList.remove('on'); document.body.classList.remove('splitting'); saveLayout(); relayoutAll(); };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+  });
+  el.addEventListener('dblclick', () => { onReset(); applyLayout(); saveLayout(); relayoutAll(); });
+  // キーボードでも（← → ↑ ↓）
+  el.addEventListener('keydown', (e) => {
+    const d = { ArrowLeft: [-16, 0], ArrowRight: [16, 0], ArrowUp: [0, -16], ArrowDown: [0, 16] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const st = onMove(null);
+    onMove({ dx: d[0], dy: d[1], st });
+    saveLayout();
+    relayoutAll();
+  });
+}
+function initSplitters() {
+  applyLayout();
+  splitterDrag($('#splitTracks'), (m) => {
+    const side = $('.main > .tracks');
+    if (!m) return side.getBoundingClientRect().width;
+    layout.tw = Math.round(clamp(m.st + m.dx, 170, Math.min(560, innerWidth * 0.5)));
+    side.style.width = layout.tw + 'px';
+  }, () => { delete layout.tw; });
+  splitterDrag($('#splitOv'), (m) => {
+    if (!m) return OV_RH;
+    // キャンバスの高さ＝行の高さ（トラックの数で割る）
+    layout.ovrh = Math.round(clamp(m.st + m.dy / Math.max(1, ovRows().length), 12, 56));
+    OV_RH = layout.ovrh;
+  }, () => { delete layout.ovrh; });
+  splitterDrag($('#splitScore'), (m) => {
+    const sp = $('#scorePanel');
+    if (!m) return sp.getBoundingClientRect().height;
+    layout.sph = Math.round(clamp(m.st - m.dy, 80, innerHeight * 0.8));
+    sp.style.maxHeight = sp.style.height = layout.sph + 'px';
+  }, () => { delete layout.sph; });
 }
 function renderChips() {
   const box = $('#trackChips');
@@ -7363,6 +7501,7 @@ function init() {
   $('#phoneMoreClose').onclick = () => $('#phoneMore').classList.remove('open');
   if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', applyPhone);
   applyPhone();
+  initSplitters();
   loadZoom();
   setupSelBar();
   { let wide = innerWidth >= 1600; addEventListener('resize', () => { const w = innerWidth >= 1600; if (w !== wide) { wide = w; renderEditorTools(); } }); }
