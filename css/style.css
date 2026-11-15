@@ -1337,3 +1337,6 @@ dialog.paldlg { position: fixed; top: 120px; right: 16px; left: auto; margin: 0;
 .paldlg .palclr { margin-top: 8px; width: 100%; }
 body.phone dialog.paldlg { top: auto; bottom: 66px; left: 8px; right: 8px; width: auto; max-height: 42vh; }
 body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
+/* 楽譜の再生カーソル（たての線） */
+#scoreEditView { position: relative; }
+#playCur { position: absolute; width: 4px; border-radius: 2px; background: var(--accent2); opacity: .55; pointer-events: none; z-index: 2; transition: left .06s linear; }

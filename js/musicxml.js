@@ -859,6 +859,7 @@ const MusicXMLImport = (() => {
       const pedals = [];
       const ottava = [];
       const clefChg = {};
+      const mrep = {};
       const grid = {};
       const openTie = {}; // `${voice}:${pitch}` → note
       const slur2 = {}; // MuseScore 2 のスラー id → 始まり
@@ -942,6 +943,15 @@ const MusicXMLImport = (() => {
               continue;
             }
             if (tag === 'Slur' && ver < 3) { continue; }
+            if ((tag === 'MeasureRepeat' || tag === 'RepeatMeasure') && mi > 0 && !part.perc) {
+              // 前の小節と同じ：前の小節の音をうつす
+              const a0 = absT(startDiv[mi - 1]);
+              const a1 = absT(startDiv[mi]);
+              for (const n of notes.filter((m) => m.s >= a0 && m.s < a1)) notes.push({ ...n, s: n.s + (a1 - a0) });
+              mrep[mi] = 1;
+              pos += barLen[mi].len;
+              continue;
+            }
             if (tag !== 'Chord' && tag !== 'Rest') continue;
             // 2.x：音の track で声部
             if (kid(el, 'track')) voice = Math.round(num(txt(el, 'track'), 0)) % 4;
@@ -1017,7 +1027,7 @@ const MusicXMLImport = (() => {
       const ps = notes.map((n) => n.p);
       const avg = ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 64;
       tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
-        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}) });
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
     }
     let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
     if (!out.length) out = tracks.slice(0, 1);

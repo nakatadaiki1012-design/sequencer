@@ -75,6 +75,8 @@ const INST_RANGE = {
   violin: [55, 103, 55, 93], viola: [48, 91, 48, 81], cello: [36, 84, 36, 74], contrabass: [28, 67, 28, 60], harp: [23, 104, 23, 104],
   xylophone: [65, 108, 65, 108], glocken: [79, 108, 79, 108], marimba: [45, 96, 45, 96], vibraphone: [53, 89, 53, 89], celesta: [60, 108, 60, 108], tubularbell: [60, 77, 60, 77],
 };
+// TAB譜を書ける楽器と、その弦
+const TAB_INST = { guitar: 'guitar', steelguitar: 'guitar', eguitar: 'guitar', rockguitar: 'guitar', ukulele: 'ukulele', ebass: 'bass', acbass: 'bass', sbass1: 'bass', sbass2: 'bass', sbass3: 'bass' };
 const ORCH_ORDER = ['ww', 'br', 'perc', 'kb', 'vo', 'str'];
 const ORCH_INST = ['piccolo', 'flute', 'recorder', 'oboe', 'clarinet', 'bassoon', 'sax', 'horn', 'trumpet', 'trombone', 'tuba', 'brassens', 'timpani', 'xylophone', 'glocken', 'marimba', 'vibraphone', 'tubularbell', 'harp', 'celesta', 'piano', 'harpsichord', 'organ', 'pipeorgan', 'choir', 'violin', 'viola', 'cello', 'contrabass', 'strings', 'pizz'];
 
@@ -237,6 +239,7 @@ function sanitizeSong(s) {
       if (!tr.pedals.length) delete tr.pedals;
       tr.ottava = (Array.isArray(t.ottava) ? t.ottava : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s && [1, -1, 2, -2].includes(x.k)).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), k: x.k }));
       if (!tr.ottava.length) delete tr.ottava;
+      if (t.mrep && typeof t.mrep === 'object') { tr.mrep = {}; for (const b in t.mrep) if (Number.isInteger(+b) && +b > 0 && +b < 128 && t.mrep[b]) tr.mrep[b] = 1; if (!Object.keys(tr.mrep).length) delete tr.mrep; }
       if (t.clefChg && typeof t.clefChg === 'object') { tr.clefChg = {}; for (const b in t.clefChg) if (Number.isInteger(+b) && +b > 0 && +b < 128 && ['treble', 'bass', 'alto', 'treble8'].includes(t.clefChg[b])) tr.clefChg[b] = t.clefChg[b]; if (!Object.keys(tr.clefChg).length) delete tr.clefChg; }
     } else if (t.type === 'drum') {
       const g = {};
@@ -2797,7 +2800,7 @@ function shiftBarMarks(fromBar, n) {
   song.meters = mv(song.meters || {});
   song.keys = mv(song.keys || {});
   if (song.rehearsal) song.rehearsal = mv(song.rehearsal);
-  for (const t of song.tracks) if (t.clefChg) t.clefChg = mv(t.clefChg);
+  for (const t of song.tracks) { if (t.clefChg) t.clefChg = mv(t.clefChg); if (t.mrep) t.mrep = mv(t.mrep); }
   const R = song.repeats || { start: [], end: [], volta: {} };
   const mvArr = (arr) => arr.map((b) => (b >= fromBar ? b + n : n < 0 && b >= fromBar + n ? -1 : b)).filter((b) => b >= 0);
   song.repeats = { start: mvArr(R.start || []), end: mvArr(R.end || []), volta: mv(R.volta || {}) };
@@ -3776,7 +3779,7 @@ async function openTeacher() {
    ============================================================ */
 function scoreSettings() {
   if (!song.score) song.score = {};
-  return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', finger: '', drums: false, clefs: {}, ...song.score });
+  return Object.assign(song.score, { subtitle: '', lyricist: '', composer: '', perLine: 0, scale: 1, solfa: 'none', finger: '', drums: false, clefs: {}, accompStyle: 'grand', ...song.score });
 }
 // 「3,5-6」→ [2, 4, 5]（小節番号は1から）
 function parseBars(txt) {
@@ -3796,6 +3799,8 @@ function partClefTrans(t) {
   const oi = ORCH[t.inst];
   let clef = (S.clefs || {})[t.id] || 'auto';
   let trans = +(S.trans || {})[t.id] || 0;
+  // ギターは「ト音記号の8つ下」がふつう
+  if (clef === 'auto' && TAB_INST[t.inst] === 'guitar') clef = 'treble8';
   if (S.orch && oi) {
     if (clef === 'auto' && oi[3]) clef = oi[3];
     if ((S.trans || {})[t.id] == null && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
@@ -3812,7 +3817,7 @@ function scoreOpts(trackIds, withDrums) {
     if (t.type === 'melody') {
       const oi = ORCH[t.inst];
       const { clef, trans } = partClefTrans(t);
-      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, pedals: t.pedals, ottava: t.ottava, clefChg: t.clefChg, gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, pedals: t.pedals, ottava: t.ottava, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -3827,6 +3832,14 @@ function scoreOpts(trackIds, withDrums) {
       parts.push({ id: t.id, name: t.name, short: 'Perc.', family: S.orch ? 'perc' : '', perc: true, notes, gm: 0 });
       partTracks.push(t);
     } else if (t.type === 'chord' && S.accomp && t.chords.some(Boolean)) {
+      if (S.accompStyle === 'slash') {
+        // スラッシュ：拍ごとに「／」、上にコードネーム（ギター・バンドの楽譜）
+        const notes = [];
+        for (let b = 0; b < song.bars; b++) if (t.chords[b]) for (let q = barStart(b); q < barStart(b + 1); q += beatAt(b)) notes.push({ s: q, p: 71, l: Math.min(beatAt(b), barStart(b + 1) - q) });
+        parts.push({ id: t.id, name: t.name, short: 'Ch.', family: S.orch ? 'kb' : '', notes, clef: 'treble', slash: true, gm: Sound.GM[t.inst] || 0 });
+        partTracks.push(t);
+        continue;
+      }
       // コード伴奏を、ピアノの大譜表の楽譜にする
       const notes = chordEvents(t).map((n) => ({ s: n.s, p: n.p, l: Math.max(24, Math.ceil(n.l / 24 - 0.05) * 24) })); // 楽譜ではきりのよい長さに
       parts.push({ id: t.id, name: t.name + '（伴奏）', short: 'Pf.', family: S.orch ? 'kb' : '', notes, clef: 'grand', gm: Sound.GM[t.inst] || 0 });
@@ -3881,6 +3894,7 @@ function assignLyrics(tr, text) {
 function exportMscz() {
   const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
   o.chords = o.chordObjs;
+  o.parts = o.parts.filter((p) => !p.slash); // スラッシュはコードネームだけ（音は書き出さない）
   o.parts = o.parts.flatMap((p) => (p.clef === 'grand' ? [
     { ...p, name: p.name.replace('（伴奏）', '') + '（右手）', clef: 'treble', notes: p.notes.filter((n) => n.p >= 60) },
     { ...p, id: p.id + '-L', name: p.name.replace('（伴奏）', '') + '（左手）', clef: 'bass', notes: p.notes.filter((n) => n.p < 60) },
@@ -3958,7 +3972,8 @@ function openScore() {
     <label>音符の下に <select data-s="solfa"><option value="none">何も書かない</option><option value="doremi">ドレミ（音名）</option><option value="movable">ドレミ（階名・移動ド）</option><option value="cde">CDE</option><option value="haniho">ハニホ</option></select></label>
     <label>1段の小節数 <select data-s="perLine"><option value="0">自動</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}小節</option>`).join('')}</select></label>
     <label>大きさ <select data-s="scale"><option value="0.8">小さい</option><option value="1">ふつう</option><option value="1.25">大きい</option><option value="1.5">とても大きい</option></select></label>
-    <label class="chk"><input type="checkbox" data-c="accomp" ${S.accomp ? 'checked' : ''}> コード伴奏をピアノの楽譜（大譜表）にする</label>
+    <label class="chk"><input type="checkbox" data-c="accomp" ${S.accomp ? 'checked' : ''}> コード伴奏の楽譜も書く</label>
+    <label>コード伴奏の書き方 <select data-s="accompStyle"><option value="grand">ピアノの楽譜（大譜表）</option><option value="slash">スラッシュ（コードネームと拍の ／）</option></select></label>
     <label class="chk" title="木管・金管・打楽器・弦の順にならべて、仲間ごとにかっこでくくります。クラリネット（in B♭）・ホルン（in F）などは移調して、ビオラはハ音記号で書きます"><input type="checkbox" data-c="orch" ${S.orch ? 'checked' : ''}> オーケストラ・吹奏楽の書き方（フルスコア）</label>
     <label class="chk" title="2段目からは、その段でずっと休んでいるパートの五線を書きません（ページがへります）"><input type="checkbox" data-c="hideEmpty" ${S.hideEmpty !== false ? 'checked' : ''} ${S.orch ? '' : 'disabled'}> 休んでいるパートの段をかくす</label>
     <label class="chk" title="移調楽器も、じっさいに鳴る音の高さで書きます（指揮者・作曲の確認用）"><input type="checkbox" data-c="concert" ${S.concert ? 'checked' : ''} ${S.orch ? '' : 'disabled'}> 実音で書く（コンサートピッチ）</label>
@@ -3970,6 +3985,7 @@ function openScore() {
     ${mel.map((t) => `<div class="scorepart">
       <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
       ${t.type === 'melody' && mel.indexOf(t) > 0 && mel[mel.indexOf(t) - 1].type === 'melody' ? `<label class="chk" title="フルート1・2のように、1つ上のパートと同じ五線に書きます（上のパートはぼう上、このパートはぼう下）"><input type="checkbox" class="scomb" data-id="${t.id}" ${(S.combine || {})[t.id] ? 'checked' : ''}> 1つ上のパートと1段にまとめる</label>` : ''}
+      ${t.type === 'melody' && TAB_INST[t.inst] ? `<label title="ギター・ウクレレ・ベースの、弦とフレットの数字の楽譜">TAB譜 <select class="stab" data-id="${t.id}"><option value="">なし</option><option value="both">五線＋TAB</option><option value="only">TABだけ</option></select></label>` : ''}
       ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="alto">ハ音記号（アルト・ビオラ）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
       <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="auto">自動</option><option value="0">なし（C・実音）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
       <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
@@ -4000,6 +4016,7 @@ function openScore() {
   side.querySelector('[data-k="tempoText"]').onchange = (e) => { edit(() => { song.tempoText = e.target.value.slice(0, 30); }, '速さのことば'); upd(); };
   side.querySelector('[data-k="pickup"]').onchange = (e) => { edit(() => { song.pickup = +e.target.value; }, '弱起'); upd(); };
   side.querySelectorAll('.spart').forEach((c) => (c.onchange = () => { c.checked ? scoreSel.add(c.value) : scoreSel.delete(c.value); upd(); }));
+  side.querySelectorAll('.stab').forEach((el) => { el.value = (S.tab || {})[el.dataset.id] || ''; el.onchange = () => { S.tab = { ...(S.tab || {}) }; if (el.value) S.tab[el.dataset.id] = el.value; else delete S.tab[el.dataset.id]; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); }; });
   side.querySelectorAll('.scomb').forEach((el) => (el.onchange = () => { S.combine = { ...(S.combine || {}) }; if (el.checked) S.combine[el.dataset.id] = true; else delete S.combine[el.dataset.id]; upd(); autosaveSoon(); }));
   side.querySelectorAll('.sclef').forEach((el) => (el.onchange = () => { S.clefs[el.dataset.id] = el.value; upd(); autosaveSoon(); }));
   side.querySelectorAll('.strans').forEach((el) => (el.onchange = () => { if (el.value === 'auto') delete S.trans[el.dataset.id]; else S.trans[el.dataset.id] = +el.value; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); }));
@@ -4066,6 +4083,7 @@ function exportMusicXML() {
   const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
   o.chords = o.chordObjs;
   // 大譜表の伴奏は、右手（ト音記号）と左手（ヘ音記号）の2つのパートに分けて書き出す
+  o.parts = o.parts.filter((p) => !p.slash); // スラッシュはコードネームだけ（音は書き出さない）
   o.parts = o.parts.flatMap((p) => (p.clef === 'grand' ? [
     { ...p, name: p.name.replace('（伴奏）', '') + '（右手）', clef: 'treble', notes: p.notes.filter((n) => n.p >= 60) },
     { ...p, id: p.id + '-L', name: p.name.replace('（伴奏）', '') + '（左手）', clef: 'bass', notes: p.notes.filter((n) => n.p < 60) },
@@ -4225,15 +4243,36 @@ function highlightScore(pos) {
     const on = pos != null && it.s <= pos && pos < it.e;
     if (on !== !!it.on) { it.on = on; it.el.classList.toggle('playing', on); }
   }
-  if (pos != null) {
-    const it = scoreElems.find((x) => x.on);
-    const box = $('#scoreEditView');
-    if (it) {
-      const r = it.el.getBoundingClientRect();
-      const br = box.getBoundingClientRect();
-      if (r.top < br.top + 20 || r.bottom > br.bottom - 20) box.scrollTop += r.top - br.top - box.clientHeight / 3;
-    }
-  }
+  // 再生の位置に、たての線（MuseScore の再生カーソル）。段ごとに見えるようにスクロール
+  const box = $('#scoreEditView');
+  let cur = $('#playCur');
+  if (pos == null) { if (cur) cur.hidden = true; return; }
+  const L = box._layout;
+  const svg = box.querySelector('svg');
+  if (!L || !svg) return;
+  const b = barOf(Math.min(pos, totalTicks() - 1));
+  const sys = L.systems.find((x) => x.bars.some((B) => B.b === b));
+  if (!sys) return;
+  const B = sys.bars.find((x) => x.b === b);
+  const rel = pos - barStart(b);
+  let x = B.xs[0];
+  for (let i = 0; i < B.ticks.length - 1; i++) if (rel >= B.ticks[i]) x = B.xs[i] + ((Math.min(rel, B.ticks[i + 1]) - B.ticks[i]) / (B.ticks[i + 1] - B.ticks[i] || 1)) * (B.xs[i + 1] - B.xs[i]);
+  if (!cur) { box.insertAdjacentHTML('beforeend', '<div id="playCur" aria-hidden="true"></div>'); cur = $('#playCur'); }
+  const sr = svg.getBoundingClientRect();
+  const br = box.getBoundingClientRect();
+  const k = sr.width / L.width;
+  const ox = sr.left - br.left + box.scrollLeft; // 楽譜（svg）の左上の、箱の中での位置
+  const oy = sr.top - br.top + box.scrollTop;
+  const tops = sys.staves.map((st) => st.top);
+  const y0 = Math.min(...tops) - 10;
+  const y1 = Math.max(...tops) + 4 * 8 + 10;
+  cur.hidden = false;
+  cur.style.left = ox + x * k - 2 + 'px';
+  cur.style.top = oy + y0 * k + 'px';
+  cur.style.height = (y1 - y0) * k + 'px';
+  const top = oy + sys.y0 * k;
+  const bot = oy + sys.y1 * k;
+  if (top < box.scrollTop || bot > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, top - 8);
 }
 
 // ---- 入力・編集の操作 ----
@@ -4605,7 +4644,7 @@ const PAL_MORE = [
   ['音部記号', () => `${[['treble', 'gClef', 'ト音記号'], ['bass', 'fClef', 'ヘ音記号'], ['alto', 'cClef', 'ハ音記号（アルト）'], ['treble8', 'gClef', 'ト音記号（8つ下）']].map(([c, g, t]) => `<button class="palb" data-clef="${c}" title="${t}：カーソルの小節から">${palGlyph(g)}${c === 'treble8' ? '<i>8</i>' : ''}</button>`).join('')}<button class="palb" data-clef="" title="この小節の音部記号の変化を消す">✕</button>`],
   ['ピアノ', () => `<button class="palb" id="palPed" title="ペダル：えらんだ音符のはじめからおわりまで、ペダルをふむ（Ped. ＊）">${palGlyph('keyboardPedalPed')}</button>`],
   ['テキスト', () => `<button class="palb txt" id="palText" title="譜表テキスト：音の上にことばを書く（Alt+T）"><b>T</b></button><button class="palb" id="palReh" title="リハーサル記号 A・B・C…（Alt+M）"><b class="rehb">A</b></button>`],
-  ['くり返し・D.C.', () => `<button class="palb" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="palb" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="palb txt" data-bar="1" title="1番かっこ">1.</button><button class="palb txt" data-bar="2" title="2番かっこ">2.</button>${JUMPS.map(([k, t]) => `<button class="palb ${k === 'segno' || k === 'coda' ? '' : 'txt sm'}" data-jump="${k}" title="${t}">${k === 'segno' ? palGlyph('segno') : k === 'coda' ? palGlyph('coda') : { tocoda: 'To⊕', fine: 'Fine', dc: 'D.C.', ds: 'D.S.' }[k]}</button>`).join('')}<button class="palb" data-jump="-" title="この小節の D.C.・コーダなどを消す">✕</button>`],
+  ['くり返し・D.C.', () => `<button class="palb" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="palb" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="palb txt" data-bar="1" title="1番かっこ">1.</button><button class="palb txt" data-bar="2" title="2番かっこ">2.</button>${JUMPS.map(([k, t]) => `<button class="palb ${k === 'segno' || k === 'coda' ? '' : 'txt sm'}" data-jump="${k}" title="${t}">${k === 'segno' ? palGlyph('segno') : k === 'coda' ? palGlyph('coda') : { tocoda: 'To⊕', fine: 'Fine', dc: 'D.C.', ds: 'D.S.' }[k]}</button>`).join('')}<button class="palb" data-jump="-" title="この小節の D.C.・コーダなどを消す">✕</button><button class="palb" id="palMrep" title="前の小節と同じ（くり返し記号）：前の小節の音をこの小節にうつして、楽譜では ％ の記号で書きます"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 19 L16 5 L19 5 L8 19 Z" fill="currentColor"/><circle cx="7" cy="8" r="2.2" fill="currentColor"/><circle cx="17" cy="16" r="2.2" fill="currentColor"/></svg></button>`],
 ];
 function scPalette() {
   let d = $('#dlgSym');
@@ -4633,6 +4672,7 @@ function scPalette() {
   $('#palText').onclick = scStaffText;
   $('#palReh').onclick = scRehearsal;
   $('#palPed').onclick = scPedal;
+  $('#palMrep').onclick = scMeasureRepeat;
   d.querySelectorAll('[data-ott]').forEach((b) => (b.onclick = () => scOttava(+b.dataset.ott)));
   d.querySelectorAll('[data-clef]').forEach((b) => (b.onclick = () => scClefChange(b.dataset.clef)));
   $('#palClr').onclick = scClearMarks;
@@ -4753,6 +4793,28 @@ function scClefChange(clef) {
       if (!Object.keys(tr.clefChg).length) delete tr.clefChg;
     }, '音部記号');
     toast(clef ? `${b + (song.pickup ? 0 : 1)}小節目から音部記号を変えました` : '音部記号の変化を消しました');
+  }
+  renderScoreEdit();
+}
+// 小節のくり返し記号：カーソルの小節を「前の小節と同じ」にする（もう一度おすと記号をやめる。音はそのまま）
+function scMeasureRepeat() {
+  const tr = scEditable();
+  if (!tr) return;
+  const b = barOf(Math.min(ui.sc.cursor, totalTicks() - 1));
+  if (b === 0) return toast('1小節目には使えません（前の小節がありません）');
+  if (barLen(b) !== barLen(b - 1)) return toast('前の小節と拍子がちがうので使えません');
+  if (tr.mrep && tr.mrep[b]) {
+    edit(() => { delete tr.mrep[b]; if (!Object.keys(tr.mrep).length) delete tr.mrep; }, 'くり返し記号をやめる');
+  } else {
+    const a = barStart(b - 1);
+    const d = barStart(b) - a;
+    edit(() => {
+      tr.notes = tr.notes.filter((n) => n.s < barStart(b) || n.s >= barStart(b + 1));
+      for (const n of tr.notes) if (n.s < barStart(b) && n.s + n.l > barStart(b)) n.l = barStart(b) - n.s;
+      for (const n of tr.notes.filter((m) => m.s >= a && m.s < a + d)) tr.notes.push({ ...n, s: n.s + d, l: Math.min(n.l, a + d - n.s) });
+      tr.mrep = { ...(tr.mrep || {}), [b]: 1 };
+    }, 'くり返し記号');
+    toast(`${b + (song.pickup ? 0 : 1)}小節目を「前の小節と同じ」にしました`);
   }
   renderScoreEdit();
 }

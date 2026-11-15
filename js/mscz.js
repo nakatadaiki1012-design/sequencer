@@ -106,6 +106,13 @@ const MuseScoreExport = (() => {
         x.push(isPick ? `<Measure len="${frac(pickup)}">` : '<Measure>');
         if ((opts.repeats.start || []).includes(b)) x.push('<startRepeat/>');
         if ((opts.repeats.end || []).includes(b)) x.push('<endRepeat>2</endRepeat>');
+        // 小節のくり返し記号（前の小節と同じとき）
+        const sig = (bb) => p.notes.filter((n) => n.s >= bS(bb) && n.s < bS(bb + 1)).map((n) => `${n.s - bS(bb)}/${n.p}/${n.l}/${n.v || 1}`).sort().join(',');
+        if (b > 0 && p.mrep && p.mrep[b] && !p.perc && bL(b) === bL(b - 1) && sig(b) && sig(b) === sig(b - 1)) {
+          x.push(`<voice><MeasureRepeat><subtype>1</subtype><durationType>measure</durationType><duration>${frac(bL(b))}</duration></MeasureRepeat></voice>`);
+          x.push('</Measure>');
+          continue;
+        }
         const voices = ev2 && ev2[b].some((e) => !e.rest) ? [ev1[b], ev2[b]] : [ev1[b]];
         voices.forEach((evs, vi) => {
           x.push('<voice>');
