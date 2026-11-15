@@ -84,6 +84,16 @@ const Notation = (() => {
     return { letter, acc, oct, dn: oct * 7 + letter, step: 'CDEFGAB'[letter] };
   }
   const spell = (midi, kc) => spellPref(midi, kc, 0);
+  // 音部記号を自動でえらぶ：加線がいちばん少ないもの。テノールのパートは「ト音記号の8つ下」
+  function autoClef(notes, name) {
+    if (!notes.length) return 'treble';
+    if (/テノール|テナー|tenor/i.test(name || '') && !/サックス|sax|トロンボーン|trombone|チューバ|tuba/i.test(name || '')) return 'treble8';
+    const ledg = (base) => notes.reduce((a, n) => { const pos = Math.round(((n.p - base) * 7) / 12); return a + Math.max(0, pos - 9) + Math.max(0, -1 - pos); }, 0);
+    // 第1線（ト音：ミ4=64、ヘ音：ソ2=43）からの、だいたいの線の位置
+    const t = ledg(64);
+    const bs = ledg(43);
+    return bs < t * 0.8 ? 'bass' : 'treble';
+  }
 
   // 長さを読みやすい音符の組み合わせに分ける（拍や小節のまん中をかくさない）
   function decompose(pos, len, beat, barTicks, meter, rest) {
@@ -103,7 +113,11 @@ const Notation = (() => {
           if (rest && !compound && v[0] > (beat || 48) && pos % Math.min(v[0], 96) !== 0) continue;
           if (rest && compound && pos % beat !== 0 && (pos % beat) + v[0] > beat) continue; // 6/8 の休符は拍をまたがない
           if (v[0] > len) continue;
-          if (v[3]) { if (pos % (v[0] / 2) !== 0) continue; } else if (compound ? (pos % beat) % Math.min(v[0], beat) !== 0 : pos % Math.min(v[1], beat) !== 0) continue;
+          // 6/8 などで、拍の中の「8分＋4分」（♪♩）は、4分音符のまま書く（拍のおわりまで）
+          const fillBeat = compound && !rest && !v[2] && (pos % beat) + v[0] === beat;
+          if (v[3]) { if (pos % (v[0] / 2) !== 0) continue; } else if (!fillBeat && (compound ? (pos % beat) % Math.min(v[0], beat) !== 0 : pos % Math.min(v[1], beat) !== 0)) continue;
+          // 拍のとちゅうから始まる音は、次の拍の頭をまたがない（付点8分＋16分ではなく、8分＋8分のタイ）
+          if (!compound && !v[3] && beat && pos % beat !== 0 && pos + v[0] > (Math.floor(pos / beat) + 1) * beat) continue;
           // 4/4拍子では、小節の頭から始まる音・2分音符以上で拍の頭から始まる音以外は、まん中（3拍目）をまたがない
           if (mid && pos < mid && pos + v[0] > mid && pos !== 0 && !(v[1] >= 96 && pos % 48 === 0)) continue;
           chosen = v;
@@ -273,7 +287,7 @@ const Notation = (() => {
         staves.push({ ...common, clef: 'bass', notes: notes.filter((n) => n.p < 60), notes2: notes2.filter((n) => n.p < 60), sub: 1, grand: true, lyrics: [] });
         return;
       }
-      if (clef === 'auto') { const avg = all.length ? all.reduce((a, n) => a + n.p, 0) / all.length : 67; clef = avg < 57 ? 'bass' : 'treble'; }
+      if (clef === 'auto') clef = autoClef(all, p.name);
       staves.push({ ...common, clef, notes, notes2, sub: 0 });
     });
     for (const st of staves) {
@@ -288,7 +302,7 @@ const Notation = (() => {
       st.has2 = Array(bars).fill(false);
       for (const n of st.notes2) if (n.s >= 0 && n.s < bS(bars)) st.has2[barOfT(n.s)] = true;
       st.evAt = (b) => (st.has2[b] ? st.bars[b].concat(st.bars2[b]) : st.bars[b]);
-      st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'bass' ? 18 : 30;
+      st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'treble8' ? 23 : st.clef === 'bass' ? 18 : 30;
       st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean) || (opts.ivPart && st.part.id === opts.ivPart));
       st.hasDyn = st.sub === (st.grand ? 1 : 0) && ((st.part.dyn || []).length || (st.part.hairpins || []).length);
       st.dynAbove = !!(st.hasDyn && st.sub === 0 && !st.grand && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean)));
@@ -511,6 +525,7 @@ const Notation = (() => {
         // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
         if (perc) o.push(G('unpitchedPercussionClef1', cl + 7, yOf(4)));
         else if (st.clef === 'treble') o.push(G('gClef', cl + 4, yOf(2)));
+        else if (st.clef === 'treble8') { o.push(G('gClef', cl + 4, yOf(2))); o.push(`<text x="${cl + 4 + GW('gClef') / 2}" y="${yOf(-4) + 2}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#111" font-family="serif">8</text>`); }
         else o.push(G('fClef', cl + 4, yOf(6)));
         // 調号（nat=true で、取り消しのナチュラル）
         const keySig = (kc, x0, nat) => {
@@ -693,6 +708,7 @@ const Notation = (() => {
           for (const d of drawn) {
             const arts = d.ev.first ? d.ev.art || [] : [];
             let k = 0;
+            let artTop = Infinity; // 符頭の上に書いた記号のいちばん上
             for (const a of arts) {
               if (ABOVE_ART.has(a) || !['stac', 'ten', 'acc', 'marc', 'stacc2'].includes(a)) continue;
               const below = d.up;
@@ -701,9 +717,12 @@ const Notation = (() => {
               const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato', stacc2: 'articStaccatissimo' }[a] + (below ? 'Below' : 'Above');
               if (!Glyphs.g[nm]) continue;
               o.push(G(nm, d.x - GW(nm) / 2, yy));
+              if (!below) artTop = Math.min(artTop, yy - (a === 'marc' ? 11 : 9));
               k++;
             }
-            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : 99999);
+            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : 99999, artTop - 2);
+            // スラーのはし（上がわ）の音なら、装飾記号・フェルマータはスラーの外へ
+            if (!d.up && (st.part.slurs || []).some((sl) => sl.s === d.ev.src || sl.e === d.ev.src) && arts.some((a) => ORN_G[a] || a === 'ferm')) yy -= 9;
             if (arts.includes('ferm')) {
               o.push(G('fermataAbove', d.x - GW('fermataAbove') / 2, yy));
               yy -= 14;
@@ -781,6 +800,16 @@ const Notation = (() => {
           }
           // rit. / accel. はコード名の上に（かさならないように）
           if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
+          // とちゅうのテンポの変化（♩ = 80）
+          if (si === 0 && bb > 0 && opts.tempos && opts.tempos[bb]) {
+            const ty = stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0);
+            const tx = B.xs[0] + (opts.words && opts.words[bb] ? textW(opts.words[bb]) + 10 : 0);
+            const mm = mAt(bb);
+            const cmp = mm[1] === 8 && mm[0] % 3 === 0 && mm[0] > 3;
+            o.push(G('metNoteQuarterUp', tx, ty, 'class="tempo" fill="#111"', 6.5));
+            if (cmp) o.push(G('metAugmentationDot', tx + 9, ty, 'fill="#111"', 6.5));
+            o.push(`<text x="${tx + (cmp ? 15 : 11)}" y="${ty}" font-size="13" fill="#111" class="tempo">= ${cmp ? Math.round(opts.tempos[bb] / 1.5) : opts.tempos[bb]}</text>`);
+          }
         }
         melFlush();
         // 予告の調号・拍子（段の終わり）
@@ -802,7 +831,7 @@ const Notation = (() => {
           if (!a && !z) continue;
           const inSys = (t) => t >= bS(b0) && t < bS(b1);
           if (!inSys(sl.s) && !inSys(sl.e) && !(sl.s < bS(b0) && sl.e >= bS(b1))) continue;
-          const above = !(a || z).up;
+          const above = (a || z).forced != null ? (a || z).forced : !(a || z).up;
           const xa = a ? a.x : sys.bars[0].xs[0] - 6;
           const xz = z ? z.x : xEnd - 6;
           const ya = a ? (above ? a.yOf(a.hi) - 8 : a.yOf(a.lo) + 8) : (above ? yOf(9) : yOf(-1));
@@ -879,10 +908,12 @@ const Notation = (() => {
 
   function drawTie(o, a, b, yOf) {
     for (let i = 0; i < Math.min(a.heads.length, b.heads.length); i++) {
-      const up = a.heads.length > 1 ? i >= a.heads.length / 2 : !a.up;
+      // 2声部のときは、上の声部のタイは上、下の声部のタイは下
+      const up = a.forced != null ? a.forced : a.heads.length > 1 ? i >= a.heads.length / 2 : !a.up;
       const y0 = yOf(a.heads[i].pos) + (up ? -6 : 6);
       const y1 = yOf(b.heads[i].pos) + (up ? -6 : 6);
-      const x0 = a.x + 6;
+      // ぼうの側にかけるタイは、ぼう・旗をよけて少し右から
+      const x0 = a.x + (up === a.up && a.hasStem ? 9 : 6);
       const x1 = b.x - 6;
       const c = up ? -6 : 6;
       o.push(`<path d="M${x0} ${y0} Q${(x0 + x1) / 2} ${y0 + c} ${x1} ${y1} Q${(x0 + x1) / 2} ${y0 + c * 0.6} ${x0} ${y0}" fill="#111" stroke="#111" stroke-width="0.8"/>`);
@@ -1124,7 +1155,7 @@ const Notation = (() => {
       const allN = p.perc ? p.notes.map((n) => ({ ...n, p: 2000 + dIds.indexOf(n.id) })) : tr ? p.notes.map((n) => ({ ...n, p: n.p + tr })) : p.notes;
       const notes = allN.filter((n) => n.v !== 2);
       const notes2 = allN.filter((n) => n.v === 2);
-      if (clef === 'auto' || clef === 'grand') { const avg = allN.length ? allN.reduce((a, n) => a + n.p, 0) / allN.length : 67; clef = clef === 'grand' ? 'grand' : avg < 57 ? 'bass' : 'treble'; }
+      if (clef === 'auto') clef = autoClef(allN, p.name);
       const evBars = buildEvents(notes, bars, GEO, null, meter);
       const evBars2 = notes2.length ? buildEvents(notes2, bars, GEO, null, meter) : null;
       const lyr = p.lyrics || [];
@@ -1149,7 +1180,7 @@ const Notation = (() => {
           if (clef !== 'perc') x.push(`<key><fifths>${kc}</fifths><mode>${GEO.keys[0].minor ? 'minor' : 'major'}</mode></key>`);
           x.push(`<time><beats>${mB[0]}</beats><beat-type>${mB[1]}</beat-type></time>`);
           if (tr) x.push(`<transpose><diatonic>${-Math.round(tr * 7 / 12)}</diatonic><chromatic>${-tr}</chromatic></transpose>`);
-          x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
+          x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : clef === 'treble8' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
           x.push('</attributes>');
           if (pi === 0) x.push(`<direction placement="above"><direction-type>${opts.tempoText ? `<words font-weight="bold">${esc(opts.tempoText)}</words></direction-type><direction-type>` : ''}<metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
         }
@@ -1255,7 +1286,7 @@ const Notation = (() => {
       let j = i;
       while (j < sys.length && sys[j].y1 + 4 - y0 <= PH - 20) j++;
       if (j === i) j = i + 1; // 1段がページより大きいとき
-      const cut = j < sys.length ? sys[j].y0 - 2 : layout.height;
+      const cut = j < sys.length ? sys[j].y0 - 15 : layout.height; // 次の段の小節番号は次のページへ
       cuts.push({ y0, cut });
       if (j < sys.length) y0 = sys[j].y0 - 16;
       i = j;

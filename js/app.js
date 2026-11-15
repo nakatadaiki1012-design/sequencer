@@ -3856,7 +3856,7 @@ function openScore() {
     <h4>パート</h4>
     ${mel.map((t) => `<div class="scorepart">
       <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
-      ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
+      ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
       <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="0">なし（C）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
       <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
     </div>`).join('')}
@@ -3996,7 +3996,49 @@ function scEditable() {
   if (locked(tr)) { toast('このトラックはロックされています'); return null; }
   return tr;
 }
+// マス目と楽譜を行き来するとき、えらんだ音・いまの場所を引きつぐ
+function viewHandoff(to) {
+  const tr = track();
+  if (tr.type !== 'melody') return;
+  const sc = $('#scroller');
+  if (to === 'score') {
+    const picked = tr.notes.filter((n) => nsel.has(n));
+    if (picked.length) {
+      ui.sc.sel = new Set(picked.map((n) => n.s + ':' + n.p));
+      ui.sc.selByInput = false;
+      ui.sc.cursor = Math.min(...picked.map((n) => n.s));
+    } else if (ui.gridTouch != null) {
+      const t = ui.gridTouch;
+      const on = tr.notes.filter((n) => n.s <= t && t < n.s + n.l).sort((a, b) => b.s - a.s)[0];
+      ui.sc.cursor = on ? on.s : cellStart(t);
+      ui.sc.sel = on ? new Set([on.s + ':' + on.p]) : new Set();
+      ui.sc.selByInput = false;
+    } else if (sc && sc.clientWidth) {
+      // マス目で見ていた所に、楽譜のカーソルが無ければ、見ていた所の頭へ
+      const t0 = sc.scrollLeft / ppt();
+      const t1 = t0 + (sc.clientWidth - LW) / ppt();
+      if (ui.sc.cursor == null || ui.sc.cursor < t0 || ui.sc.cursor > t1) { ui.sc.cursor = barStart(barOf(Math.min(Math.max(0, t0 + 1), totalTicks() - 1))); ui.sc.sel = new Set(); }
+    }
+    ui.sc.scrollTo = true;
+    ui.gridTouch = null;
+  } else {
+    nsel.clear();
+    if (ui.sc.sel.size && !ui.sc.selByInput) for (const n of selNotes(tr)) nsel.add(n);
+    if (typeof updateSelBar === 'function') updateSelBar();
+    ui.gridTouch = null;
+  }
+}
+// マス目にもどったら、楽譜のカーソルの所が見えるように（マス目が見えてから）
+function gridShowCursor() {
+  const sc = $('#scroller');
+  if (!sc || ui.sc.cursor == null || !sc.clientWidth) return;
+  const t0 = sc.scrollLeft / ppt();
+  const t1 = t0 + (sc.clientWidth - LW) / ppt();
+  const c = ui.sc.cursor;
+  if (c < t0 || c > t1 - 48) { sc.scrollLeft = Math.max(0, barStart(barOf(Math.min(c, totalTicks() - 1))) * ppt() - 40); draw(); if (typeof drawOverview === 'function') drawOverview(); }
+}
 function setView(v) {
+  if (v !== ui.view) viewHandoff(v);
   ui.view = v;
   document.body.classList.toggle('view-score', v === 'score');
   $$('#viewSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
@@ -4006,7 +4048,7 @@ function setView(v) {
     if (ui.sc.cursor == null) ui.sc.cursor = ui.startTick;
     renderScorePal();
     renderScoreEdit();
-  } else { resizeEditor(); draw(); }
+  } else { resizeEditor(); draw(); gridShowCursor(); }
   renderPhonePad();
   if (v === 'score') tourFirstTime('score');
 }
@@ -4034,6 +4076,22 @@ function renderScoreEditNow() {
   box.innerHTML = Notation.render(o);
   box.scrollTop = keepTop;
   box._layout = Notation.lastLayout;
+  // カーソルが動いたら（入力・←→）、その段が見えるようにスクロールする（自分でスクロールしたときはそのまま）
+  if (ui.sc.cursor !== ui.sc.lastShown) { ui.sc.lastShown = ui.sc.cursor; if (pi >= 0 && !player.on) ui.sc.scrollTo = true; }
+  if (ui.sc.scrollTo) {
+    ui.sc.scrollTo = false;
+    const L = box._layout;
+    const cb = barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1));
+    const sys = L && L.systems.find((x) => x.bars.some((bb) => bb.b === cb));
+    const svg = box.querySelector('svg');
+    if (sys && svg) {
+      const k = svg.getBoundingClientRect().height / L.height;
+      const y0 = sys.y0 * k;
+      const y1 = sys.y1 * k;
+      if (y0 < box.scrollTop) box.scrollTop = Math.max(0, y0 - 12);
+      else if (y1 > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, Math.min(y0 - 12, y1 - box.clientHeight + 8));
+    }
+  }
   scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi }));
   const st = $('#scStatus');
   if (st) {
@@ -6448,6 +6506,8 @@ function init() {
   sc.classList.toggle('touchedit', ui.touchEdit);
   renderSettings();
   sc.addEventListener('pointerdown', onDown);
+  // マス目で最後にさわった場所（楽譜に切りかえたとき、カーソルをそこへ）
+  sc.addEventListener('pointerdown', (e) => { const r = sc.getBoundingClientRect(); const x = e.clientX - r.left - LW; if (x >= 0 && e.clientY - r.top > RH) ui.gridTouch = clamp((x + sc.scrollLeft) / ppt(), 0, totalTicks() - 1); }, true);
   sc.addEventListener('pointermove', onMove);
   sc.addEventListener('pointerup', onUp);
   sc.addEventListener('pointercancel', () => { drag = null; if (pending) { clearTimeout(pending.timer); pending = null; } });
