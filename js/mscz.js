@@ -85,12 +85,15 @@ const MuseScoreExport = (() => {
         if (!arr) continue;
         const flat = arr.flat();
         flat.forEach((e, i) => { if (e.tie && flat[i + 1]) e._nextAbs = flat[i + 1].abs; if (e.tieEnd && flat[i - 1]) e._prevAbs = flat[i - 1].abs; });
+        // グリッサンド：つぎの音（休符でない）へ
+        flat.forEach((e, i) => { if (e.first && !e.rest && (e.art || []).includes('gliss')) { const nx = flat.slice(i + 1).find((f2) => !f2.rest && f2.first); if (nx) { e._nextNote = nx.abs; nx._glissFrom = e.abs; } } });
       }
       // スパナー（スラー・クレッシェンド）：始まり・終わりの位置
       const spans = [];
       for (const sl of p.slurs || []) if (sl.e > sl.s) spans.push({ type: 'Slur', s: sl.s, e: sl.e });
       for (const hp of p.hairpins || []) if (hp.e > hp.s) spans.push({ type: 'HairPin', s: hp.s, e: hp.e, sub: hp.type === 'dim' ? 1 : 0 });
       for (const pd of p.pedals || []) if (pd.e > pd.s) spans.push({ type: 'Pedal', s: pd.s, e: pd.e });
+      for (const q of p.ottava || []) if (q.e > q.s) spans.push({ type: 'Ottava', s: q.s, e: q.e, sub: { 1: '8va', '-1': '8vb', 2: '15ma', '-2': '15mb' }[q.k] || '8va' });
       // おわりの位置は、その時に始まる音（なければ曲のおわり）
       const starts1 = new Set(ev1.flat().map((e) => e.abs));
       const endAt = (e) => { for (let t = e; t < bS(bars); t++) if (starts1.has(t)) return t; return bS(bars); };
@@ -108,6 +111,7 @@ const MuseScoreExport = (() => {
           x.push('<voice>');
           if (vi === 0) {
             if (b === 0) x.push(`<Clef><concertClefType>${CLEF[clef] || 'G'}</concertClefType><transposingClefType>${CLEF[clef] || 'G'}</transposingClefType></Clef>`);
+            else if (!p.perc && p.clefChg && p.clefChg[b] && CLEF[p.clefChg[b]]) x.push(`<Clef><concertClefType>${CLEF[p.clefChg[b]]}</concertClefType><transposingClefType>${CLEF[p.clefChg[b]]}</transposingClefType></Clef>`);
             if (!p.perc && (b === 0 || G.keys[b].key !== G.keys[b - 1].key || G.keys[b].minor !== G.keys[b - 1].minor)) x.push(`<KeySig><accidental>${kcOf(b)}</accidental>${G.keys[b].minor ? '<mode>minor</mode>' : ''}</KeySig>`);
             const m = G.meters[b];
             if (b === 0 || String(m) !== String(G.meters[b - 1])) x.push(`<TimeSig><sigN>${m[0]}</sigN><sigD>${m[1]}</sigD></TimeSig>`);
@@ -130,7 +134,7 @@ const MuseScoreExport = (() => {
               for (const t of p.texts || []) if (!t._w && t.t <= at && t.x) { t._w = 1; x.push(`<StaffText><text>${esc(t.x)}</text></StaffText>`); }
               // スラー・クレッシェンドのおわり（この音の所）と、はじまり
               for (const sp of spans) if (sp.st != null && !sp.done && sp.e <= at) { sp.done = true; x.push(`<Spanner type="${sp.type}"><prev>${loc(at, sp.st)}</prev></Spanner>`); }
-              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
+              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Ottava' ? `<Ottava><subtype>${sp.sub}</subtype></Ottava>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
             }
             // 3連符
             if (ev.trip && !tup) { tup = { end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }
@@ -151,6 +155,8 @@ const MuseScoreExport = (() => {
                 const pitch = m;
                 x.push('<Note>');
                 if (ev.tieEnd && ev._prevAbs != null) x.push(`<Spanner type="Tie"><prev>${loc(at, ev._prevAbs)}</prev></Spanner>`);
+                if (k === ev.pitches.length - 1 && ev.first && A.includes('gliss') && ev._nextNote != null) x.push(`<Spanner type="Glissando"><Glissando><subtype>0</subtype></Glissando><next>${loc(at, ev._nextNote)}</next></Spanner>`);
+                if (k === ev.pitches.length - 1 && ev._glissFrom != null) x.push(`<Spanner type="Glissando"><prev>${loc(at, ev._glissFrom)}</prev></Spanner>`);
                 if (ev.tie && ev._nextAbs != null) x.push(`<Spanner type="Tie"><Tie></Tie><next>${loc(at, ev._nextAbs)}</next></Spanner>`);
                 if (ev.first && ev.fg && !p.perc) { const fc = String(ev.fg)[ev.pitches.length - 1 - k]; if (fc) x.push(`<Fingering><text>${esc(fc)}</text></Fingering>`); }
                 const sp = N.spell(pitch, kcOf(b));

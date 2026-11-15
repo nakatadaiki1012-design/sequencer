@@ -242,6 +242,7 @@ const MusicXMLImport = (() => {
               }
             }
             if (kid(nt, 'arpeggiate') && !art.includes('arp')) art.push('arp');
+            if ([...kids(nt, 'glissando'), ...kids(nt, 'slide')].some((g) => g.getAttribute('type') === 'start') && !art.includes('gliss')) art.push('gliss');
             for (const s of kids(nt, 'slur')) {
               const no = s.getAttribute('number') || '1';
               const ty = s.getAttribute('type');
@@ -856,6 +857,8 @@ const MusicXMLImport = (() => {
       const slurs = [];
       const texts = [];
       const pedals = [];
+      const ottava = [];
+      const clefChg = {};
       const grid = {};
       const openTie = {}; // `${voice}:${pitch}` → note
       const slur2 = {}; // MuseScore 2 のスラー id → 始まり
@@ -886,6 +889,12 @@ const MusicXMLImport = (() => {
               continue;
             }
             if (tag === 'endTuplet') { tupStack.pop(); continue; }
+            if (tag === 'Clef' && mi > 0 && vi0 === 0) {
+              const c = txt(el, 'concertClefType') || txt(el, 'subtype') || txt(el, 'clefType');
+              const m2 = { G: 'treble', G8vb: 'treble8', 'G8vb ': 'treble8', F: 'bass', C3: 'alto' }[c];
+              if (m2) clefChg[mi] = m2;
+              continue;
+            }
             if (tag === 'KeySig' && isFirstStaff) {
               const k = Math.round(num(txt(el, 'concertKey') || txt(el, 'accidental') || txt(el, 'key'), 0));
               const minor = txt(el, 'mode') === 'minor';
@@ -927,6 +936,7 @@ const MusicXMLImport = (() => {
               if (end == null) continue; // 終わりの印
               if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end) });
               else if (type === 'Pedal') pedals.push({ s: absT(pos), e: absT(end) });
+              else if (type === 'Ottava') { const sub = txt(kid(el, 'Ottava'), 'subtype'); const k = /15m?b|15vb/i.test(sub) ? -2 : /15/.test(sub) ? 2 : /b/i.test(sub) ? -1 : 1; ottava.push({ s: absT(pos), e: absT(end), k }); }
               else if (type === 'HairPin') { const hp = kid(el, 'HairPin'); const sub = txt(hp, 'subtype'); hairpins.push({ s: absT(pos), e: absT(end), type: sub === '1' || /decresc|dim/i.test(sub) ? 'dim' : 'cresc' }); }
               else if (type === 'Volta' && isFirstStaff) { const vo = kid(el, 'Volta'); const no = clamp(Math.round(num((txt(vo, 'endings') || '1').split(/[ ,]/)[0], 1)), 1, 2); for (let b = mi; b < nBars && startDiv[b] < end - 1; b++) volta[b] = no; }
               continue;
@@ -983,6 +993,7 @@ const MusicXMLImport = (() => {
                   notes.push(note);
                 }
                 const tieNext = kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Tie' && kid(sp, 'next')) || !!kid(n, 'Tie');
+                if (kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Glissando' && kid(sp, 'next')) && !(note.art || []).includes('gliss')) note.art = [...(note.art || []), 'gliss'];
                 if (tieNext) openTie[key] = note; else delete openTie[key];
                 made.push(note);
               });
@@ -1006,7 +1017,7 @@ const MusicXMLImport = (() => {
       const ps = notes.map((n) => n.p);
       const avg = ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 64;
       tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
-        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}) });
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}) });
     }
     let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
     if (!out.length) out = tracks.slice(0, 1);
