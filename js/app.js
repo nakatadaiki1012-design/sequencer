@@ -1066,6 +1066,7 @@ function play() {
   const [ls, le] = loopBounds();
   player.graph = buildGraph(ctx, ctx._comp, true);
   player.on = true;
+  document.querySelector('#scoreEditView .scpos')?.remove();
   player.stopping = false;
   if (fresh && ui.view === 'score' && ui.sc.cursor != null && ui.sc.cursor < totalTicks()) ui.startTick = barStart(barOf(ui.sc.cursor));
   let st0 = playTickOf(ui.startTick);
@@ -3232,6 +3233,28 @@ function posTip(e, t, label = '') {
   tip.style.top = clamp(e.clientY - 46, 4, innerHeight - 30) + 'px';
   tip.hidden = false;
 }
+// 楽譜のカーソル（えらんでいる所）のすぐ上に、何小節・何拍目・拍の中のどこかを出す
+function scPosShow(box) {
+  const old = box.querySelector('.scpos');
+  if (old) old.remove();
+  const cur = box.querySelector('rect.cursor');
+  if (!cur || player.on || ui.sc.lyr || ui.chd || ui.sc.cursor == null) return;
+  const P = beatPos(ui.sc.cursor);
+  const el = document.createElement('div');
+  el.className = 'scpos';
+  el.innerHTML = `<b>${P.head}</b>${P.dots ? ` <span class="dots">${P.dots}</span> <small>${P.sub}</small>` : ' <small>拍の頭</small>'}`;
+  box.appendChild(el);
+  const br = box.getBoundingClientRect();
+  const r = cur.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  let x = r.left - br.left + box.scrollLeft + r.width / 2 - w / 2;
+  x = clamp(x, box.scrollLeft + 2, box.scrollLeft + box.clientWidth - w - 2);
+  let y = r.top - br.top + box.scrollTop - h - 16; // 長さの記号（♩）の上
+  if (y < box.scrollTop + 2) { y = r.bottom - br.top + box.scrollTop + 4; el.classList.add('below'); }
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+}
 function posTipHide() { const tip = $('#posTip'); if (tip) tip.hidden = true; }
 function updateMini(pos) {
   if (pos === undefined) pos = playheadTick();
@@ -4290,6 +4313,7 @@ function renderScoreEditNow() {
   }
   if (ui.sc.tup) setTimeout(() => scTupEnd(false), 0);
   scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi }));
+  scPosShow(box);
   const st = $('#scStatus');
   if (st) {
     const bt = barTicks();
@@ -5039,6 +5063,7 @@ function scLyric() {
   lyrOpen(t);
 }
 function lyrOpen(t) {
+  document.querySelector('#scoreEditView .scpos')?.remove();
   const tr = track();
   const top = lyrTop(tr, t);
   if (!top) return lyrClose();
@@ -5151,6 +5176,7 @@ function parseChord(txt) {
 function scChord() { chordPick(barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1)), 0); }
 function chordPick(bar, half) {
   ui.chd = { bar: clamp(bar, 0, song.bars - 1), half: half || 0, root: null };
+  document.querySelector('#scoreEditView .scpos')?.remove();
   let box = $('#chdEd');
   if (!box) {
     box = document.createElement('div');
@@ -5165,6 +5191,7 @@ function chordPickClose() {
   const box = $('#chdEd');
   if (box) box.hidden = true;
   ui.chd = null;
+  renderScoreEdit();
 }
 const chordTrackOf = () => song.tracks.find((t) => t.type === 'chord');
 function chordPickRender(focus) {

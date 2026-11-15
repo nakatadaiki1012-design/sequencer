@@ -1350,6 +1350,10 @@ body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
 .postip[hidden] { display: none; }
 .postip .dots { letter-spacing: 1px; color: #fde68a; }
 .postip small { opacity: .8; }
+/* 楽譜のえらんでいる所のそばに出す位置 */
+#scoreEditView .scpos { position: absolute; z-index: 3; pointer-events: none; padding: 1px 7px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.18); opacity: .95; }
+#scoreEditView .scpos .dots { letter-spacing: 1px; color: #fde68a; }
+#scoreEditView .scpos small { opacity: .9; }
 /* コードを入れるパネル（楽譜の上に浮かぶ） */
 #scoreEditView .chd { cursor: pointer; }
 #scoreEditView .chd:hover { fill: var(--accent); }
