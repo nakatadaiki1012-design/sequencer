@@ -4368,12 +4368,15 @@ function scInsert(pitches, chordAdd) {
     ensureLength(t + d);
     if (!chordAdd && !ui.sc.insert) clearRange(tr, t, t + d);
     for (const p of pitches) if (!tr.notes.some((n) => n.s === t && n.p === p)) tr.notes.push({ s: t, p: clamp(p, 21, 108), l: d, ...(scVoice() === 2 ? { v: 2 } : {}) });
+    // S をおしてから入れた音：まえの音からここまでスラー
+    const sp = ui.sc.slurPend;
+    if (sp && !chordAdd && pitches.length && sp.tid === tr.id && t > sp.s) { tr.slurs = (tr.slurs || []).filter((x) => x.e < sp.s || x.s > t); tr.slurs.push({ s: sp.s, e: t }); }
   }, pitches.length ? '楽譜で音符を入力' : '楽譜で休符を入力');
   if (pitches.length) { preview(tr, pitches[pitches.length - 1]); showMini(pitches[pitches.length - 1]); }
   ui.sc.lastIns = { t, d, p: pitches.length ? Math.max(...pitches) : null, ref: pitches.length ? Math.max(...pitches) : last ? last.ref || last.p : null };
   ui.sc.sel = new Set(pitches.map((p) => t + ':' + p));
   ui.sc.selByInput = true;
-  if (!chordAdd) ui.sc.cursor = Math.min(t + d, totalTicks());
+  if (!chordAdd) { ui.sc.cursor = Math.min(t + d, totalTicks()); ui.sc.slurPend = null; }
   renderScoreEdit();
 }
 function refPitch(tr) {
@@ -4717,8 +4720,29 @@ function selRange(tr) {
 function scSlur() {
   const tr = scEditable();
   if (!tr) return;
-  const r = selRange(tr);
-  if (!r || r.s === r.e) return toast('スラーをかける音符を2つ以上えらんでください（Shift＋クリック）');
+  let r = selRange(tr);
+  if (!r) {
+    // 何もえらんでいないとき：カーソルの前の音（入れたばかりの音）から
+    const prev = tr.notes.filter((n) => n.s < ui.sc.cursor).sort((a, b) => b.s - a.s)[0];
+    if (!prev) return toast('スラーをかける音符をえらんでください');
+    r = { s: prev.s, e: prev.s };
+  }
+  let ext = null;
+  if (r.s === r.e) {
+    // 音符が1つだけ：つぎの音までスラー。すでにスラーのおわりの音なら、そのスラーをのばす
+    const v = (selNotes(tr)[0] || tr.notes.find((n) => n.s === r.s) || {}).v || 1;
+    const nx = tr.notes.filter((n) => n.s > r.s && (n.v || 1) === v && !n.gr).sort((a, b) => a.s - b.s)[0];
+    if (!nx) {
+      if (!ui.sc.input) return toast('つぎの音がないので、スラーをかけられません');
+      // 入力中：つぎに入れる音にスラーをつなぐ
+      ext = (tr.slurs || []).find((x) => x.e === r.s && x.s < r.s);
+      ui.sc.slurPend = { s: ext ? ext.s : r.s, tid: tr.id };
+      return toast('つぎに入れる音までスラーがつきます');
+    }
+    ext = (tr.slurs || []).find((x) => x.e === r.s && x.s < r.s);
+    r = { s: ext ? ext.s : r.s, e: nx.s };
+    ui.sc.sel = new Set(tr.notes.filter((n) => n.s === nx.s && (n.v || 1) === v).map((n) => n.s + ':' + n.p));
+  }
   edit(() => { tr.slurs = (tr.slurs || []).filter((x) => x.e < r.s || x.s > r.e); tr.slurs.push({ s: r.s, e: r.e }); }, 'スラー');
   renderScoreEdit();
 }
@@ -5287,7 +5311,7 @@ function renderScorePal() {
     </div>
     <div class="prow">
       <span class="grp"><select id="scDyn" title="強弱記号（カーソルか、えらんだ音符の所に）"><option value="">強弱…</option>${DYNS.map((d) => `<option>${d}</option>`).join('')}<option value="-">（消す）</option></select><button class="mini" id="scCresc" title="クレッシェンド（だんだん強く）">cresc.＜</button><button class="mini" id="scDim" title="デクレッシェンド（だんだん弱く）">dim.＞</button></span>
-      <span class="grp"><button class="mini" id="scSlur" title="スラー（なめらかに）・キー S">⌒ スラー</button><button class="mini" id="scTieB" title="タイ（同じ高さをつなぐ）・キー +">‿ タイ</button></span>
+      <span class="grp"><button class="mini" id="scSlur" title="スラー（なめらかに）・キー S。音符を1つえらんでおすと、つぎの音まで">⌒ スラー</button><button class="mini" id="scTieB" title="タイ（同じ高さをつなぐ）・キー +">‿ タイ</button></span>
       <span class="grp"><button class="mini" id="scLyr" title="歌詞・キー L">あ 歌詞</button><button class="mini" id="scChd" title="コードネーム">C7 コード</button></span>
       <span class="grp"><button class="mini ${scVoice() === 2 ? 'on' : ''}" id="scVoice" title="声部（1段に2つのメロディ）：1＝上の声部（ぼう上）、2＝下の声部（ぼう下）。キー V">声部${scVoice()}</button><button class="mini" id="scBarSet" title="カーソルの小節から、テンポ・拍子・調を変える">拍子・調…</button></span>
       <span class="grp"><button class="mini icon" id="scCopyB" title="コピー（Ctrl+C）">${I('copy')}</button><button class="mini icon" id="scPasteB" title="貼りつけ（Ctrl+V）">${I('paste')}</button><button class="mini icon danger" id="scDel" title="消す（Delete）">${I('trash')}</button></span>
