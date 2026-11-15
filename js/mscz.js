@@ -132,6 +132,7 @@ const MuseScoreExport = (() => {
           const skip = isPick ? bL(0) - pickup : 0;
           let tup = null; // いま開いている3連符：{ end }
           const list = evs.filter((e) => e.pos >= skip);
+          N.tripGroups(list);
           for (const ev of list) {
             const at = ev.abs;
             if (vi === 0) {
@@ -145,7 +146,7 @@ const MuseScoreExport = (() => {
               for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Ottava' ? `<Ottava><subtype>${sp.sub}</subtype></Ottava>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
             }
             // 3連符
-            if (ev.trip && !tup) { tup = { end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }
+            if (ev.trip && !tup) { const g = ev._tg; tup = { g, end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[g ? g.total / 2 : ev.base] || TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }
             const dur = ev.whole ? '<durationType>measure</durationType>' + `<duration>${frac(ev.len)}</duration>` : `${ev.dot ? '<dots>1</dots>' : ''}<durationType>${TYPE[ev.base] || 'quarter'}</durationType>`;
             if (ev.rest) x.push(`<Rest>${dur}</Rest>`);
             else {
@@ -175,7 +176,7 @@ const MuseScoreExport = (() => {
               x.push('</Chord>');
               if (A.includes('breath') || A.includes('caes')) x.push(`<Breath><symbol>${A.includes('caes') ? 'caesura' : 'breathMarkComma'}</symbol></Breath>`);
             }
-            if (tup && ev.abs + ev.len >= tup.end - 0.5) { x.push('<endTuplet/>'); tup = null; }
+            if (tup && (tup.g ? tup.g.evs[tup.g.evs.length - 1] === ev : ev.abs + ev.len >= tup.end - 0.5)) { x.push('<endTuplet/>'); tup = null; }
           }
           if (tup) x.push('<endTuplet/>');
           // 小節のおわりで終わるスパナー（つぎの音がない所）

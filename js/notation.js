@@ -758,6 +758,7 @@ const Notation = (() => {
           // mode 0: 1声部だけ / 1: 上の声部（ぼう上） / 2: 下の声部（ぼう下）
           const drawEvs = (evs, mode, stream, allBars) => {
           const drawn = [];
+          const tripRests = []; // 3連符の中の休符（かぎの はばに入れる）
           let prevHead = prevOf[stream];
           const yR = mode === 1 ? (q) => yOf(q + 4) : mode === 2 ? (q) => yOf(q - 4) : yOf;
           for (let ei = 0; ei < evs.length; ei++) {
@@ -767,6 +768,7 @@ const Notation = (() => {
             if (ev.rest) {
               const rx = ev.whole ? (B.x0 + B.x1) / 2 - 5 : x0;
               drawRest(o, ev, rx, yR);
+              if (ev.trip) tripRests.push({ x: rx, ev, rest: true, yOf: yR });
               if (stream === 'A') melFlush();
               prevHead = null;
               continue;
@@ -879,7 +881,7 @@ const Notation = (() => {
           }
           prevOf[stream] = prevHead;
           drawStemsAndBeams(o, drawn, mAt(bb));
-          drawTriplets(o, drawn, yOf);
+          drawTriplets(o, drawn, yOf, tripRests);
           return drawn;
           };
           const MM = barInfo[bb].mm;
@@ -1297,23 +1299,34 @@ const Notation = (() => {
     }
   }
   // 3連符：1つの「3」の組（2拍ぶんなど）ごとに数字を1つ。連桁でまとまっていなければ、かぎ（ブラケット）をつける（浄書のきまり）
-  function drawTriplets(o, drawn, yOf) {
+  // 3連符のまとまり：となりあう3連符を、ふつうの拍の位置（6でわりきれる）にもどるまで1組にする
+  //   ♪♪♪（16×3）も、♩♪（32＋16）も、1つの「3」になる
+  function tripGroups(evs) {
     const groups = [];
     let g = null;
-    for (const d of drawn) {
-      if (!d.ev.trip) { g = null; continue; }
-      const span = d.ev.base * 2; // 3つで、もとの音符2つぶん
-      const ws = Math.floor(d.ev.pos / span) * span;
-      if (g && g.ws === ws && g.span === span) g.list.push(d);
-      else if (g && d.ev.pos >= g.ws && d.ev.pos < g.ws + g.span) g.list.push(d);
-      else { g = { ws, span, list: [d] }; groups.push(g); }
+    for (const ev of evs) {
+      if (!ev || !ev.trip) { g = null; continue; }
+      if (!g) { g = { start: ev.pos, evs: [] }; groups.push(g); }
+      g.evs.push(ev);
+      ev._tg = g;
+      const end = ev.pos + ev.len;
+      if (end % 6 === 0 || end - g.start >= 192) { g.total = end - g.start; g = null; }
     }
-    for (const { list } of groups) {
-      const up = list.filter((d) => d.up).length * 2 >= list.length;
+    for (const q of groups) if (q.total == null) q.total = q.evs[q.evs.length - 1].pos + q.evs[q.evs.length - 1].len - q.start;
+    return groups;
+  }
+  function drawTriplets(o, drawn, yOf, rests = []) {
+    const all = [...drawn, ...rests].sort((a, c) => a.ev.pos - c.ev.pos);
+    const byEv = new Map(all.map((d) => [d.ev, d]));
+    const groups = tripGroups(all.map((d) => d.ev)).map((g) => ({ list: g.evs.map((ev) => byEv.get(ev)) }));
+    for (const { list: L0 } of groups) {
+      const list = L0.map((d) => (d.rest ? { x: d.x + 5, rest: true, ev: d.ev, hi: 8, lo: 0, yOf: d.yOf } : d));
+      const notes = list.filter((d) => !d.rest);
+      const up = notes.length ? notes.filter((d) => d.up).length * 2 >= notes.length : true;
       const x0 = list[0].x;
       const x1 = list[list.length - 1].x;
-      const edge = list.map((d) => (d.hasStem && d.up === up ? stemEnd(d) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
-      const beamedAll = list[0].bg && list.every((d) => d.bg === list[0].bg) && list[0].bg.length === list.length;
+      const edge = list.map((d) => (d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? stemEnd(d) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
+      const beamedAll = !list[0].rest && list[0].bg && list.every((d) => d.bg === list[0].bg) && list[0].bg.length === list.length;
       let y = up ? Math.min(yOf(10), ...edge.map((e) => e - 7)) : Math.max(yOf(-2), ...edge.map((e) => e + 14));
       const cx = beamedAll ? (stemX(list[0]) + stemX(list[list.length - 1])) / 2 : (x0 + x1) / 2;
       const nw = GW('tuplet3', 7);
@@ -1503,10 +1516,13 @@ const Notation = (() => {
         voices.forEach((evs, vi) => {
         const vx = voices.length > 1 ? `<voice>${vi + 1}</voice>` : '';
         if (vi > 0) x.push(`<backup><duration>${voices[0].reduce((a, ev) => a + ev.len, 0)}</duration></backup>`);
+        tripGroups(evs);
+        // 3連符のかぎ（はじめ・おわり）
+        const tupXml = (ev) => (ev._tg ? (ev._tg.evs[0] === ev ? '<tuplet type="start" bracket="yes"/>' : '') + (ev._tg.evs[ev._tg.evs.length - 1] === ev ? '<tuplet type="stop"/>' : '') : '');
         for (const ev of evs) {
           if (vi === 0) dirAt(ev.abs);
           const typeXml = (e) => `<type>${TYPE_NAME[e.base] || 'whole'}</type>${e.dot ? '<dot/>' : ''}${e.trip ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>' : ''}`;
-          if (ev.rest) { x.push(`<note><rest${ev.whole ? ' measure="yes"' : ''}/><duration>${ev.len}</duration>${vx}${ev.whole ? '' : typeXml(ev)}</note>`); continue; }
+          if (ev.rest) { const tq = tupXml(ev); x.push(`<note><rest${ev.whole ? ' measure="yes"' : ''}/><duration>${ev.len}</duration>${vx}${ev.whole ? '' : typeXml(ev)}${tq ? `<notations>${tq}</notations>` : ''}</note>`); continue; }
           ev.pitches.forEach((m, k) => {
             let pitch;
             const did = p.perc ? dIds[m - 2000] : null;
@@ -1514,7 +1530,7 @@ const Notation = (() => {
             if (p.perc) pitch = `<unpitched><display-step>${'CDEFGAB'[(dpos[0] + 2) % 7]}</display-step><display-octave>${4 + Math.floor((dpos[0] + 2) / 7)}</display-octave></unpitched>`;
             else { const sp = ev.enh ? spellPref(m, kc, ev.enh) : spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
             const ties = (ev.tieEnd ? '<tie type="stop"/>' : '') + (ev.tie ? '<tie type="start"/>' : '');
-            let nots = (ev.tieEnd ? '<tied type="stop"/>' : '') + (ev.tie ? '<tied type="start"/>' : '');
+            let nots = (ev.tieEnd ? '<tied type="stop"/>' : '') + (ev.tie ? '<tied type="start"/>' : '') + (k === 0 ? tupXml(ev) : '');
             if (k === 0 && ev.first) {
               if (slurStarts.has(ev.abs)) nots += `<slur type="start" number="${slurStarts.get(ev.abs) % 6 + 1}"/>`;
               if (slurEnds.has(ev.abs)) nots += `<slur type="stop" number="${slurEnds.get(ev.abs) % 6 + 1}"/>`;
@@ -1590,5 +1606,5 @@ const Notation = (() => {
     return cuts.map(({ y0: a, cut }, k) => `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 ${a} ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect x="0" y="${a}" width="${W}" height="${PH}" fill="#fff"/>${inner}<rect x="0" y="${cut}" width="${W}" height="${Math.max(0, a + PH - cut) + 200}" fill="#fff"/><text x="${W / 2}" y="${a + PH - 8}" text-anchor="middle" font-size="10" fill="#666">${k + 1} / ${cuts.length}</text></svg>`);
   }
 
-  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, musicXML, autoClef, DRUM_POS, lastLayout: null };
+  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, musicXML, autoClef, DRUM_POS, lastLayout: null };
 })();
