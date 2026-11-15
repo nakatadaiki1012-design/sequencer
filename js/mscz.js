@@ -90,6 +90,7 @@ const MuseScoreExport = (() => {
       const spans = [];
       for (const sl of p.slurs || []) if (sl.e > sl.s) spans.push({ type: 'Slur', s: sl.s, e: sl.e });
       for (const hp of p.hairpins || []) if (hp.e > hp.s) spans.push({ type: 'HairPin', s: hp.s, e: hp.e, sub: hp.type === 'dim' ? 1 : 0 });
+      for (const pd of p.pedals || []) if (pd.e > pd.s) spans.push({ type: 'Pedal', s: pd.s, e: pd.e });
       // おわりの位置は、その時に始まる音（なければ曲のおわり）
       const starts1 = new Set(ev1.flat().map((e) => e.abs));
       const endAt = (e) => { for (let t = e; t < bS(bars); t++) if (starts1.has(t)) return t; return bS(bars); };
@@ -129,7 +130,7 @@ const MuseScoreExport = (() => {
               for (const t of p.texts || []) if (!t._w && t.t <= at && t.x) { t._w = 1; x.push(`<StaffText><text>${esc(t.x)}</text></StaffText>`); }
               // スラー・クレッシェンドのおわり（この音の所）と、はじまり
               for (const sp of spans) if (sp.st != null && !sp.done && sp.e <= at) { sp.done = true; x.push(`<Spanner type="${sp.type}"><prev>${loc(at, sp.st)}</prev></Spanner>`); }
-              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
+              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
             }
             // 3連符
             if (ev.trip && !tup) { tup = { end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }

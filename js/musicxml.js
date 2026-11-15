@@ -282,6 +282,7 @@ const MusicXMLImport = (() => {
               const s = w.textContent.trim();
               if (s) M.items.push({ kind: 'words', t, s });
             }
+            for (const pd of kids(dt, 'pedal')) M.items.push({ kind: 'pedal', t, type: pd.getAttribute('type') });
             for (const w of kids(dt, 'rehearsal')) {
               const s = w.textContent.trim();
               if (s) M.items.push({ kind: 'reh', s: s.slice(0, 8) });
@@ -533,6 +534,8 @@ const MusicXMLImport = (() => {
     const hairpins = [];
     const slurs = [];
     const texts = [];
+    const pedals = [];
+    let pedOpen = null;
     const openTie = {}; // 音の高さ → つながっている音
     const openSlur = {};
     const openWedge = {};
@@ -575,6 +578,10 @@ const MusicXMLImport = (() => {
           for (const no of it.slurStart) openSlur[no] = s;
         } else if (it.kind === 'words' && !TEMPO_WORD.test(it.s) && !/^(rit|rall|accel|a tempo|D\.?C|D\.?S|Fine|To Coda)/i.test(it.s)) {
           texts.push({ t: Math.max(0, absT(i, it.t)), x: it.s.slice(0, 80) });
+        } else if (it.kind === 'pedal') {
+          const t = Math.max(0, absT(i, it.t));
+          if (it.type === 'start') pedOpen = t;
+          else if ((it.type === 'stop' || it.type === 'change') && pedOpen != null) { if (t > pedOpen) pedals.push({ s: pedOpen, e: t }); pedOpen = it.type === 'change' ? t : null; }
         } else if (it.kind === 'dyn') {
           dyn.push({ t: Math.max(0, absT(i, it.t)), v: it.v });
         } else if (it.kind === 'wedge') {
@@ -614,6 +621,7 @@ const MusicXMLImport = (() => {
       hairpins: hairpins.filter((h) => h.s < limit),
       slurs: slurs.filter((s) => s.s < limit),
       ...(texts.some((x) => x.t < limit) ? { texts: texts.filter((x) => x.t < limit) } : {}),
+      ...(pedals.length ? { pedals: pedals.filter((x) => x.s < limit) } : {}),
     };
   }
 
@@ -847,6 +855,7 @@ const MusicXMLImport = (() => {
       const hairpins = [];
       const slurs = [];
       const texts = [];
+      const pedals = [];
       const grid = {};
       const openTie = {}; // `${voice}:${pitch}` → note
       const slur2 = {}; // MuseScore 2 のスラー id → 始まり
@@ -917,6 +926,7 @@ const MusicXMLImport = (() => {
               const end = locTo(el, mi, pos);
               if (end == null) continue; // 終わりの印
               if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end) });
+              else if (type === 'Pedal') pedals.push({ s: absT(pos), e: absT(end) });
               else if (type === 'HairPin') { const hp = kid(el, 'HairPin'); const sub = txt(hp, 'subtype'); hairpins.push({ s: absT(pos), e: absT(end), type: sub === '1' || /decresc|dim/i.test(sub) ? 'dim' : 'cresc' }); }
               else if (type === 'Volta' && isFirstStaff) { const vo = kid(el, 'Volta'); const no = clamp(Math.round(num((txt(vo, 'endings') || '1').split(/[ ,]/)[0], 1)), 1, 2); for (let b = mi; b < nBars && startDiv[b] < end - 1; b++) volta[b] = no; }
               continue;
@@ -996,7 +1006,7 @@ const MusicXMLImport = (() => {
       const ps = notes.map((n) => n.p);
       const avg = ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 64;
       tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
-        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}) });
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}) });
     }
     let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
     if (!out.length) out = tracks.slice(0, 1);
