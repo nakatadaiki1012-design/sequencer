@@ -166,7 +166,7 @@ const MuseScoreExport = (() => {
                 if (k === ev.pitches.length - 1 && ev._glissFrom != null) x.push(`<Spanner type="Glissando"><prev>${loc(at, ev._glissFrom)}</prev></Spanner>`);
                 if (ev.tie && ev._nextAbs != null) x.push(`<Spanner type="Tie"><Tie></Tie><next>${loc(at, ev._nextAbs)}</next></Spanner>`);
                 if (ev.first && ev.fg && !p.perc) { const fc = String(ev.fg)[ev.pitches.length - 1 - k]; if (fc) x.push(`<Fingering><text>${esc(fc)}</text></Fingering>`); }
-                const sp = N.spell(pitch, kcOf(b));
+                const sp = ev.enh ? N.spellPref(pitch, kcOf(b), ev.enh) : N.spell(pitch, kcOf(b));
                 x.push(`<pitch>${pitch}</pitch><tpc>${tpcOf(sp)}</tpc>`);
                 if (tr) x.push(`<tpc2>${tpcOf(N.spell(pitch + tr, kcOf(b, tr)))}</tpc2>`);
                 x.push('</Note>');

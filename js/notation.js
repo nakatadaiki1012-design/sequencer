@@ -206,7 +206,8 @@ const Notation = (() => {
       const ly = (g.find((n) => n.ly) || {}).ly || '';
       const fg = g.filter((n) => n.fg).sort((a, b) => b.p - a.p).map((n) => n.fg).join('');
       const gr = (g.find((n) => n.gr != null) || {}).gr;
-      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
+      const enh = (g.find((n) => n.enh) || {}).enh || 0; // J で入れかえた ♯・♭ の書き方
+      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
       t = Math.max(t, end);
     });
     if (t < total) segs.push({ s: t, e: total, pitches: null });
@@ -226,7 +227,7 @@ const Notation = (() => {
           perBar[b].push({ pos: 0, len: bl, rest: true, whole: true, base: 192, abs: s });
         } else {
           decompose(s - a0, be - s, beatOf(m), bl, m, isRest).forEach((p) => {
-            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel };
+            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh };
             if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.fg = sg.fg; ev.gr = sg.gr; first = false; }
             perBar[b].push(ev);
           });
@@ -781,7 +782,7 @@ const Notation = (() => {
               heads = ev.pitches.map((m) => {
                 const top = ev.pitches[ev.pitches.length - 1];
                 const pref = nextP == null ? 0 : nextP > top ? 1 : nextP < top ? -1 : 0;
-                const sp = spellPref(m, kcB, pref);
+                const sp = spellPref(m, kcB, ev.enh || pref);
                 const pos = sp.dn - st.baseDn;
                 const cur = sp.dn in barAcc ? barAcc[sp.dn] : keyAcc[sp.letter];
                 let accTxt = null;
@@ -1496,7 +1497,7 @@ const Notation = (() => {
             const did = p.perc ? dIds[m - 2000] : null;
             const dpos = p.perc ? (DRUM_POS[did] || [5, 'n']) : null;
             if (p.perc) pitch = `<unpitched><display-step>${'CDEFGAB'[(dpos[0] + 2) % 7]}</display-step><display-octave>${4 + Math.floor((dpos[0] + 2) / 7)}</display-octave></unpitched>`;
-            else { const sp = spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
+            else { const sp = ev.enh ? spellPref(m, kc, ev.enh) : spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
             const ties = (ev.tieEnd ? '<tie type="stop"/>' : '') + (ev.tie ? '<tie type="start"/>' : '');
             let nots = (ev.tieEnd ? '<tied type="stop"/>' : '') + (ev.tie ? '<tied type="start"/>' : '');
             if (k === 0 && ev.first) {

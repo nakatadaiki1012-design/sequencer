@@ -230,6 +230,7 @@ function sanitizeSong(s) {
           if (n.vel != null) { const v = Number(n.vel); if (Number.isFinite(v) && v !== 1) o.vel = clamp(v, 0.1, 1.5); else delete o.vel; }
           if (o.art != null) { o.art = Array.isArray(o.art) ? [...new Set(o.art.filter((a) => ART_IDS.has(a)))] : []; if (!o.art.length) delete o.art; }
           if (o.fg != null) { o.fg = String(o.fg).replace(/[^0-5]/g, '').slice(0, 5); if (!o.fg) delete o.fg; }
+          if (o.enh != null && o.enh !== 1 && o.enh !== -1) delete o.enh;
           if (o.gr != null) { const g = Math.round(+o.gr); if (Number.isFinite(g) && g >= 21 && g <= 108) o.gr = g; else delete o.gr; }
           return o;
         });
@@ -3115,6 +3116,14 @@ function noteOn(midi, keyIndex) {
     return;
   }
   if (tr.type === 'chord') { preview({ ...tr, type: 'melody' }, midi); return; }
+  // 楽譜の画面では、鍵盤（MIDI キーボード）でそのまま入力。いっしょにおした鍵盤は和音
+  if (ui.view === 'score' && ui.sc.input && !locked(tr)) {
+    const now = performance.now();
+    if (ui.sc.repitch) scRepitch(midi);
+    else scInsert([midi], now - (ui.sc.lastKeyAt || 0) < 70 && ui.sc.lastIns && ui.sc.lastIns.p != null);
+    ui.sc.lastKeyAt = now;
+    return;
+  }
   preview(tr, midi, 0.5);
   recNoteOn(midi);
   showMini(midi);
@@ -4235,7 +4244,7 @@ function renderScoreEditNow() {
     const bt = barTicks();
     const b = barOf(ui.sc.cursor);
     const beat = (ui.sc.cursor - barStart(b)) / beatAt(b) + 1;
-    st.textContent = `${track().name}｜${b + (song.pickup ? 0 : 1)}小節 ${Math.round(beat * 100) / 100}拍目${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
+    st.textContent = `${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${b + (song.pickup ? 0 : 1)}小節 ${Math.round(beat * 100) / 100}拍目${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
   }
 }
 function highlightScore(pos) {
@@ -4476,6 +4485,81 @@ function diatonicStep(p, dir) {
   return q;
 }
 function onsetsOf(tr) { return [...new Set(tr.notes.map((n) => n.s))].sort((a, b) => a - b); }
+const durKeys = () => lsGet('otsumiki-durkeys', 'otsumiki');
+// 和音の中で、上・下の音をえらぶ（Alt＋↑↓）
+function scChordStep(dir) {
+  const tr = track();
+  const ns = selNotes(tr);
+  if (!ns.length) return;
+  const s0 = ns[0].s;
+  const chord = tr.notes.filter((n) => n.s === s0).sort((a, b) => a.p - b.p);
+  const i = chord.indexOf(dir > 0 ? ns.reduce((a, n) => (n.p > a.p ? n : a)) : ns.reduce((a, n) => (n.p < a.p ? n : a)));
+  const nx = chord[clamp(i + dir, 0, chord.length - 1)];
+  ui.sc.sel = new Set([nx.s + ':' + nx.p]);
+  ui.sc.selByInput = false;
+  preview(tr, nx.p, 0.25);
+  renderScoreEdit();
+}
+// 上・下のパートへ（Ctrl＋Alt＋↑↓）：カーソルの位置はそのまま
+function scStaffStep(dir) {
+  const ids = scoreEditIds();
+  const list = song.tracks.filter((t) => ids.includes(t.id) && t.type === 'melody');
+  const i = list.indexOf(track());
+  const nx = list[i + dir];
+  if (!nx) return;
+  selectTrack(song.tracks.indexOf(nx), false);
+  ui.sc.sel = new Set();
+  ui.sc.lastIns = null;
+  toast(nx.name);
+  renderScoreEdit();
+}
+// R：えらんだ音（なければ、いま入れた音）を、すぐうしろにくり返す
+function scRepeat() {
+  const tr = scEditable();
+  if (!tr) return;
+  let ns = ui.sc.sel.size ? selNotes(tr) : [];
+  if (!ns.length && ui.sc.lastIns && ui.sc.lastIns.p != null) ns = tr.notes.filter((n) => n.s === ui.sc.lastIns.t);
+  if (!ns.length) return toast('くり返す音符をえらんでください');
+  const a = Math.min(...ns.map((n) => n.s));
+  const z = Math.max(...ns.map((n) => n.s + n.l));
+  const d = z - a;
+  const copy = ns.map((n) => ({ ...n, s: n.s + d }));
+  edit(() => {
+    ensureLength(z + d);
+    for (const v of [1, 2]) if (copy.some((n) => voiceOf(n) === v)) clearRange(tr, z, z + d, v);
+    for (const n of copy) { delete n.ly; tr.notes.push(n); }
+  }, 'くり返す');
+  ui.sc.sel = new Set(copy.map((n) => n.s + ':' + n.p));
+  ui.sc.selByInput = false;
+  ui.sc.cursor = Math.min(z + d, totalTicks());
+  ui.sc.lastIns = { t: z, d: copy[0].l, p: Math.max(...copy.map((n) => n.p)) };
+  preview(tr, Math.max(...copy.map((n) => n.p)), 0.25);
+  renderScoreEdit();
+}
+// 高さだけ入れなおす：カーソルの所の音の高さを変えて、次の音へ（リズムはそのまま）
+function scRepitch(p) {
+  const tr = scEditable();
+  if (!tr) return;
+  const ons = onsetsOf(tr);
+  const at = ons.find((s0) => s0 >= ui.sc.cursor);
+  if (at == null) { ui.sc.repitch = false; toast('おわりまで来ました'); return; }
+  edit(() => {
+    const chord = tr.notes.filter((n) => n.s === at && voiceOf(n) === scVoice());
+    const keep = chord.sort((a, b) => b.p - a.p)[0];
+    if (!keep) return;
+    tr.notes = tr.notes.filter((n) => !(n.s === at && voiceOf(n) === scVoice() && n !== keep));
+    keep.p = clamp(p, 21, 108);
+    delete keep.enh;
+  }, '高さを入れなおす');
+  preview(tr, p, 0.3);
+  showMini(p);
+  ui.sc.lastIns = { t: at, d: 0, p };
+  const next = ons.find((s0) => s0 > at);
+  ui.sc.cursor = next != null ? next : totalTicks();
+  ui.sc.sel = new Set([at + ':' + clamp(p, 21, 108)]);
+  ui.sc.selByInput = true;
+  renderScoreEdit();
+}
 function scMove(dir, extend) {
   const tr = track();
   if (tr.type !== 'melody') return;
@@ -4928,12 +5012,12 @@ function scBarMark(kind) {
 
 function renderScorePal() {
   const pal = $('#scorePal');
-  const durBtns = SC_DURS.map(([v, name, ic, key]) => `<button class="mini sdur ${ui.sc.dur === v ? 'on' : ''}" data-d="${v}" title="${name}（キー ${key}）"><span class="ic">${ic}</span></button>`).join('');
+  const durBtns = SC_DURS.map(([v, name, ic, key]) => `<button class="mini sdur ${ui.sc.dur === v ? 'on' : ''}" data-d="${v}" title="${name}（キー ${durKeys() === 'musescore' ? key + 1 : key}）"><span class="ic">${ic}</span></button>`).join('');
   pal.innerHTML = `
     <div class="prow">
       <span class="seg"><button class="mini ${ui.sc.input ? 'on' : ''}" data-m="1" title="クリックで音符を置く（キー N で切りかえ）">${I('pencil')}<span>入力</span></button><button class="mini ${ui.sc.input ? '' : 'on'}" data-m="0" title="クリックで音符をえらぶ">${I('pointer')}<span>選択</span></button></span>
       <span class="grp">${durBtns}<button class="mini ${ui.sc.dot ? 'on' : ''}" id="scDot" title="付点（キー .）">付点</button><button class="mini ${ui.sc.trip ? 'on' : ''}" id="scTrip" title="3連符（キー T）">3連</button></span>
-      <button class="mini" id="scRest" title="休符を入れる（キー 0 または R）"><span class="ic">𝄽</span> 休符</button>
+      <button class="mini" id="scRest" title="休符を入れる（キー 0）"><span class="ic">𝄽</span> 休符</button>
       <button class="mini ${ui.sc.insert ? 'on' : ''}" id="scIns" title="挿入：入れた音のうしろを、ずらしていく（上書きしない）・キー I">挿入</button>
       <span class="grp">${['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'].map((n, i) => `<button class="mini snote" data-l="${i}" title="${'CDEFGAB'[i]} キー（Shift で和音に足す）">${n}</button>`).join('')}</span>
       <span class="grp"><button class="mini" id="scSharp" title="半音上げる">♯</button><button class="mini" id="scFlat" title="半音下げる">♭</button><button class="mini" id="scNat" title="調号の音にもどす">♮</button><button class="mini" id="scUp" title="1音上げる（↑）">↑</button><button class="mini" id="scDn" title="1音下げる（↓）">↓</button><button class="mini" id="scOct" title="オクターブ上げる（Ctrl+↑）">8va</button></span>
@@ -4947,7 +5031,7 @@ function renderScorePal() {
       <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button></span>
       <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
-    <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す</span></div>`;
+    <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
   // パレットをたたむ（1行だけ：入力・長さ・休符・ドレミ・♯♭）。画面が低いときは、はじめからたたむ
   if (ui.sc.compact == null) ui.sc.compact = lsGet('otsumiki-scpal', innerHeight < 860 && !isPhone ? '1' : '0') === '1';
   pal.classList.toggle('compact', ui.sc.compact);
@@ -5064,11 +5148,12 @@ function scoreKey(e) {
   const ctrl = e.ctrlKey || e.metaKey;
   if (!ctrl && (k === 'i' || k === 'I') && !e.shiftKey) { e.preventDefault(); ui.sc.insert = !ui.sc.insert; renderScorePal(); toast(ui.sc.insert ? '挿入：うしろの音をずらしながら入れます' : '上書き：カーソルの所の音を入れかえます'); return true; }
   // ♯・♭（えらんだ音符を半音上げる・下げる）
-  if (!ctrl && (k === '#' || k === '-')) { e.preventDefault(); scAccidental(k === '#' ? '#' : 'b'); return true; }
+  if (!ctrl && !e.altKey && (k === '#' || k === '-')) { e.preventDefault(); scAccidental(k === '#' ? '#' : 'b'); return true; }
   // MuseScore と同じ：Alt＋数字で音程を重ねる、Alt+T 譜表テキスト、Alt+M リハーサル記号、F9 パレット
   if (e.altKey && !ctrl) {
     const dg = /^Digit([1-9])$/.exec(e.code || '');
-    if (dg && +dg[1] >= 2) { e.preventDefault(); scAddInterval(+dg[1] === 8 ? 8 : +dg[1]); return true; }
+    if (dg && +dg[1] >= 2) { e.preventDefault(); scAddInterval((+dg[1] === 8 ? 8 : +dg[1]) * (e.shiftKey ? -1 : 1)); return true; } // Shift もいっしょで下に
+    if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); scChordStep(k === 'ArrowUp' ? 1 : -1); return true; }
     if (e.code === 'KeyT') { e.preventDefault(); scStaffText(); return true; }
     if (e.code === 'KeyM') { e.preventDefault(); scRehearsal(); return true; }
   }
@@ -5080,21 +5165,34 @@ function scoreKey(e) {
     if (kl === 'x') { e.preventDefault(); scCopy(true); return true; }
     if (kl === 'v') { e.preventDefault(); scPaste(); return true; }
     if (kl === 'a') { e.preventDefault(); ui.sc.sel = new Set(tr.type === 'melody' ? tr.notes.map((n) => n.s + ':' + n.p) : []); renderScoreEdit(); return true; }
+    if ((k === 'ArrowUp' || k === 'ArrowDown') && e.altKey) { e.preventDefault(); scStaffStep(k === 'ArrowUp' ? -1 : 1); return true; } // 上・下のパートへ
     if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); const d = k === 'ArrowUp' ? 12 : -12; scEditSel((ns) => ns.forEach((n) => { n.p = clamp(n.p + d, 21, 108); }), 'オクターブ'); return true; }
+    // 小節ごとに動く・曲の頭／おわりへ
+    if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); const b = barOf(Math.min(ui.sc.cursor, totalTicks() - 1)); const nb = clamp(b + (k === 'ArrowRight' ? 1 : (ui.sc.cursor > barStart(b) ? 0 : -1)), 0, song.bars); ui.sc.cursor = barStart(nb); ui.sc.sel = new Set(); ui.sc.lastIns = null; renderScoreEdit(); return true; }
+    if (k === 'Home' || k === 'End') { e.preventDefault(); ui.sc.cursor = k === 'Home' ? 0 : Math.max(0, totalTicks() - barLen(song.bars - 1)); ui.sc.sel = new Set(); ui.sc.lastIns = null; renderScoreEdit(); return true; }
+    if (kl === 'b' && !e.shiftKey) { e.preventDefault(); if (song.locks.rules) return toast('ルールの変更はロックされています'), true; edit(() => { song.bars = Math.min(128, song.bars + 1); }, '小節を足す'); toast('おわりに1小節足しました'); renderScoreEdit(); return true; }
+    // 音の高さだけ入れなおす（MuseScore の Re-pitch）
+    if (e.shiftKey && kl === 'i') { e.preventDefault(); ui.sc.repitch = !ui.sc.repitch; toast(ui.sc.repitch ? '高さだけ入れなおす：音名・鍵盤をおすと、カーソルの音の高さだけ変えて、次の音へ（リズムはそのまま）' : '高さだけ入れなおすのをやめました', 3500); renderScoreEdit(); return true; }
     return false;
   }
   if (/^[a-gA-G]$/.test(k)) {
     if (tr.type !== 'melody') { scEditable(); return true; }
     e.preventDefault();
     const letter = 'cdefgab'.indexOf(k.toLowerCase());
+    if (ui.sc.repitch && !e.shiftKey) { scRepitch(letterPitch(letter, refPitch(tr))); return true; }
     scInsert([letterPitch(letter, refPitch(tr))], e.shiftKey);
     return true;
   }
-  const durKey = SC_DURS.find((d) => String(d[3]) === k);
+  // 数字キーの長さ：MuseScore 式（5＝4分音符・6＝2分・7＝全・4＝8分・3＝16分・2＝32分）もえらべる
+  const durKey = durKeys() === 'musescore' ? [[192, '', '', 7], [96, '', '', 6], [48, '', '', 5], [24, '', '', 4], [12, '', '', 3], [6, '', '', 2]].find((d) => String(d[3]) === k) : SC_DURS.find((d) => String(d[3]) === k);
   if (durKey) { e.preventDefault(); ui.sc.dur = durKey[0]; ui.sc.dot = false; ui.sc.trip = false; scApplyDurToSel(); renderScorePal(); return true; }
   if (k === '.') { ui.sc.dot = !ui.sc.dot; scApplyDurToSel(); renderScorePal(); return true; }
   if (k === 't' || k === 'T') { ui.sc.trip = !ui.sc.trip; renderScorePal(); return true; }
-  if (k === '0' || k === 'r' || k === 'R') { e.preventDefault(); scInsert([]); return true; }
+  if (k === '0') { e.preventDefault(); scInsert([]); return true; }
+  // R：えらんだ音（なければ入れたばかりの音）を、すぐうしろにくり返す（MuseScore・Dorico と同じ）
+  if (k === 'r' || k === 'R') { e.preventDefault(); scRepeat(); return true; }
+  // J：♯ と ♭ の書き方を入れかえる（ド♯ ⇔ レ♭）
+  if (k === 'j' || k === 'J') { e.preventDefault(); scEditSel((ns) => ns.forEach((n) => { const pc = ((n.p % 12) + 12) % 12; if (![1, 3, 6, 8, 10].includes(pc)) return; n.enh = n.enh === 1 ? -1 : n.enh === -1 ? 1 : (Notation.keyCount(song.key, isMinor()) < 0 ? 1 : -1); }), '♯・♭の書き方'); return true; }
   if (k === 'n' || k === 'N') { ui.sc.input = !ui.sc.input; renderScorePal(); toast(ui.sc.input ? '入力モード' : '選択モード'); return true; }
   if (k === '+') { scTie(); return true; }
   // MuseScore と同じ：Q＝長さを半分、W＝長さを2倍（えらんだ音符。なければ、次に入れる長さ）
@@ -5147,7 +5245,12 @@ function scoreKey(e) {
   }
   if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); scMove(k === 'ArrowRight' ? 1 : -1, e.shiftKey); return true; }
   if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); if (k === 'Delete' && !ui.sc.sel.size) return true; scDelete(); return true; }
-  if (k === 'Escape') { ui.sc.sel = new Set(); renderScoreEdit(); return true; }
+  if (k === 'Escape') {
+    // 何もえらんでいなければ、入力モードをやめる（MuseScore と同じ）
+    if (!ui.sc.sel.size && ui.sc.input) { ui.sc.input = false; ui.sc.repitch = false; renderScorePal(); toast('選択モード（N か Enter でもどる）'); return true; }
+    ui.sc.sel = new Set(); renderScoreEdit(); return true;
+  }
+  if (k === 'Enter' && !ui.sc.input) { e.preventDefault(); ui.sc.input = true; renderScorePal(); toast('入力モード'); return true; }
   return false;
 }
 function initScoreEditor() {
@@ -6709,6 +6812,7 @@ function init() {
   $('#btnScore').onclick = openScore;
   $('#btnScoreMenu').onclick = openScore;
   $('#btnPrintScore').onclick = printScore;
+  { const dk = $('#durKeysSel'); if (dk) { dk.value = durKeys(); dk.onchange = () => { lsSet('otsumiki-durkeys', dk.value); if (ui.view === 'score') renderScorePal(); toast(dk.value === 'musescore' ? '数字キー：MuseScore式（5＝4分音符）' : '数字キー：ふつう（4＝4分音符）'); }; } }
   $('#btnPrintParts').onclick = printParts;
   $('#btnPngScore').onclick = exportPng;
   $('#btnXmlScore').onclick = exportMusicXML;
