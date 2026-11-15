@@ -19,7 +19,7 @@ const { chromium } = require('playwright');
   r['ボタンでC→次へ'] = (await chords()) + ' / ' + await head();
   await p.click('#chdEd input'); await p.keyboard.type('Am7'); await p.keyboard.press('Space'); await p.waitForTimeout(100);
   r['打ってAm7'] = await chords();
-  await p.click('#chdEd [data-h="1"]'); await p.click('#chdEd .chordbtn[data-i="1"]'); await p.waitForTimeout(80);
+  await p.click('#chdEd [data-per="2"]'); await p.click('#chdEd .chordbtn[data-i="1"]'); await p.waitForTimeout(80);
   await p.click('#chdEd .chordbtn[data-i="3"]'); await p.waitForTimeout(80);
   r['前半F・後半G7'] = await chords();
   await p.click('#chdEd .chdmore summary'); await p.click('#chdEd [data-r="10"]'); await p.click('#chdEd [data-q="M7"]'); await p.waitForTimeout(80);

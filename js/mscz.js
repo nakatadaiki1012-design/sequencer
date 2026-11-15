@@ -59,7 +59,8 @@ const MuseScoreExport = (() => {
         const c = opts.chords[b];
         if (!c) continue;
         const want = [[c, b === 0 && pickup ? bS(0) + bL(0) - pickup : bS(b)]];
-        if (c.h && c.hAt) want.push([c.h, bS(b) + c.hAt]);
+        if (c.segs) { for (const sg of c.segs) if (sg.o > 0) want.push([{ r: sg.r, q: sg.q }, bS(b) + sg.o]); }
+        else if (c.h && c.hAt) want.push([c.h, bS(b) + c.hAt]);
         for (const [cc, t] of want) {
           let pi = evCache.findIndex((ev) => ev[b].some((e) => e.abs === t));
           let at = t;

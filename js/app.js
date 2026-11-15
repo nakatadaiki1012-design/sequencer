@@ -251,7 +251,13 @@ function sanitizeSong(s) {
       tr.grid = g;
     } else {
       const okC = (c) => c && Number.isInteger(c.r) && c.r >= 0 && c.r < 12 && CHORD_Q[c.q];
-      tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => (okC(c) ? (c.h && !okC(c.h) ? { r: c.r, q: c.q } : c) : null));
+      tr.chords = (Array.isArray(t.chords) ? t.chords : []).map((c) => {
+        if (!okC(c)) return null;
+        const o = { r: c.r, q: c.q };
+        if (Array.isArray(c.x)) { const x = c.x.filter((y) => okC(y) && Number.isFinite(+y.o) && y.o > 0).map((y) => ({ o: Math.round(+y.o), r: y.r, q: y.q })).slice(0, 16); if (x.length) o.x = x; }
+        else if (okC(c.h)) o.h = { r: c.h.r, q: c.h.q };
+        return o;
+      });
     }
     tr.vol = num(t.vol, 0.8, 0, 1.5);
     tr.pan = num(t.pan, 0, -1, 1);
@@ -334,10 +340,59 @@ function noteName(m, withOct = false) {
 }
 const sciName = (m) => NAMES.cde[ui.flat ? 1 : 0][m % 12] + (Math.floor(m / 12) - 1);
 function chordName(c) { return c ? CHORD_ROOT[c.r] + CHORD_Q[c.q].s : ''; }
-// 1小節に2つのコード（c.h ＝ 小節の後半のコード）
-function chordLabel(c) { return c ? (c.h ? `${chordName(c)}・${chordName(c.h)}` : chordName(c)) : ''; }
+// 1小節にいくつものコード：c.x ＝ [{ o: 小節の頭からの位置, r, q }]（古い形 c.h ＝ 後半のコードも読む）
+function chordLabel(c) { return c ? [c, ...(Array.isArray(c.x) ? [...c.x].sort((a, z) => a.o - z.o) : c.h ? [c.h] : [])].map(chordName).join('・') : ''; }
 // 後半がはじまる位置（小節の頭から。拍の区切りで、まん中あたり）
 function chordHalf(b) { const bs = beatAt(b); const n = Math.round(barLen(b) / bs); return Math.max(1, Math.floor(n / 2)) * bs; }
+// 小節の中のコードを、はじまる位置の順に [{ o, c }]
+function chordSegs(c, b) {
+  if (!c) return [];
+  const bl = barLen(b);
+  const out = [{ o: 0, c: { r: c.r, q: c.q } }];
+  if (Array.isArray(c.x)) { for (const x of c.x) if (x && x.o > 0 && x.o < bl && Number.isInteger(x.r) && CHORD_Q[x.q]) out.push({ o: x.o, c: { r: x.r, q: x.q } }); }
+  else if (c.h) out.push({ o: chordHalf(b), c: { r: c.h.r, q: c.h.q } });
+  out.sort((a, z) => a.o - z.o);
+  return out.filter((x, i) => i === 0 || x.o !== out[i - 1].o);
+}
+// [{ o, c }] → しまう形（2つで後半なら c.h、それ以外は c.x）
+function chordFromSegs(segs, b) {
+  const v = [];
+  for (const x of [...segs].sort((a, z) => a.o - z.o)) { const p = v[v.length - 1]; if (!p || p.c.r !== x.c.r || p.c.q !== x.c.q) v.push(x); }
+  if (!v.length) return null;
+  const base = { r: v[0].c.r, q: v[0].c.q };
+  const rest = v.slice(1);
+  if (rest.length === 1 && rest[0].o === chordHalf(b)) base.h = { r: rest[0].c.r, q: rest[0].c.q };
+  else if (rest.length) base.x = rest.map((x) => ({ o: x.o, r: x.c.r, q: x.c.q }));
+  return base;
+}
+// 小節 b の位置 o にコード c を入れる（c＝null で消す。whole＝小節まるごと1つに）。入れられないときは false
+function chordSetAt(ct, b, o, c, whole) {
+  while (ct.chords.length < song.bars) ct.chords.push(null);
+  if (whole || (o === 0 && !c)) { ct.chords[b] = c ? { r: c.r, q: c.q } : null; return true; }
+  let segs = chordSegs(ct.chords[b], b);
+  if (!segs.length) {
+    if (!c) return true;
+    if (o > 0) {
+      // 小節の頭は、まえの小節のコードのつづき
+      let pb = b - 1;
+      while (pb >= 0 && !ct.chords[pb]) pb--;
+      if (pb < 0) return false;
+      const ps = chordSegs(ct.chords[pb], pb);
+      segs = [{ o: 0, c: ps[ps.length - 1].c }];
+    }
+  }
+  segs = segs.filter((x) => x.o !== o);
+  if (c) segs.push({ o, c: { r: c.r, q: c.q } });
+  ct.chords[b] = chordFromSegs(segs, b);
+  return true;
+}
+// コードを入れる位置の候補：1つ＝[0]、2つ＝[0, 後半]、拍ごと＝拍の頭ぜんぶ
+function chordPosList(b, per) {
+  if (per === 1) return [0];
+  if (per === 2) return [0, chordHalf(b)];
+  const bs = beatAt(b);
+  return Array.from({ length: Math.max(1, Math.round(barLen(b) / bs)) }, (_, i) => i * bs).filter((o) => o < barLen(b));
+}
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // マス目（おたまチョップ）の区切り：小節の頭からかぞえます
@@ -671,12 +726,15 @@ function chordEvents(tr) {
     if (!c0) continue;
     const bs = beatAt(b);
     const bl = barLen(b);
-    const hs = c0.h ? chordHalf(b) : bl;
-    // 伴奏の形は「小節の」リズムで作り、前半・後半それぞれの区切りの中だけ鳴らす（2つのコードでも速くならない）
+    // 伴奏の形は「小節の」リズムで作り、コードそれぞれの区切りの中だけ鳴らす（いくつコードがあっても速くならない）
     // 弱起の小節は、音のある所（さいごの数拍）だけ鳴らす
     const st0 = b === 0 && song.pickup > 0 ? Math.max(0, bl - song.pickup) : 0;
-    if (hs > st0) prev = chordPart(tr, ev, c0, barStart(b), bl, st0, hs, bs, prev);
-    if (c0.h) prev = chordPart(tr, ev, c0.h, barStart(b), bl, Math.max(hs, st0), bl, bs, prev);
+    const segs = chordSegs(c0, b);
+    segs.forEach((sg, i) => {
+      const a = Math.max(sg.o, st0);
+      const z = i + 1 < segs.length ? segs[i + 1].o : bl;
+      if (z > a) prev = chordPart(tr, ev, sg.c, barStart(b), bl, a, z, bs, prev);
+    });
   }
   return ev;
 }
@@ -1633,7 +1691,8 @@ function draw(playPos) {
       g2.textAlign = 'center';
       g2.textBaseline = 'middle';
       if (c) {
-        const parts = c.h ? [[c, 0, chordHalf(b) * k], [c.h, chordHalf(b) * k, w - chordHalf(b) * k]] : [[c, 0, w]];
+        const sg = chordSegs(c, b);
+        const parts = sg.map((x, i) => [x.c, x.o * k, ((i + 1 < sg.length ? sg[i + 1].o : barLen(b)) - x.o) * k]);
         for (const [cc, dx, ww] of parts) {
           g2.fillStyle = PC_COLORS[cc.r];
           roundRect(g2, x + dx + 6, y + 10, ww - 12, rh - 20, 8);
@@ -2894,10 +2953,7 @@ function setChord(c) {
   const old = tr.chords[ui.selBar];
   if (half === 2 && !old) { toast('先に「前半」のコードを入れてね'); ui.chordHalf = 1; renderEditorTools(); return; }
   edit(() => {
-    while (tr.chords.length < song.bars) tr.chords.push(null);
-    if (half === 0) tr.chords[ui.selBar] = c;
-    else if (half === 1) tr.chords[ui.selBar] = c ? (old && old.h ? { r: c.r, q: c.q, h: old.h } : { r: c.r, q: c.q }) : null;
-    else { const n = { r: old.r, q: old.q }; if (c) n.h = { r: c.r, q: c.q }; tr.chords[ui.selBar] = n; }
+    chordSetAt(tr, ui.selBar, half === 2 ? chordHalf(ui.selBar) : 0, c, half === 0);
     if (c) previewChord(tr, c);
     // 前半を入れたら後半へ、後半（またはまるごと）を入れたら次の小節へ
     if (half === 1 && c) ui.chordHalf = 2;
@@ -3211,24 +3267,29 @@ function beatPos(t) {
   const bi = Math.floor(off / bs);
   const r = off - bi * bs;
   const head = `${b + (song.pickup ? 0 : 1)}小節 ${bi + 1}拍目`;
-  if (r === 0) return { head, dots: '', sub: '拍の頭', text: `${head}（拍の頭）` };
+  const bar = `${b + (song.pickup ? 0 : 1)}小節`;
+  const nb = Math.max(1, Math.round(barLen(b) / bs));
+  // 小節の拍を ○ で並べ、いまの拍だけ ● に。拍の中のときは、その拍を細かい点に広げる
+  const viz = (inner) => `<span class="bv">${Array.from({ length: nb }, (_, i) => (i === bi ? `<span class="bvon">${inner}</span>` : '<span class="bvk"></span>')).join('')}</span>`;
+  if (r === 0) return { head, bar, beat: bi + 1, dots: '', sub: '拍の頭', text: `${head}（拍の頭）`, viz: viz('<span class="bvk fill"></span>') };
   const comp = bs % 24 === 0 && bs % 48 !== 0; // 6/8 など（1拍＝付点4分）
   const cand = comp ? [[3, '8分'], [6, '16分'], [12, '32分']] : [[2, '8分'], [4, '16分'], [3, '3連'], [8, '32分'], [6, '16分の3連']];
   let pick = null;
   for (const [n, nm] of cand) if (bs % n === 0 && r % (bs / n) === 0) { pick = [n, nm]; break; }
-  if (!pick) return { head, dots: '', sub: '', text: `${head}＋少し` };
+  if (!pick) return { head, bar, beat: bi + 1, dots: '', sub: '', text: `${head}＋少し`, viz: viz('<span class="bvk half"></span>') };
   const [n, nm] = pick;
   const k = r / (bs / n);
   const dots = Array.from({ length: n }, (_, i) => (i === k ? '●' : '○')).join('');
   const sub = n === 2 ? 'ウラ' : `${nm}の${k + 1}つ目`;
-  return { head, dots, sub, text: `${head} ${dots}（${sub}）` };
+  const inner = Array.from({ length: n }, (_, i) => `<span class="bvd${i === k ? ' fill' : ''}"></span>`).join('');
+  return { head, bar, beat: bi + 1, dots, sub, text: `${head} ${dots}（${sub}）`, viz: viz(`<span class="bvsub">${inner}</span>`) };
 }
 // ドラッグ中に、指・マウスのそばに位置を出す
 function posTip(e, t, label = '') {
   let tip = $('#posTip');
   if (!tip) { tip = document.createElement('div'); tip.id = 'posTip'; tip.className = 'postip'; document.body.appendChild(tip); }
   const P = beatPos(t);
-  tip.innerHTML = `${label ? `<small>${label}</small> ` : ''}<b>${P.head}</b>${P.dots ? ` <span class="dots">${P.dots}</span> <small>${P.sub}</small>` : ' <small>拍の頭</small>'}`;
+  tip.innerHTML = `${label ? `<small>${label}</small> ` : ''}<small>${P.bar}</small> ${P.viz} <small>${P.beat}拍目${P.dots ? '・' + P.sub : ''}</small>`;
   tip.style.left = clamp(e.clientX + 14, 4, innerWidth - 230) + 'px';
   tip.style.top = clamp(e.clientY - 46, 4, innerHeight - 30) + 'px';
   tip.hidden = false;
@@ -3242,7 +3303,7 @@ function scPosShow(box) {
   const P = beatPos(ui.sc.cursor);
   const el = document.createElement('div');
   el.className = 'scpos';
-  el.innerHTML = `<b>${P.head}</b>${P.dots ? ` <span class="dots">${P.dots}</span> <small>${P.sub}</small>` : ' <small>拍の頭</small>'}`;
+  el.innerHTML = `<small>${P.bar}</small> ${P.viz} <small>${P.beat}拍目${P.dots ? '・' + P.sub : ''}</small>`;
   box.appendChild(el);
   const br = box.getBoundingClientRect();
   const r = cur.getBoundingClientRect();
@@ -3251,6 +3312,15 @@ function scPosShow(box) {
   let x = r.left - br.left + box.scrollLeft + r.width / 2 - w / 2;
   x = clamp(x, box.scrollLeft + 2, box.scrollLeft + box.clientWidth - w - 2);
   let y = r.top - br.top + box.scrollTop - h - 16; // 長さの記号（♩）の上
+  // コードネーム・テンポなどの文字にかぶるなら、その上へ
+  const L = x + br.left - box.scrollLeft;
+  const texts = [...box.querySelectorAll('svg text')].map((t) => t.getBoundingClientRect()).filter((q) => q.width && q.right > L - 2 && q.left < L + w + 2 && q.bottom <= r.top + 2 && q.bottom > r.top - 120);
+  for (let k = 0; k < 6; k++) {
+    const top = y - box.scrollTop + br.top;
+    const hit = texts.find((q) => q.bottom > top - 1 && q.top < top + h + 1);
+    if (!hit) break;
+    y = hit.top - br.top + box.scrollTop - h - 3;
+  }
   if (y < box.scrollTop + 2) { y = r.bottom - br.top + box.scrollTop + 4; el.classList.add('below'); }
   el.style.left = x + 'px';
   el.style.top = y + 'px';
@@ -3953,7 +4023,7 @@ function scoreOpts(trackIds, withDrums) {
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
-    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; return c ? (c.h ? { ...c, hAt: chordHalf(b) } : c) : null; }) : null,
+    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; if (!c) return null; const segs = chordSegs(c, b).map((x) => ({ o: x.o, r: x.c.r, q: x.c.q, name: chordName(x.c) })); return { ...c, segs, ...(c.h && !c.x ? { hAt: chordHalf(b) } : {}) }; }) : null,
     nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780,
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
@@ -4467,7 +4537,7 @@ function applyProgression(i) {
   let k2 = 0;
   for (let b = from; b < Math.min(song.bars, from + 4); b++) {
     const c = tr.chords[b];
-    for (const cc of c ? (c.h ? [c, c.h] : [c]) : []) {
+    for (const cc of chordSegs(c, b).map((x) => x.c)) {
       let root = 48 + (cc.r % 12);
       if (root > 54) root -= 12;
       const at = ctx.currentTime + 0.05 + k2 * 0.42;
@@ -5174,8 +5244,16 @@ function parseChord(txt) {
 }
 // コードを入れる：楽譜の上に小さなパネル。よく使うコードをおすだけ・打ってもOK（Am7 など）。入れると次の小節へ
 function scChord() { chordPick(barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1)), 0); }
-function chordPick(bar, half) {
-  ui.chd = { bar: clamp(bar, 0, song.bars - 1), half: half || 0, root: null };
+function chordPick(bar, o) {
+  bar = clamp(bar, 0, song.bars - 1);
+  o = o || 0;
+  // 1小節にいくつ入れるか（前のえらび方をおぼえておく）。もう入っているコードや、おした位置に合わせる
+  let per = ui.chdPer || 1;
+  const ct = chordTrackOf();
+  const offs = chordSegs(ct && ct.chords[bar], bar).map((x) => x.o).concat(o);
+  const fits = (p) => offs.every((x) => chordPosList(bar, p).includes(x));
+  if (!fits(per)) per = fits(2) ? 2 : 'b';
+  ui.chd = { bar, o, per, root: null };
   document.querySelector('#scoreEditView .scpos')?.remove();
   let box = $('#chdEd');
   if (!box) {
@@ -5200,14 +5278,21 @@ function chordPickRender(focus) {
   if (!box || !S) return;
   const ct = chordTrackOf();
   const c = ct && ct.chords[S.bar];
-  const cur = S.half === 2 ? c && c.h : c;
+  const segs = chordSegs(c, S.bar);
+  const posL = chordPosList(S.bar, S.per);
+  if (!posL.includes(S.o)) S.o = 0;
+  const cur = (segs.find((x) => x.o === S.o) || {}).c;
+  const bs = beatAt(S.bar);
+  const at = (o) => { const sg = segs.filter((x) => x.o <= o).pop(); return sg ? { name: chordName(sg.c), own: sg.o === o } : null; };
+  const posName = (o) => (o % bs === 0 ? `${o / bs + 1}拍目` : `${Math.floor(o / bs) + 1}拍目のウラ`);
   const dia = diatonic(barStart(S.bar));
   const num = S.bar + (song.pickup ? 0 : 1);
   const curRoot = S.root != null ? S.root : cur ? cur.r : null;
   box.innerHTML = `<div class="chdhead"><button class="mini" data-nav="-1" title="まえの小節" aria-label="まえの小節">◀</button><b>${num}小節目</b><button class="mini" data-nav="1" title="つぎの小節" aria-label="つぎの小節">▶</button>
-      <span class="seg"><button class="mini ${S.half === 0 ? 'on' : ''}" data-h="0" title="1小節に1つ">まるごと</button><button class="mini ${S.half === 1 ? 'on' : ''}" data-h="1" title="1小節に2つ：前半">前半</button><button class="mini ${S.half === 2 ? 'on' : ''}" data-h="2" title="1小節に2つ：後半">後半</button></span>
+      <span class="muted small">1小節に</span><span class="seg"><button class="mini ${S.per === 1 ? 'on' : ''}" data-per="1">1つ</button><button class="mini ${S.per === 2 ? 'on' : ''}" data-per="2">2つ</button><button class="mini ${S.per === 'b' ? 'on' : ''}" data-per="b" title="1拍に1つずつ">拍ごと</button></span>
       <span class="chdnow">${c ? escapeHtml(chordLabel(c)) : '<small class="muted">まだなし</small>'}</span>
       <button class="mini close" data-x="close" title="とじる（Esc）" aria-label="とじる">✕</button></div>
+    ${S.per !== 1 ? `<div class="chdpos">${posL.map((o) => { const a = at(o); return `<button class="${o === S.o ? 'on' : ''} ${a && a.own ? 'own' : ''}" data-o="${o}" title="${posName(o)}に入れる"><small>${posName(o)}</small><b>${a ? (a.own ? escapeHtml(a.name) : '<span class="muted">〃</span>') : '<span class="muted">－</span>'}</b></button>`; }).join('')}</div>` : ''}
     <div class="chdrow">${dia.map((d, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[d.r]}"><b>${chordName(d)}</b><small>${d.deg}</small></button>`).join('')}<button class="chordbtn none" data-i="-1"><b>なし</b><small>消す</small></button></div>
     <div class="chdtype"><input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="打って入れる：Am7・F#m・B♭" aria-label="コードネームを打つ"><small class="muted">Enter・スペースで次へ</small></div>
     <details class="chdmore" ${S.more ? 'open' : ''}><summary>ほかのコード（根音 → 種類）</summary>
@@ -5216,7 +5301,8 @@ function chordPickRender(focus) {
     </details>`;
   const inp = box.querySelector('input');
   box.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => { S.bar = clamp(S.bar + +b.dataset.nav, 0, song.bars - 1); S.root = null; chordPickShow(); }));
-  box.querySelectorAll('[data-h]').forEach((b) => (b.onclick = () => { S.half = +b.dataset.h; chordPickRender(); }));
+  box.querySelectorAll('[data-per]').forEach((b) => (b.onclick = () => { S.per = b.dataset.per === 'b' ? 'b' : +b.dataset.per; ui.chdPer = S.per; if (!chordPosList(S.bar, S.per).includes(S.o)) S.o = 0; chordPickRender(); }));
+  box.querySelectorAll('.chdpos [data-o]').forEach((b) => (b.onclick = () => { S.o = +b.dataset.o; S.root = null; chordPickRender(); }));
   box.querySelector('[data-x="close"]').onclick = chordPickClose;
   box.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; chordPickSet(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
   box.querySelector('.chdmore').ontoggle = (e) => { S.more = e.target.open; };
@@ -5272,7 +5358,7 @@ function chordPickPlace() {
 function chordPickShow() {
   const S = ui.chd;
   if (!S) return;
-  if (ui.view === 'score') { ui.sc.cursor = barStart(S.bar); ui.sc.sel = new Set(); renderScoreEditNow(); }
+  if (ui.view === 'score') { ui.sc.cursor = barStart(S.bar) + (S.o || 0); ui.sc.sel = new Set(); renderScoreEditNow(); }
   else if (typeof selectBars === 'function' && track().type === 'chord') { selectBars(cur, S.bar, S.bar); }
   chordPickRender();
 }
@@ -5288,18 +5374,15 @@ function chordPickSet(c) {
     renderTracks();
   }
   const b = S.bar;
-  const old = ct.chords[b];
-  if (S.half === 2 && !old && c) { toast('先に「前半」のコードを入れてね'); S.half = 1; chordPickRender(); return; }
-  edit(() => {
-    while (ct.chords.length < song.bars) ct.chords.push(null);
-    if (S.half === 0) ct.chords[b] = c;
-    else if (S.half === 1) ct.chords[b] = c ? (old && old.h ? { r: c.r, q: c.q, h: old.h } : { r: c.r, q: c.q }) : null;
-    else if (old) { const n = { r: old.r, q: old.q }; if (c) n.h = { r: c.r, q: c.q }; ct.chords[b] = n; }
-  }, 'コードネーム');
+  let ok = true;
+  edit(() => { ok = chordSetAt(ct, b, S.o, c, S.per === 1); }, 'コードネーム');
+  if (!ok) { toast('先に1拍目のコードを入れてね'); S.o = 0; chordPickRender(); return; }
   if (c) previewChord(ct, c);
-  // 前半を入れたら後半へ、それ以外は次の小節へ
-  if (S.half === 1 && c) S.half = 2;
-  else { if (S.half === 2) S.half = 1; S.bar = Math.min(b + 1, song.bars - 1); }
+  // 入れたら、その小節のつぎの位置へ。小節のおわりなら次の小節の頭へ
+  const posL = chordPosList(b, S.per);
+  const i = posL.indexOf(S.o);
+  if (i >= 0 && i + 1 < posL.length) S.o = posL[i + 1];
+  else { S.o = 0; S.bar = Math.min(b + 1, song.bars - 1); }
   S.root = null;
   if (ui.view !== 'score') draw();
   chordPickShow();
@@ -5465,7 +5548,7 @@ function scoreClick(e) {
   const y = (e.clientY - r.top) * (L.height / r.height);
   // 楽譜の上のコードネームをおすと、そのコードを変えるパネル
   const chd = e.target.closest && e.target.closest('.chd');
-  if (chd) { chordPick(+chd.dataset.b, +chd.dataset.h || 0); return; }
+  if (chd) { chordPick(+chd.dataset.b, +chd.dataset.o || 0); return; }
   const nh = e.target.closest && e.target.closest('.nh, .nhhit');
   if (nh) {
     const tr = scoreParts[+nh.dataset.pi];
@@ -5706,7 +5789,7 @@ function changeKey(nk, minor, move, d) {
         if (t.locked) continue;
         if (t.type === 'melody') for (const n of t.notes) n.p = clamp(n.p + semis, 21, 108);
         const tr12 = (r) => (((r + semis) % 12) + 12) % 12;
-        if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: tr12(c.r), ...(c.h ? { h: { ...c.h, r: tr12(c.h.r) } } : {}) } : c));
+        if (t.type === 'chord') t.chords = t.chords.map((c) => (c ? { ...c, r: tr12(c.r), ...(c.h ? { h: { ...c.h, r: tr12(c.h.r) } } : {}), ...(Array.isArray(c.x) ? { x: c.x.map((x) => ({ ...x, r: tr12(x.r) })) } : {}) } : c));
       }
       // とちゅうの調の変化も、いっしょに動かす
       for (const b in song.keys || {}) song.keys[b] = { ...song.keys[b], key: (((song.keys[b].key + semis) % 12) + 12) % 12 };

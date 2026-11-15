@@ -1352,8 +1352,22 @@ body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
 .postip small { opacity: .8; }
 /* 楽譜のえらんでいる所のそばに出す位置 */
 #scoreEditView .scpos { position: absolute; z-index: 3; pointer-events: none; padding: 1px 7px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.18); opacity: .95; }
-#scoreEditView .scpos .dots { letter-spacing: 1px; color: #fde68a; }
 #scoreEditView .scpos small { opacity: .9; }
+#scoreEditView .scpos { padding: 3px 9px; font-size: 12.5px; }
+/* 拍の目もり：○＝ほかの拍、●・点の列＝いまの拍 */
+.bv { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; margin: 0 3px; }
+.bv .bvk { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(255,255,255,.75); box-sizing: border-box; display: inline-block; }
+.bv .bvk.fill { background: #fde68a; border-color: #fde68a; width: 14px; height: 14px; }
+.bv .bvk.half { background: linear-gradient(90deg, #fde68a 50%, transparent 50%); border-color: #fde68a; width: 14px; height: 14px; }
+.bv .bvon { display: inline-flex; align-items: center; gap: 4px; padding: 2px 5px; border-radius: 10px; background: rgba(0,0,0,.28); }
+.bv .bvd { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid #fde68a; box-sizing: border-box; display: inline-block; }
+.bv .bvd.fill { background: #fde68a; width: 11px; height: 11px; }
+/* コード：拍ごとの位置ボタン */
+.chded .chdpos { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.chded .chdpos button { display: flex; flex-direction: column; align-items: center; min-width: 58px; padding: 2px 6px; border: 1.5px solid var(--line, #ccc); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; }
+.chded .chdpos button small { font-size: 10.5px; opacity: .75; }
+.chded .chdpos button b { font-size: 13.5px; color: #c2410c; }
+.chded .chdpos button.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 /* コードを入れるパネル（楽譜の上に浮かぶ） */
 #scoreEditView .chd { cursor: pointer; }
 #scoreEditView .chd:hover { fill: var(--accent); }

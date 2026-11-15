@@ -129,6 +129,14 @@ const MusicXMLImport = (() => {
     }
   }
 
+  // 小節のとちゅうでコードが変わる：c.x ＝ [{ o: 小節の頭からの位置, r, q }]（前と同じコードなら入れない）
+  const addChordAt = (c, o, n) => {
+    if (!(o > 0)) return;
+    const x = c.x || (c.x = []);
+    const last = x.filter((y) => y.o < o).pop() || c;
+    if (last.r === n.r && last.q === n.q) return;
+    if (!x.some((y) => y.o === o) && x.length < 16) { x.push({ o, r: n.r, q: n.q }); x.sort((a, z) => a.o - z.o); }
+  };
   const ART = { staccato: 'stac', staccatissimo: 'stacc2', spiccato: 'stacc2', accent: 'acc', tenuto: 'ten', 'strong-accent': 'marc', 'breath-mark': 'breath', caesura: 'caes' };
   const ORN = { 'trill-mark': 'tr', 'inverted-mordent': 'prall', mordent: 'mord', turn: 'turn', 'delayed-turn': 'turn' };
   const DYN = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp'];
@@ -465,7 +473,7 @@ const MusicXMLImport = (() => {
           else if (it.kind === 'harm') {
             hasHarmony = true;
             if (i < bars && !chords[i]) chords[i] = { r: it.r, q: it.q };
-            else if (i < bars && chords[i] && !chords[i].h && it.t > 0 && (chords[i].r !== it.r || chords[i].q !== it.q)) chords[i].h = { r: it.r, q: it.q }; // 小節の後半のコード
+            else if (i < bars && chords[i] && it.t > 0) addChordAt(chords[i], Math.round(it.t), { r: it.r, q: it.q }); // 小節のとちゅうのコード
           }
         }
         if (i >= bars) return;
@@ -920,7 +928,7 @@ const MusicXMLImport = (() => {
               if (r !== '') {
                 hasHarm = true;
                 const c = { r: tpcPc(r), q: HQ(txt(el, 'name')) };
-                if (!chords[mi]) chords[mi] = c; else if (!chords[mi].h && pos > mStart && (c.r !== chords[mi].r || c.q !== chords[mi].q)) chords[mi].h = c;
+                if (!chords[mi]) chords[mi] = c; else if (pos > mStart) addChordAt(chords[mi], absT(pos) - absT(mStart), c);
               }
               continue;
             }

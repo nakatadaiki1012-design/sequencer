@@ -432,6 +432,9 @@ const Notation = (() => {
         }
       }
       if (edit && edit.cursor != null && edit.cursor < bS(bars) && barOfT(edit.cursor) === b) set.add(edit.cursor - bS(b));
+      // 1小節にいくつものコード：コードが変わる位置にも場所をとり、コードネームが重ならないように
+      const cso = opts.chordObjs && opts.chordObjs[b] && opts.chordObjs[b].segs;
+      if (cso && cso.length > 1) for (const sg of cso) { const at = sg.o; if (at >= bL(b)) continue; set.add(at); const n = need.get(at) || { w: 0, acc: false, pre: 0 }; n.w = Math.max(n.w, textW(sg.name) + 4); need.set(at, n); }
       const ticks = [...set].sort((a, c) => a - c);
       const segW = [];
       for (let i = 0; i < ticks.length - 1; i++) {
@@ -1004,7 +1007,9 @@ const Notation = (() => {
           if (si === 0 && chords && chords[bb]) {
             const co = opts.chordObjs && opts.chordObjs[bb];
             const parts = String(chords[bb]).split('・');
-            if (co && co.h && co.hAt && parts.length === 2) {
+            if (co && co.segs && co.segs.length > 1) {
+              for (const sg of co.segs) o.push(`<text x="${(sg.o ? xAt(bb, sg.o) : B.xs[0]) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}" data-o="${sg.o}">${esc(sg.name)}</text>`);
+            } else if (co && co.h && co.hAt && parts.length === 2) {
               o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}" data-h="1">${esc(parts[0])}</text>`);
               o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}" data-h="2">${esc(parts[1])}</text>`);
             } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}">${esc(chords[bb])}</text>`);
@@ -1549,9 +1554,10 @@ const Notation = (() => {
           const rootPref = (r) => ([1, 3, 6, 8, 10].includes(((r % 12) + 12) % 12) ? (kc > 0 || (r % 12 === 6 && kc >= 0) ? 1 : -1) : 0);
           const sp = spellPref(c.r + 60, kc, rootPref(c.r));
           x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root><kind>${HK[c.q] || 'major'}</kind></harmony>`);
-          if (c.h && c.hAt) {
-            const sh = spellPref(c.h.r + 60, kc, rootPref(c.h.r));
-            x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[c.h.q] || 'major'}</kind><offset>${c.hAt}</offset></harmony>`);
+          const more = c.segs ? c.segs.filter((sg) => sg.o > 0) : c.h && c.hAt ? [{ o: c.hAt, r: c.h.r, q: c.h.q }] : [];
+          for (const sg of more) {
+            const sh = spellPref(sg.r + 60, kc, rootPref(sg.r));
+            x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[sg.q] || 'major'}</kind><offset>${sg.o}</offset></harmony>`);
           }
         }
         if (pi === 0 && opts.rehearsal && opts.rehearsal[b]) x.push(`<direction placement="above"><direction-type><rehearsal enclosure="square">${esc(opts.rehearsal[b])}</rehearsal></direction-type></direction>`);
