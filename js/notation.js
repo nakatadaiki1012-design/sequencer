@@ -302,7 +302,7 @@ const Notation = (() => {
       st.has2 = Array(bars).fill(false);
       for (const n of st.notes2) if (n.s >= 0 && n.s < bS(bars)) st.has2[barOfT(n.s)] = true;
       st.evAt = (b) => (st.has2[b] ? st.bars[b].concat(st.bars2[b]) : st.bars[b]);
-      st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'treble8' ? 23 : st.clef === 'bass' ? 18 : 30;
+      st.baseDn = st.clef === 'treble' ? 30 : st.clef === 'treble8' ? 23 : st.clef === 'alto' ? 24 : st.clef === 'bass' ? 18 : 30;
       st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean) || (opts.ivPart && st.part.id === opts.ivPart));
       st.hasDyn = st.sub === (st.grand ? 1 : 0) && ((st.part.dyn || []).length || (st.part.hairpins || []).length);
       st.dynAbove = !!(st.hasDyn && st.sub === 0 && !st.grand && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean)));
@@ -371,9 +371,22 @@ const Notation = (() => {
     // ---- 段組み（1段に何小節入れるか） ----
     const left = 16;
     const kcMax = Math.max(0, ...staves.flatMap((s) => s.kcs.map(Math.abs)));
-    const partLabel = (st) => st.part.name + (st.tr ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : '');
-    const nameW = staves.length > 1 ? Math.min(110, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partLabel(st)) * 0.85)) + 10) : 0;
-    const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6) + (staves.some((s) => s.grand) ? 10 : 0);
+    const partLabel = (st) => st.part.name + (st.tr % 12 ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : '');
+    // 2段目からは短い名前（Fl.・Vn. など）
+    const partShort = (st) => st.part.short || ([...st.part.name].length <= 4 ? st.part.name : [...st.part.name].slice(0, 3).join('') + '.');
+    // パートの仲間（木管・金管・弦…）のかっこ
+    const BRK = new Set(['ww', 'br', 'perc', 'vo', 'str']);
+    const groups = [];
+    staves.forEach((st, si) => {
+      const fam = st.part.family;
+      const g = groups[groups.length - 1];
+      if (fam && BRK.has(fam) && g && g.fam === fam && g.z === si - 1) g.z = si;
+      else if (fam && BRK.has(fam)) groups.push({ fam, a: si, z: si });
+    });
+    const brk = groups.some((g) => g.z > g.a) ? 9 : 0;
+    const nameW = staves.length > 1 ? Math.min(110, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partLabel(st)) * 0.85)) + 10) + brk : 0;
+    const nameW2 = staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.85)) + 10) + brk : brk;
+    const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6 + nameW2) + (staves.some((s) => s.grand) ? 10 : 0);
     const lines = [];
     let b = 0;
     while (b < bars) {
@@ -446,7 +459,7 @@ const Notation = (() => {
     lines.forEach(([b0, b1], line) => {
       const sysTop = top + line * systemH + topRow;
       const hx = left + headW(line === 0);
-      const L = left + (line === 0 ? nameW : 0); // 段の左はし（1段目はパート名のぶん右へ）
+      const L = left + (line === 0 ? nameW : nameW2); // 段の左はし（パート名のぶん右へ。2段目からは短い名前）
       // 次の段の頭で調・拍子が変わるなら、この段の終わりに予告を書く場所をとる
       const nb = b1 < bars ? barInfo[b1] : null;
       const cautK = nb && nb.keyChg ? Math.max(1, ...staves.map((st) => Math.abs(st.kcs[b1]) || Math.abs(st.kcs[b1 - 1]))) * 8.5 + 6 : 0;
@@ -520,11 +533,12 @@ const Notation = (() => {
         const yOf = (pos) => stTop + (8 - pos) * (SP / 2);
         sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: st.clef, baseDn: st.baseDn, kc: st.kcs[b0], kcs: st.kcs, tr: st.tr, perc });
         for (let i = 0; i < 5; i++) o.push(`<line x1="${L}" x2="${xEnd + caut}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="1.05"/>`);
-        if (line === 0 && (staves.length > 1) && st.sub === 0) o.push(`<text x="${L - 6}" y="${stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5)}" text-anchor="end" font-size="10" fill="#333">${esc(partLabel(st))}</text>`);
+        if (staves.length > 1 && st.sub === 0 && (line === 0 || !opts.noShortNames)) o.push(`<text x="${L - 6 - brk}" y="${stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5)}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
         const cl = L + (st.grand ? 10 : 0);
         // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
         if (perc) o.push(G('unpitchedPercussionClef1', cl + 7, yOf(4)));
         else if (st.clef === 'treble') o.push(G('gClef', cl + 4, yOf(2)));
+        else if (st.clef === 'alto') o.push(G('cClef', cl + 4, yOf(4)));
         else if (st.clef === 'treble8') { o.push(G('gClef', cl + 4, yOf(2))); o.push(`<text x="${cl + 4 + GW('gClef') / 2}" y="${yOf(-4) + 2}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#111" font-family="serif">8</text>`); }
         else o.push(G('fClef', cl + 4, yOf(6)));
         // 調号（nat=true で、取り消しのナチュラル）
@@ -532,6 +546,7 @@ const Notation = (() => {
           for (let i = 0; i < Math.abs(kc); i++) {
             let pos = (kc >= 0 ? [8, 5, 9, 6, 3, 7, 4] : [4, 7, 3, 6, 2, 5, 1])[i];
             if (st.clef === 'bass') pos -= 2;
+            if (st.clef === 'alto') pos -= 1;
             o.push(G(nat ? 'accidentalNatural' : kc >= 0 ? 'accidentalSharp' : 'accidentalFlat', x0 + i * 8.5, yOf(pos)));
           }
         };
@@ -903,6 +918,15 @@ const Notation = (() => {
       // 段をつなぐ線・大譜表のかっこ
       const tops = sys.staves.map((s) => s.top);
       if (staves.length > 1) o.push(`<line x1="${L}" x2="${L}" y1="${tops[0]}" y2="${tops[tops.length - 1] + 4 * SP}" stroke="#222" stroke-width="2"/>`);
+      // パートの仲間ごとの角かっこと、その中をつなぐ小節線
+      for (const g of groups) {
+        if (g.z === g.a) continue;
+        const yA = tops[g.a] - 4;
+        const yZ = tops[g.z] + 4 * SP + 4;
+        const bx = L - 6;
+        o.push(`<path class="bracket" d="M${bx + 1.6} ${yA} V${yZ}" stroke="#111" stroke-width="3.2"/><path d="M${bx} ${yA + 0.6} q5 0 8 -4.5 M${bx} ${yZ - 0.6} q5 0 8 4.5" fill="none" stroke="#111" stroke-width="1.4"/>`);
+        for (let si = g.a; si < g.z; si++) for (const B of sys.bars) o.push(`<line x1="${B.x1}" x2="${B.x1}" y1="${tops[si] + 4 * SP}" y2="${tops[si + 1]}" stroke="#222"/>`);
+      }
       staves.forEach((st, si) => {
         if (st.grand && st.sub === 0) {
           const yA = tops[si];
@@ -1194,7 +1218,7 @@ const Notation = (() => {
           if (clef !== 'perc') x.push(`<key><fifths>${kc}</fifths><mode>${GEO.keys[0].minor ? 'minor' : 'major'}</mode></key>`);
           x.push(`<time><beats>${mB[0]}</beats><beat-type>${mB[1]}</beat-type></time>`);
           if (tr) x.push(`<transpose><diatonic>${-Math.round(tr * 7 / 12)}</diatonic><chromatic>${-tr}</chromatic></transpose>`);
-          x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : clef === 'treble8' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
+          x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : clef === 'treble8' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>' : clef === 'alto' ? '<clef><sign>C</sign><line>3</line></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
           x.push('</attributes>');
           if (pi === 0) x.push(`<direction placement="above"><direction-type>${opts.tempoText ? `<words font-weight="bold">${esc(opts.tempoText)}</words></direction-type><direction-type>` : ''}<metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
         }

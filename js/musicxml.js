@@ -6,7 +6,7 @@ const MusicXMLImport = (() => {
 
   const TPQ = 48; // 4分音符 = 48 tick
   const MAX_BARS = 128;
-  const MAX_TRACKS = 8;
+  const MAX_TRACKS = 24;
 
   // ---------- 小さな道具 ----------
   const kids = (el, name) => (el ? Array.from(el.children).filter((c) => c.localName === name) : []);

@@ -57,7 +57,19 @@ function trackRange(tr) {
 }
 const GRIDS = [[192, '全音符', '𝅝'], [96, '2分音符', '𝅗𝅥'], [48, '4分音符', '♩'], [24, '8分音符', '♪'], [12, '16分音符', '𝅘𝅥𝅯'], [6, '32分音符', '𝅘𝅥𝅰'], [16, '8分3連符', '♪³'], [8, '16分3連符', '𝅘𝅥𝅯³']];
 const TRACK_COLORS = ['#e5484d', '#3e63dd', '#30a46c', '#f5a524', '#8e4ec6', '#f76b15', '#12a594', '#d6409f'];
-const MAX_TRACKS = 8;
+const MAX_TRACKS = 24; // オーケストラのフルスコアも書けるように
+/* ---------- オーケストラ・吹奏楽の楽譜のきまり ----------
+   仲間（ww 木管・br 金管・perc 打楽器・kb 鍵盤とハープ・vo 声・str 弦）、ならぶ順、短い名前、移調、音部記号 */
+const ORCH = {
+  piccolo: ['ww', 'Picc.', -12], flute: ['ww', 'Fl.'], recorder: ['ww', 'Rec.'], oboe: ['ww', 'Ob.'], clarinet: ['ww', 'Cl.', 2], bassoon: ['ww', 'Fg.', 0, 'bass'], sax: ['ww', 'A.Sax.', 9],
+  horn: ['br', 'Hr.', 7], trumpet: ['br', 'Tp.', 2], trombone: ['br', 'Tb.', 0, 'bass'], tuba: ['br', 'Tuba', 0, 'bass'], brassens: ['br', 'Br.'],
+  timpani: ['perc', 'Timp.', 0, 'bass'], xylophone: ['perc', 'Xyl.', -12], glocken: ['perc', 'Glk.', -24], marimba: ['perc', 'Mar.', 0, 'grand'], vibraphone: ['perc', 'Vib.'], tubularbell: ['perc', 'T.Bells'],
+  harp: ['kb', 'Hp.', 0, 'grand'], celesta: ['kb', 'Cel.', -12, 'grand'], piano: ['kb', 'Pf.', 0, 'grand'], harpsichord: ['kb', 'Cemb.', 0, 'grand'], organ: ['kb', 'Org.', 0, 'grand'], pipeorgan: ['kb', 'Org.', 0, 'grand'],
+  choir: ['vo', 'Cho.'],
+  violin: ['str', 'Vn.'], viola: ['str', 'Va.', 0, 'alto'], cello: ['str', 'Vc.', 0, 'bass'], contrabass: ['str', 'Cb.', 12, 'bass'], strings: ['str', 'Str.'], pizz: ['str', 'Pizz.'],
+};
+const ORCH_ORDER = ['ww', 'br', 'perc', 'kb', 'vo', 'str'];
+const ORCH_INST = ['piccolo', 'flute', 'recorder', 'oboe', 'clarinet', 'bassoon', 'sax', 'horn', 'trumpet', 'trombone', 'tuba', 'brassens', 'timpani', 'xylophone', 'glocken', 'marimba', 'vibraphone', 'tubularbell', 'harp', 'celesta', 'piano', 'harpsichord', 'organ', 'pipeorgan', 'choir', 'violin', 'viola', 'cello', 'contrabass', 'strings', 'pizz'];
 
 /* ---------- 曲データ ---------- */
 function newTrack(type, opts = {}) {
@@ -3751,6 +3763,18 @@ function parseBars(txt) {
   }
   return [...out];
 }
+// 楽譜での音部記号と移調（書く音＝鳴る音＋trans）。オーケストラの書き方では楽器に合わせる（自分で決めたときはそれ）
+function partClefTrans(t) {
+  const S = scoreSettings();
+  const oi = ORCH[t.inst];
+  let clef = (S.clefs || {})[t.id] || 'auto';
+  let trans = +(S.trans || {})[t.id] || 0;
+  if (S.orch && oi) {
+    if (clef === 'auto' && oi[3]) clef = oi[3];
+    if ((S.trans || {})[t.id] == null && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
+  }
+  return { clef, trans };
+}
 function scoreOpts(trackIds, withDrums) {
   const S = scoreSettings();
   if (!S.trans) S.trans = {};
@@ -3759,7 +3783,9 @@ function scoreOpts(trackIds, withDrums) {
   for (const t of song.tracks) {
     if (!trackIds.includes(t.id)) continue;
     if (t.type === 'melody') {
-      parts.push({ id: t.id, name: t.name, notes: t.notes, clef: S.clefs[t.id] || 'auto', transpose: +S.trans[t.id] || 0, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, gm: Sound.GM[t.inst] || 0 });
+      const oi = ORCH[t.inst];
+      const { clef, trans } = partClefTrans(t);
+      parts.push({ id: t.id, name: t.name, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -3771,14 +3797,22 @@ function scoreOpts(trackIds, withDrums) {
         const s0 = +st;
         notes.push({ s: s0, p: 0, l: Math.max(1, Math.min(nextOf.get(s0) - s0, beatAt(barOf(s0)))), id, art: t.grid[id][st] === 2 ? ['acc'] : [] });
       }
-      parts.push({ id: t.id, name: t.name, perc: true, notes, gm: 0 });
+      parts.push({ id: t.id, name: t.name, short: 'Perc.', family: S.orch ? 'perc' : '', perc: true, notes, gm: 0 });
       partTracks.push(t);
     } else if (t.type === 'chord' && S.accomp && t.chords.some(Boolean)) {
       // コード伴奏を、ピアノの大譜表の楽譜にする
       const notes = chordEvents(t).map((n) => ({ s: n.s, p: n.p, l: Math.max(24, Math.ceil(n.l / 24 - 0.05) * 24) })); // 楽譜ではきりのよい長さに
-      parts.push({ id: t.id, name: t.name + '（伴奏）', notes, clef: 'grand', gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name + '（伴奏）', short: 'Pf.', family: S.orch ? 'kb' : '', notes, clef: 'grand', gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     }
+  }
+  // オーケストラの順（木管・金管・打楽器・鍵盤・声・弦、仲間の中は楽器の順）にならべる
+  if (S.orch && parts.length > 1) {
+    const rank = (p, i) => [ORCH_ORDER.indexOf(p.family || 'kb'), p.inst && ORCH_INST.includes(p.inst) ? ORCH_INST.indexOf(p.inst) : 99, i];
+    const idx = parts.map((p, i) => ({ p, t: partTracks[i], r: rank(p, i) }));
+    idx.sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.r[2] - b.r[2]);
+    parts.splice(0, parts.length, ...idx.map((x) => x.p));
+    partTracks.splice(0, partTracks.length, ...idx.map((x) => x.t));
   }
   const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
   const solfa = S.solfa;
@@ -3816,7 +3850,20 @@ function assignLyrics(tr, text) {
   });
   tr.lyrics = text;
 }
-function scoreSvg(trackIds) { return Notation.render(scoreOpts(trackIds, true)); }
+function scoreSvg(trackIds) {
+  const o = scoreOpts(trackIds, true);
+  let svg = Notation.render(o);
+  // パートが多い（フルスコア）ときは、1段が A4 の1ページに入るように五線を小さくする
+  const L = Notation.lastLayout;
+  const sys = L && L.systems[0];
+  const PH = L ? L.width * (273 / 186) : 0;
+  if (sys && sys.y1 - sys.y0 > PH * 0.88) {
+    const f = Math.min(2.4, (sys.y1 - sys.y0) / (PH * 0.88));
+    o.scale = (+o.scale || 1) / f; // 中のはばを広げる＝印刷すると五線が小さくなる
+    svg = Notation.render(o);
+  }
+  return svg;
+}
 let scoreSel = null;
 let scoreFull = '';
 let scorePages = [];
@@ -3849,6 +3896,8 @@ function openScore() {
     <label>1段の小節数 <select data-s="perLine"><option value="0">自動</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}">${n}小節</option>`).join('')}</select></label>
     <label>大きさ <select data-s="scale"><option value="0.8">小さい</option><option value="1">ふつう</option><option value="1.25">大きい</option><option value="1.5">とても大きい</option></select></label>
     <label class="chk"><input type="checkbox" data-c="accomp" ${S.accomp ? 'checked' : ''}> コード伴奏をピアノの楽譜（大譜表）にする</label>
+    <label class="chk" title="木管・金管・打楽器・弦の順にならべて、仲間ごとにかっこでくくります。クラリネット（in B♭）・ホルン（in F）などは移調して、ビオラはハ音記号で書きます"><input type="checkbox" data-c="orch" ${S.orch ? 'checked' : ''}> オーケストラ・吹奏楽の書き方（フルスコア）</label>
+    <label class="chk" title="移調楽器も、じっさいに鳴る音の高さで書きます（指揮者・作曲の確認用）"><input type="checkbox" data-c="concert" ${S.concert ? 'checked' : ''} ${S.orch ? '' : 'disabled'}> 実音で書く（コンサートピッチ）</label>
     <h4>プリント（学習用）</h4>
     <label class="chk"><input type="checkbox" data-c="nameLine" ${S.nameLine ? 'checked' : ''}> 名前を書くらん（年・組・番・名前）</label>
     <label class="srow">穴うめにする小節 <input type="text" data-k="blank" value="${escapeHtml(S.blank || '')}" placeholder="れい：3,5-6" inputmode="numeric" style="width:9em"></label>
@@ -3856,14 +3905,14 @@ function openScore() {
     <h4>パート</h4>
     ${mel.map((t) => `<div class="scorepart">
       <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
-      ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
-      <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="0">なし（C）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
+      ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="alto">ハ音記号（アルト・ビオラ）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
+      <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="auto">自動</option><option value="0">なし（C・実音）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
       <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
     </div>`).join('')}
     <p class="muted">くり返し記号・1番/2番かっこ・強弱記号などは「楽譜で編集」で入れられます。</p>`;
   side.querySelectorAll('[data-s]').forEach((el) => { el.value = String(S[el.dataset.s]); });
   side.querySelectorAll('.sclef').forEach((el) => { el.value = S.clefs[el.dataset.id] || 'auto'; });
-  side.querySelectorAll('.strans').forEach((el) => { el.value = String(S.trans[el.dataset.id] || 0); });
+  side.querySelectorAll('.strans').forEach((el) => { el.value = S.trans[el.dataset.id] == null ? 'auto' : String(S.trans[el.dataset.id]); if (!el.value) el.value = 'auto'; });
   const upd = () => {
     const ids = [...scoreSel];
     if (!ids.length) { scoreFull = ''; scorePages = []; $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">パートを選んでください</p>'; return; }
@@ -3876,6 +3925,8 @@ function openScore() {
     el.oninput = () => { S[el.dataset.s] = el.value; upd(); };
     el.onchange = () => { autosaveSoon(); if (ui.showScore) renderScorePanel(); if (ui.view === 'score') renderScoreEdit(); };
   });
+  side.querySelector('[data-c="orch"]').onchange = (e) => { S.orch = e.target.checked; side.querySelector('[data-c="concert"]').disabled = !S.orch; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); };
+  side.querySelector('[data-c="concert"]').onchange = (e) => { S.concert = e.target.checked; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); };
   side.querySelector('[data-c="nameLine"]').onchange = (e) => { S.nameLine = e.target.checked; upd(); autosaveSoon(); };
   side.querySelector('[data-k="blank"]').onchange = (e) => { S.blank = e.target.value.replace(/[^0-9,\-－、 ]/g, '').slice(0, 60); upd(); autosaveSoon(); };
   side.querySelector('[data-c="accomp"]').onchange = (e) => { S.accomp = e.target.checked; const ct = song.tracks.find((t) => t.type === 'chord'); if (ct && S.accomp) scoreSel.add(ct.id); upd(); autosaveSoon(); };
@@ -3884,7 +3935,7 @@ function openScore() {
   side.querySelector('[data-k="pickup"]').onchange = (e) => { edit(() => { song.pickup = +e.target.value; }, '弱起'); upd(); };
   side.querySelectorAll('.spart').forEach((c) => (c.onchange = () => { c.checked ? scoreSel.add(c.value) : scoreSel.delete(c.value); upd(); }));
   side.querySelectorAll('.sclef').forEach((el) => (el.onchange = () => { S.clefs[el.dataset.id] = el.value; upd(); autosaveSoon(); }));
-  side.querySelectorAll('.strans').forEach((el) => (el.onchange = () => { S.trans[el.dataset.id] = +el.value; upd(); autosaveSoon(); }));
+  side.querySelectorAll('.strans').forEach((el) => (el.onchange = () => { if (el.value === 'auto') delete S.trans[el.dataset.id]; else S.trans[el.dataset.id] = +el.value; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); }));
   side.querySelectorAll('.slyr').forEach((el) => {
     const tr = song.tracks.find((t) => t.id === el.dataset.id);
     el.onfocus = () => { el._snap = snapshot(); };
@@ -3980,9 +4031,9 @@ function scDur() {
   if (ui.sc.trip) d = (d * 2) / 3;
   return Math.max(1, Math.round(d));
 }
-function scKeyAcc() {
+function scKeyAcc(tr = 0) {
   const kk = keyAt(barOf(Math.min(ui.sc.cursor || 0, Math.max(0, totalTicks() - 1))));
-  const kc = Notation.keyCount(kk.key, kk.minor);
+  const kc = Notation.keyCount(((kk.key + tr) % 12 + 12) % 12, kk.minor);
   const a = [0, 0, 0, 0, 0, 0, 0];
   const SO = [3, 0, 4, 1, 5, 2, 6];
   const FO = [6, 2, 5, 1, 4, 0, 3];
@@ -4166,10 +4217,12 @@ function refPitch(tr) {
 }
 // 音名（0=ド…6=シ）→ いちばん近い高さ（調号つき）
 function letterPitch(letter, ref) {
-  const pc = (([0, 2, 4, 5, 7, 9, 11][letter] + scKeyAcc()[letter]) % 12 + 12) % 12;
+  // 移調楽器の段では、書いてある音（その楽器の調）の音名で入れる
+  const tr = track().type === 'melody' && ui.view === 'score' ? partClefTrans(track()).trans : 0;
+  const pc = (([0, 2, 4, 5, 7, 9, 11][letter] + scKeyAcc(tr)[letter]) % 12 + 12) % 12;
   let best = null;
-  for (let m = pc; m <= 127; m += 12) if (best == null || Math.abs(m - ref) < Math.abs(best - ref)) best = m;
-  return best;
+  for (let m = pc; m <= 127; m += 12) if (best == null || Math.abs(m - (ref + tr)) < Math.abs(best - (ref + tr))) best = m;
+  return best - tr;
 }
 function selNotes(tr) { return tr && Array.isArray(tr.notes) ? tr.notes.filter((n) => ui.sc.sel.has(n.s + ':' + n.p)) : []; }
 function scEditSel(fn, label) {
@@ -5089,6 +5142,11 @@ const TEMPLATES = [
   { id: 'duet', icon: 'layers', title: 'リコーダー二重奏', desc: 'ソプラノとアルトの2パート', make: () => [newTrack('melody', { name: 'ソプラノ', inst: 'recorder' }), newTrack('melody', { name: 'アルト', inst: 'recorder', range: 'alto' })] },
   { id: 'rhythm', icon: 'drum', title: 'リズムアンサンブル', desc: '打楽器だけで合奏', make: () => [newTrack('drum', { name: '音楽室の打楽器', kit: 'school' }), newTrack('drum', { name: '和太鼓', kit: 'wa' })] },
   { id: 'score', icon: 'score', title: '楽譜で書く', desc: '五線譜に直接書いていく', make: () => [newTrack('melody', { name: 'メロディ', inst: 'piano' })], view: 'score' },
+  { id: 'orch', icon: 'score', title: 'オーケストラ', desc: '2管編成のフルスコア（13パート）', orch: true, make: () => [
+    ['フルート', 'flute', 'soprano'], ['オーボエ', 'oboe', 'soprano'], ['クラリネット', 'clarinet', 'alto'], ['ファゴット', 'bassoon', 'tenor'],
+    ['ホルン', 'horn', 'alto'], ['トランペット', 'trumpet', 'soprano'], ['トロンボーン', 'trombone', 'tenor'], ['ティンパニ', 'timpani', 'bass'],
+    ['バイオリンⅠ', 'violin', 'soprano'], ['バイオリンⅡ', 'violin', 'soprano'], ['ビオラ', 'viola', 'alto'], ['チェロ', 'cello', 'tenor'], ['コントラバス', 'contrabass', 'bass'],
+  ].map(([name, inst, range]) => newTrack('melody', { name, inst, range })), view: 'score' },
   { id: 'empty', icon: 'plus', title: 'からっぽ', desc: 'メロディ1つだけ', make: () => [newTrack('melody', { name: 'メロディ', inst: 'piano' })] },
 ];
 function openStart(first) {
@@ -5114,6 +5172,7 @@ function openStart(first) {
     s.bars = +$('#tplBars').value;
     s.bpm = clamp(+$('#tplBpm').value || 100, 30, 240);
     s.tracks = t.make();
+    if (t.orch) s.score = { orch: true };
     $('#dlgStart').close();
     loadSong(s);
     setView(t.view || 'grid');
