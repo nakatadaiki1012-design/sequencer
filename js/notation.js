@@ -1204,13 +1204,13 @@ const Notation = (() => {
             const y = up ? stTop - st.above + st.textRoom + 11 : stTop + 4 * SP + st.below - (st.hasPed ? 16 : 0) - 4;
             const xa = q.s >= bS(b0) ? ox(q.s) - 6 : sys.bars[0].xs[0] - 8;
             const lastStart = Math.max(q.s, ...st.notes.filter((n) => n.s >= q.s && n.s < q.e).map((n) => n.s));
-            const xz = q.e <= bS(b1) ? ox(lastStart) + 8 : xEnd - 4;
+            const xz = q.e <= bS(b1) ? ox(lastStart) + 11 : xEnd - 4; // おわりのかぎは、さいごの符頭の右に
             const lab = Math.abs(q.k) === 2 ? (up ? '15ma' : '15mb') : (up ? '8va' : '8vb');
             o.push(`<text x="${xa}" y="${y}" font-size="12" font-style="italic" font-weight="bold" fill="#111" font-family="serif" class="ott">${lab}</text>`);
             const lx = xa + textW(lab) * 0.9 + 2;
             if (xz > lx + 4) {
-              o.push(`<line x1="${lx}" x2="${xz}" y1="${y - 4}" y2="${y - 4}" stroke="#111" stroke-width="0.9" stroke-dasharray="4 3"/>`);
-              if (q.e <= bS(b1)) o.push(`<line x1="${xz}" x2="${xz}" y1="${y - 4}" y2="${up ? y + 2 : y - 10}" stroke="#111" stroke-width="0.9"/>`);
+              o.push(`<line x1="${lx}" x2="${xz}" y1="${y - 4}" y2="${y - 4}" stroke="#111" stroke-width="0.8" stroke-dasharray="3 4" stroke-linecap="butt"/>`);
+              if (q.e <= bS(b1)) o.push(`<line x1="${xz}" x2="${xz}" y1="${y - 4}" y2="${up ? y + 1 : y - 9}" stroke="#111" stroke-width="0.8"/>`);
             }
           }
         }
@@ -1422,6 +1422,41 @@ const Notation = (() => {
         const lineY = slope * (stemX(d) - stemX(f));
         off = up ? Math.min(off, need - lineY) : Math.max(off, need - lineY);
       }
+      // 五線の中の連桁は、線に「のる・ぶらさがる・またがる」位置にそろえる（線と連桁のあいだに細いすきま＝くさびを作らない）
+      {
+        const Lref = f.yOf(0);
+        const topL = f.yOf(8);
+        const X1 = stemX(l) - stemX(f) || 1;
+        const depth = (maxFl - 1) * 6 + 4;
+        const inStaff = (e) => { const a = up ? e : e - depth; const z = up ? e + depth : e; return z > topL - 1.5 && a < Lref + 1.5; };
+        // 外がわのふち e の、線からの位置（8で1間）：上向き＝ぶらさがる0・またがる6・のる4、下向きはその反対
+        const okSet = up ? (maxFl > 1 ? [0, 6] : [0, 4, 6]) : (maxFl > 1 ? [0, 2] : [0, 2, 4]);
+        const rel = (e) => ((Math.round((e - Lref) * 2) / 2) % 8 + 8) % 8;
+        const okPos = (e) => !inStaff(e) || okSet.some((a) => Math.abs(rel(e) - a) < 0.26 || Math.abs(rel(e) - a) > 7.74);
+        const lattice = (center, span) => { const out = []; const k0 = Math.floor((center - span - Lref) / 8) - 1; const k1 = Math.ceil((center + span - Lref) / 8) + 1; for (let k = k0; k <= k1; k++) for (const a of okSet) out.push(Lref + 8 * k + a); return out; };
+        const r0 = slope * X1;
+        const minNeed = (d) => (up ? d.yOf(d.hi) - minLen : d.yOf(d.lo) + minLen);
+        const fits = (e1, r) => g.every((d) => { const y = e1 + (r * (stemX(d) - stemX(f))) / X1; return up ? y <= minNeed(d) + 0.5 : y >= minNeed(d) - 0.5; });
+        if (inStaff(off) || inStaff(off + r0)) {
+          let best = null;
+          let bc = Infinity;
+          const e1s = [off, ...lattice(off, 12)].filter((e) => (up ? e <= off + 0.01 : e >= off - 0.01) && Math.abs(e - off) <= 12);
+          for (const e1 of e1s) {
+            if (!okPos(e1)) continue;
+            const e2s = [e1 + r0, ...lattice(e1 + r0, 10)];
+            for (const e2 of e2s) {
+              const r = e2 - e1;
+              if (Math.abs(r) > SP + 0.01 || Math.abs(r) > Math.abs(r0) + 2.01) continue;
+              if (r0 !== 0 && r !== 0 && Math.sign(r) !== Math.sign(r0)) continue;
+              if (r0 === 0 && Math.abs(r) > 0.01) continue;
+              if (!okPos(e2) || !fits(e1, r)) continue;
+              const c = Math.abs(e1 - off) + Math.abs(r - r0) * 1.3;
+              if (c < bc) { bc = c; best = [e1, r]; }
+            }
+          }
+          if (best) { off = best[0]; slope = best[1] / X1; }
+        }
+      }
       const by = (d) => off + slope * (stemX(d) - stemX(f));
       g.up = up;
       g.yAt = (X) => off + slope * (X - stemX(f));
@@ -1476,9 +1511,10 @@ const Notation = (() => {
       const up = notes.length ? notes.filter((d) => d.up).length * 2 >= notes.length : true;
       const x0 = list[0].x;
       const x1 = list[list.length - 1].x;
-      const edge = list.map((d) => (d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? stemEnd(d) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
+      const edge = list.map((d) => (d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? (d.tipY != null ? d.tipY + (up ? -2 : 2) : stemEnd(d)) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
       const beamedAll = !list[0].rest && list[0].bg && list.every((d) => d.bg === list[0].bg) && list[0].bg.length === list.length;
-      let y = up ? Math.min(yOf(10), ...edge.map((e) => e - 7)) : Math.max(yOf(-2), ...edge.map((e) => e + 14));
+      // 数字・かぎは、五線の外（線にかからない所）へ。連桁のときは連桁のすぐ外
+      let y = up ? Math.min(yOf(10) - 2, ...edge.map((e) => e - 7)) : Math.max(yOf(-2) + 2, ...edge.map((e) => e + 14));
       const cx = beamedAll ? (stemX(list[0]) + stemX(list[list.length - 1])) / 2 : (x0 + x1) / 2;
       const nw = GW('tuplet3', 7);
       if (!beamedAll) {
