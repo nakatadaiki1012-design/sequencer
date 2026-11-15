@@ -1345,3 +1345,23 @@ body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
 .lyred[hidden] { display: none; }
 .lyred input { width: 4.5em; font-size: 14px; padding: 3px 6px; border: 0; outline: none; background: transparent; color: var(--text, #111); text-align: center; }
 .lyred .mini { padding: 1px 4px; min-width: 0; min-height: 0; font-size: 11px; }
+/* ドラッグ中の位置（何小節・何拍目・拍の中のどこ） */
+.postip { position: fixed; z-index: 70; pointer-events: none; padding: 3px 8px; border-radius: 6px; background: rgba(20,22,35,.88); color: #fff; font-size: 12.5px; white-space: nowrap; }
+.postip[hidden] { display: none; }
+.postip .dots { letter-spacing: 1px; color: #fde68a; }
+.postip small { opacity: .8; }
+/* コードを入れるパネル（楽譜の上に浮かぶ） */
+#scoreEditView .chd { cursor: pointer; }
+#scoreEditView .chd:hover { fill: var(--accent); }
+.chded { position: fixed; z-index: 60; width: min(560px, calc(100vw - 8px)); padding: 6px 8px 8px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; }
+.chded[hidden] { display: none; }
+.chded .chdhead { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.chded .chdnow { flex: 1; text-align: right; font-weight: bold; color: #c2410c; }
+.chded .chdrow { display: flex; flex-wrap: wrap; gap: 4px; }
+.chded .chordbtn { min-width: 52px; }
+.chded .chdtype { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.chded .chdtype input { flex: 1; min-width: 0; font-size: 14px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg, #fff); color: var(--text); }
+.chded .chdmore { margin-top: 6px; }
+.chded .chdmore summary { cursor: pointer; font-size: 12px; color: var(--muted, #666); }
+.chded .chdroots, .chded .chdqs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.ctype { width: 7em; font-size: 14px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); align-self: center; }

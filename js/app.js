@@ -2335,6 +2335,7 @@ function onMove(e) {
       drag.moved = true;
       version++;
     }
+    if (drag.moved) posTip(e, minS + dt);
     draw();
     return;
   }
@@ -2347,6 +2348,7 @@ function onMove(e) {
     }
     drag.moved = true;
     version++;
+    posTip(e, drag.n.s + drag.n.l, 'おわり');
   } else if (drag.kind === 'move') {
     const rows = rowsFor(tr);
     const ns = fine ? clamp(Math.round((h.tick - (drag.offT != null ? drag.offT : drag.off)) / fine) * fine, 0, totalTicks() - 1) : clamp(cellStart(Math.max(0, h.tick)) - drag.off, 0, totalTicks() - 1);
@@ -2358,6 +2360,7 @@ function onMove(e) {
       drag.moved = true;
       version++;
     }
+    if (drag.moved) posTip(e, drag.n.s);
   } else if (drag.kind === 'paint') {
     if (h.row && h.tick >= 0 && h.tick < totalTicks()) {
       const ex = existingHit(tr, h.row.id, h.cell);
@@ -2372,6 +2375,7 @@ function onMove(e) {
   draw();
 }
 function onUp() {
+  posTipHide();
   if (pending) { pendingUp(); if (!drag) return; }
   if (!drag) return;
   const tr = track();
@@ -3197,6 +3201,38 @@ function showMini(midi) {
   clearTimeout(miniTimer);
   miniTimer = setTimeout(() => box.classList.remove('show'), isPhone ? 1500 : 5000); // スマホでは下のボタンをかくさないよう短く
 }
+// 位置 → 「3小節 2拍目 ○●○○（16分の2つ目）」：拍の中のどこかを、点の列でも見せる
+function beatPos(t) {
+  t = Math.max(0, t);
+  const b = barOf(t);
+  const bs = beatAt(b);
+  const off = t - barStart(b);
+  const bi = Math.floor(off / bs);
+  const r = off - bi * bs;
+  const head = `${b + (song.pickup ? 0 : 1)}小節 ${bi + 1}拍目`;
+  if (r === 0) return { head, dots: '', sub: '拍の頭', text: `${head}（拍の頭）` };
+  const comp = bs % 24 === 0 && bs % 48 !== 0; // 6/8 など（1拍＝付点4分）
+  const cand = comp ? [[3, '8分'], [6, '16分'], [12, '32分']] : [[2, '8分'], [4, '16分'], [3, '3連'], [8, '32分'], [6, '16分の3連']];
+  let pick = null;
+  for (const [n, nm] of cand) if (bs % n === 0 && r % (bs / n) === 0) { pick = [n, nm]; break; }
+  if (!pick) return { head, dots: '', sub: '', text: `${head}＋少し` };
+  const [n, nm] = pick;
+  const k = r / (bs / n);
+  const dots = Array.from({ length: n }, (_, i) => (i === k ? '●' : '○')).join('');
+  const sub = n === 2 ? 'ウラ' : `${nm}の${k + 1}つ目`;
+  return { head, dots, sub, text: `${head} ${dots}（${sub}）` };
+}
+// ドラッグ中に、指・マウスのそばに位置を出す
+function posTip(e, t, label = '') {
+  let tip = $('#posTip');
+  if (!tip) { tip = document.createElement('div'); tip.id = 'posTip'; tip.className = 'postip'; document.body.appendChild(tip); }
+  const P = beatPos(t);
+  tip.innerHTML = `${label ? `<small>${label}</small> ` : ''}<b>${P.head}</b>${P.dots ? ` <span class="dots">${P.dots}</span> <small>${P.sub}</small>` : ' <small>拍の頭</small>'}`;
+  tip.style.left = clamp(e.clientX + 14, 4, innerWidth - 230) + 'px';
+  tip.style.top = clamp(e.clientY - 46, 4, innerHeight - 30) + 'px';
+  tip.hidden = false;
+}
+function posTipHide() { const tip = $('#posTip'); if (tip) tip.hidden = true; }
 function updateMini(pos) {
   if (pos === undefined) pos = playheadTick();
   const t = pos != null ? pos : ui.startTick;
@@ -3440,12 +3476,24 @@ function renderEditorTools() {
       <span class="seg halfseg" title="1小節に2つのコードを入れるときは「前半」「後半」"><button class="mini ${hb === 0 ? 'on' : ''}" data-h="0">1小節まるごと</button><button class="mini ${hb === 1 ? 'on' : ''}" data-h="1">前半</button><button class="mini ${hb === 2 ? 'on' : ''}" data-h="2">後半</button></span></div>
       <div class="palrow">${dia.map((c, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[c.r]}"><b>${chordName(c)}</b><small>${c.deg}</small></button>`).join('')}
       <button class="chordbtn none" data-i="-1"><b>なし</b><small>休み</small></button>
+      <input id="cType" class="ctype" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="打つ：Am7" title="コードネームを打って Enter（れい：Am7, F#m, B♭）" aria-label="コードネームを打つ">
       <details class="pop" data-pop="chordother"><summary class="mini">そのほかのコード…</summary><div class="popbody"><select id="cRoot">${CHORD_ROOT.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select>
       <select id="cQ">${Object.entries(CHORD_Q).map(([k, v]) => `<option value="${k}">${v.s || '（長三和音）'}</option>`).join('')}</select>
       <button class="mini" id="cSet">この小節に入れる</button></div></details></div>`;
     pal.querySelectorAll('.halfseg button').forEach((b) => (b.onclick = () => { ui.chordHalf = +b.dataset.h; renderEditorTools(); draw(); }));
     pal.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; setChord(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
     $('#cSet').onclick = () => setChord({ r: +$('#cRoot').value, q: $('#cQ').value });
+    $('#cType').addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      const v = e.target.value.trim().replace(/＃/g, '#');
+      if (!v) return;
+      const c = v === '-' || v === 'なし' ? null : parseChord(v);
+      if (v !== '-' && v !== 'なし' && !c) return toast('読めませんでした（れい：C, Am, G7, FM7, F#m, B♭）');
+      setChord(c);
+      setTimeout(() => { const el = $('#cType'); if (el) el.focus(); }, 0);
+    });
   }
   html += `<details class="pop" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">${I('tool')}<span>道具</span></summary><div class="popbody">${tools}
     <div class="sub">再生</div><div class="btnrow"><button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">${I('loop')}見えている所だけくりかえす</button></div>
@@ -4184,6 +4232,7 @@ function gridShowCursor() {
   if (c < t0 || c > t1 - 48) { sc.scrollLeft = Math.max(0, barStart(barOf(Math.min(c, totalTicks() - 1))) * ppt() - 40); draw(); if (typeof drawOverview === 'function') drawOverview(); }
 }
 function setView(v) {
+  if (ui.chd && typeof chordPickClose === 'function') chordPickClose();
   if (v !== ui.view) viewHandoff(v);
   ui.view = v;
   document.body.classList.toggle('view-score', v === 'score');
@@ -4246,7 +4295,7 @@ function renderScoreEditNow() {
     const bt = barTicks();
     const b = barOf(ui.sc.cursor);
     const beat = (ui.sc.cursor - barStart(b)) / beatAt(b) + 1;
-    st.textContent = `${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${b + (song.pickup ? 0 : 1)}小節 ${Math.round(beat * 100) / 100}拍目${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
+    st.textContent = `${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${beatPos(ui.sc.cursor).text}${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
   }
 }
 function highlightScore(pos) {
@@ -5074,21 +5123,135 @@ function parseChord(txt) {
   if (!q) return null;
   return { r: (r + 12) % 12, q };
 }
-function scChord() {
-  const b = barOf(ui.sc.cursor);
-  let ct = song.tracks.find((t) => t.type === 'chord');
-  const v = prompt(`${b + (song.pickup ? 0 : 1)}小節目のコードネーム（れい：C, Am, G7, FM7, Dm7, B♭）\n空にすると消します`, ct && ct.chords[b] ? chordName(ct.chords[b]).replace('♯', '#').replace('♭', 'b') : '');
-  if (v === null) return;
-  const c = v.trim() ? parseChord(v) : null;
-  if (v.trim() && !c) return alert('コードネームを読めませんでした（れい：C, Am, G7, FM7）');
+// コードを入れる：楽譜の上に小さなパネル。よく使うコードをおすだけ・打ってもOK（Am7 など）。入れると次の小節へ
+function scChord() { chordPick(barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1)), 0); }
+function chordPick(bar, half) {
+  ui.chd = { bar: clamp(bar, 0, song.bars - 1), half: half || 0, root: null };
+  let box = $('#chdEd');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'chdEd';
+    box.className = 'chded';
+    document.body.appendChild(box);
+  }
+  box.hidden = false;
+  chordPickRender(true);
+}
+function chordPickClose() {
+  const box = $('#chdEd');
+  if (box) box.hidden = true;
+  ui.chd = null;
+}
+const chordTrackOf = () => song.tracks.find((t) => t.type === 'chord');
+function chordPickRender(focus) {
+  const box = $('#chdEd');
+  const S = ui.chd;
+  if (!box || !S) return;
+  const ct = chordTrackOf();
+  const c = ct && ct.chords[S.bar];
+  const cur = S.half === 2 ? c && c.h : c;
+  const dia = diatonic(barStart(S.bar));
+  const num = S.bar + (song.pickup ? 0 : 1);
+  const curRoot = S.root != null ? S.root : cur ? cur.r : null;
+  box.innerHTML = `<div class="chdhead"><button class="mini" data-nav="-1" title="まえの小節" aria-label="まえの小節">◀</button><b>${num}小節目</b><button class="mini" data-nav="1" title="つぎの小節" aria-label="つぎの小節">▶</button>
+      <span class="seg"><button class="mini ${S.half === 0 ? 'on' : ''}" data-h="0" title="1小節に1つ">まるごと</button><button class="mini ${S.half === 1 ? 'on' : ''}" data-h="1" title="1小節に2つ：前半">前半</button><button class="mini ${S.half === 2 ? 'on' : ''}" data-h="2" title="1小節に2つ：後半">後半</button></span>
+      <span class="chdnow">${c ? escapeHtml(chordLabel(c)) : '<small class="muted">まだなし</small>'}</span>
+      <button class="mini close" data-x="close" title="とじる（Esc）" aria-label="とじる">✕</button></div>
+    <div class="chdrow">${dia.map((d, i) => `<button class="chordbtn" data-i="${i}" style="--pc:${PC_COLORS[d.r]}"><b>${chordName(d)}</b><small>${d.deg}</small></button>`).join('')}<button class="chordbtn none" data-i="-1"><b>なし</b><small>消す</small></button></div>
+    <div class="chdtype"><input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="打って入れる：Am7・F#m・B♭" aria-label="コードネームを打つ"><small class="muted">Enter・スペースで次へ</small></div>
+    <details class="chdmore" ${S.more ? 'open' : ''}><summary>ほかのコード（根音 → 種類）</summary>
+      <div class="chdroots">${CHORD_ROOT.map((n, i) => `<button class="mini ${curRoot === i ? 'on' : ''}" data-r="${i}">${n}</button>`).join('')}</div>
+      <div class="chdqs">${Object.entries(CHORD_Q).map(([k, v]) => `<button class="mini" data-q="${k}" ${curRoot == null ? 'disabled' : ''}>${curRoot != null ? CHORD_ROOT[curRoot] : ''}${v.s || ''}</button>`).join('')}</div>
+    </details>`;
+  const inp = box.querySelector('input');
+  box.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => { S.bar = clamp(S.bar + +b.dataset.nav, 0, song.bars - 1); S.root = null; chordPickShow(); }));
+  box.querySelectorAll('[data-h]').forEach((b) => (b.onclick = () => { S.half = +b.dataset.h; chordPickRender(); }));
+  box.querySelector('[data-x="close"]').onclick = chordPickClose;
+  box.querySelectorAll('.chordbtn').forEach((b) => (b.onclick = () => { const i = +b.dataset.i; chordPickSet(i < 0 ? null : { r: dia[i].r, q: dia[i].q }); }));
+  box.querySelector('.chdmore').ontoggle = (e) => { S.more = e.target.open; };
+  box.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { S.root = +b.dataset.r; const ctx = ensureAudio(); Sound.playNote(ctx, previewOut, 'piano', 60 + S.root, ctx.currentTime + 0.01, 0.4, 0.5); chordPickRender(); }));
+  box.querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => { if (curRoot != null) chordPickSet({ r: curRoot, q: b.dataset.q }); }));
+  inp.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); chordPickClose(); return; }
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Tab') {
+      e.preventDefault();
+      const v = inp.value.trim().replace(/＃/g, '#');
+      if (!v) { if (e.key !== 'Enter') { S.bar = clamp(S.bar + (e.shiftKey ? -1 : 1), 0, song.bars - 1); chordPickShow(); } else chordPickClose(); return; }
+      if (v === '-' || v === 'なし') { chordPickSet(null); return; }
+      const cc = parseChord(v);
+      if (!cc) { toast('読めませんでした（れい：C, Am, G7, FM7, F#m, B♭）'); inp.select(); return; }
+      chordPickSet(cc);
+    }
+  });
+  chordPickPlace();
+  if (focus !== false && !isPhone) inp.focus();
+}
+// パネルを、その小節の上あたりに置く（楽譜が見えていないときは画面の上）
+function chordPickPlace() {
+  const box = $('#chdEd');
+  const S = ui.chd;
+  if (!box || !S) return;
+  const view = ui.view === 'score' ? $('#scoreEditView') : null;
+  const L = view && view._layout;
+  const svg = view && view.querySelector('svg');
+  let x = 16;
+  let y = 90;
+  if (L && svg) {
+    const r = svg.getBoundingClientRect();
+    const k = r.width / L.width;
+    const sys = L.systems.find((q) => q.bars.some((bb) => bb.b === S.bar));
+    const B = sys && sys.bars.find((bb) => bb.b === S.bar);
+    if (B) {
+      x = r.left + B.x0 * k;
+      const vr = view.getBoundingClientRect();
+      y = r.top + sys.y0 * k - box.offsetHeight - 6;
+      if (y < vr.top) y = r.top + sys.y1 * k + 6; // 上にはいらなければ、段の下へ
+    }
+  } else {
+    const vr = ($('#scroller') || document.body).getBoundingClientRect();
+    x = vr.left + 16;
+    y = vr.top + 16;
+  }
+  box.style.left = clamp(x, 4, Math.max(4, innerWidth - box.offsetWidth - 4)) + 'px';
+  box.style.top = clamp(y, 4, Math.max(4, innerHeight - box.offsetHeight - 4)) + 'px';
+}
+// 小節をかえたとき：楽譜のカーソルもそこへ（見えるようにスクロール）
+function chordPickShow() {
+  const S = ui.chd;
+  if (!S) return;
+  if (ui.view === 'score') { ui.sc.cursor = barStart(S.bar); ui.sc.sel = new Set(); renderScoreEditNow(); }
+  else if (typeof selectBars === 'function' && track().type === 'chord') { selectBars(cur, S.bar, S.bar); }
+  chordPickRender();
+}
+function chordPickSet(c) {
+  const S = ui.chd;
+  if (!S) return;
+  let ct = chordTrackOf();
+  if (ct && locked(ct)) return toast('コード伴奏のトラックはロックされています');
+  if (!ct && !c) return;
   if (!ct) {
     if (song.tracks.length >= MAX_TRACKS) return toast('トラックがいっぱいです');
     edit(() => { ct = newTrack('chord'); song.tracks.push(ct); }, 'コード伴奏を追加');
     renderTracks();
   }
-  edit(() => { while (ct.chords.length < song.bars) ct.chords.push(null); ct.chords[b] = c; }, 'コードネーム');
+  const b = S.bar;
+  const old = ct.chords[b];
+  if (S.half === 2 && !old && c) { toast('先に「前半」のコードを入れてね'); S.half = 1; chordPickRender(); return; }
+  edit(() => {
+    while (ct.chords.length < song.bars) ct.chords.push(null);
+    if (S.half === 0) ct.chords[b] = c;
+    else if (S.half === 1) ct.chords[b] = c ? (old && old.h ? { r: c.r, q: c.q, h: old.h } : { r: c.r, q: c.q }) : null;
+    else if (old) { const n = { r: old.r, q: old.q }; if (c) n.h = { r: c.r, q: c.q }; ct.chords[b] = n; }
+  }, 'コードネーム');
   if (c) previewChord(ct, c);
-  renderScoreEdit();
+  // 前半を入れたら後半へ、それ以外は次の小節へ
+  if (S.half === 1 && c) S.half = 2;
+  else { if (S.half === 2) S.half = 1; S.bar = Math.min(b + 1, song.bars - 1); }
+  S.root = null;
+  if (ui.view !== 'score') draw();
+  chordPickShow();
 }
 function scBarMark(kind) {
   if (song.locks.rules) return toast('ロックされています');
@@ -5249,6 +5412,9 @@ function scoreClick(e) {
   const r = svg.getBoundingClientRect();
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
+  // 楽譜の上のコードネームをおすと、そのコードを変えるパネル
+  const chd = e.target.closest && e.target.closest('.chd');
+  if (chd) { chordPick(+chd.dataset.b, +chd.dataset.h || 0); return; }
   const nh = e.target.closest && e.target.closest('.nh, .nhhit');
   if (nh) {
     const tr = scoreParts[+nh.dataset.pi];
@@ -5272,6 +5438,7 @@ function scoreClick(e) {
     preview(track(), p0, 0.3);
     showMini(p0);
     renderScoreEdit();
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !locked(track())) scDragPitch(e, r.height / L.height);
     return;
   }
   const h = Notation.hit(L, x, y);
@@ -5289,6 +5456,43 @@ function scoreClick(e) {
     if (e.shiftKey && ui.sc.lastIns && ui.sc.lastIns.t === t) scInsert([h.pitch], true);
     else { ui.sc.lastIns = null; scInsert([h.pitch], false); }
   } else { ui.sc.sel = new Set(); renderScoreEdit(); }
+}
+// 音符を上下にドラッグして高さを変える（MuseScore と同じ。1目もり＝線か間1つ。Shift で半音ずつ）
+function scDragPitch(e, k) {
+  const tr = track();
+  const ns = selNotes(tr);
+  if (!ns.length) return;
+  const stepPx = (8 / 2) * k; // 線と間の1つぶん（画面のピクセル）
+  const y0 = e.clientY;
+  const orig = ns.map((n) => n.p);
+  const snap = snapshot();
+  let steps = 0;
+  ui.sc.dragging = true;
+  const move = (ev) => {
+    const st = Math.round((y0 - ev.clientY) / stepPx);
+    if (st === steps) return;
+    steps = st;
+    ns.forEach((n, i) => {
+      let q = orig[i];
+      for (let j = 0; j < Math.abs(st); j++) q = ev.shiftKey ? q + Math.sign(st) : diatonicStep(q, Math.sign(st));
+      n.p = clamp(q, 21, 108);
+    });
+    ui.sc.sel = new Set(ns.map((n) => n.s + ':' + n.p));
+    ui.sc.lastIns = null;
+    preview(tr, ns[0].p, 0.2);
+    showMini(ns[0].p);
+    renderScoreEdit();
+  };
+  const up = () => {
+    ui.sc.dragging = false;
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    if (snapshot() !== snap) { pushUndo(snap, '高さを変える（ドラッグ）'); changed(); }
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
 }
 // 楽譜モードのキー操作（使ったら true）
 function scoreKey(e) {
@@ -5312,6 +5516,7 @@ function scoreKey(e) {
   if (ctrl) {
     const kl = k.toLowerCase();
     if (e.shiftKey && kl === 'm') { e.preventDefault(); scRehearsal(); return true; }
+    if (kl === 'k' && !e.shiftKey) { e.preventDefault(); scChord(); return true; } // MuseScore と同じ：コードネーム
     if (kl === 'c') { e.preventDefault(); scCopy(false); return true; }
     if (kl === 'x') { e.preventDefault(); scCopy(true); return true; }
     if (kl === 'v') { e.preventDefault(); scPaste(); return true; }
@@ -5408,7 +5613,9 @@ function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
   $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; scoreClick(e); });
   // Ctrl＋ホイールで楽譜を大きく・小さく
-  $('#scoreEditView').addEventListener('scroll', () => { if (ui.sc && ui.sc.lyr) lyrPlace(); }, { passive: true });
+  // 音符をドラッグしているあいだは、画面をスクロールさせない（タブレット）
+  $('#scoreEditView').addEventListener('touchmove', (e) => { if (ui.sc && ui.sc.dragging) e.preventDefault(); }, { passive: false });
+  $('#scoreEditView').addEventListener('scroll', () => { if (ui.sc && ui.sc.lyr) lyrPlace(); if (ui.chd) chordPickPlace(); }, { passive: true });
   addEventListener('resize', () => { if (ui.sc && ui.sc.lyr) setTimeout(lyrPlace, 60); });
   $('#scoreEditView').addEventListener('wheel', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
@@ -7083,6 +7290,7 @@ function init() {
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
     if (e.key === 'Escape' && document.body.classList.contains('present') && !modalOpen()) { setPresent(false); return; }
+    if (e.key === 'Escape' && ui.chd) { chordPickClose(); return; }
     if (e.key === 'Escape') { const op = $$('details.pop[open]'); if (op.length) { op.forEach((d) => (d.open = false)); const s0 = op[0].querySelector('summary'); if (s0) s0.focus(); return; } }
     if (e.key === '?' && !modalOpen()) { e.preventDefault(); openKeys(); return; }
     if (ui.view === 'score' && !modalOpen() && scoreKey(e)) return;

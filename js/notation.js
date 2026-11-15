@@ -363,10 +363,16 @@ const Notation = (() => {
       // 五線の外にはみ出す音（加線）の分だけ、段の上下をあける
       let lo = 0;
       let hi = 8;
+      st.loB = new Array(bars).fill(0); // 小節ごとの、いちばん低い・高い音の位置（段ごとに上下のあきを決める）
+      st.hiB = new Array(bars).fill(8);
       for (const n of st.notes.concat(st.notes2)) {
-        const pos = st.clef === 'perc' ? Math.floor((n.p - 1000) / 10) : spell(n.p, st.kcs[barOfT(Math.max(0, n.s))] || 0).dn - st.baseAt(barOfT(Math.max(0, n.s)));
+        const nb = barOfT(Math.max(0, n.s));
+        const pos = st.clef === 'perc' ? Math.floor((n.p - 1000) / 10) : spell(n.p, st.kcs[nb] || 0).dn - st.baseAt(nb);
         if (pos < lo) lo = pos;
         if (pos > hi) hi = pos;
+        // 符尾（ぼう）の先も入れる：中央線より上の音はぼうが下へ、下の音は上へ（3.5間ぶん）
+        const stem = n.l < 192 && st.clef !== 'perc' ? (pos >= 4 ? pos - 7 : pos + 7) : pos;
+        if (nb >= 0 && nb < bars) { st.loB[nb] = Math.min(st.loB[nb], pos, stem); st.hiB[nb] = Math.max(st.hiB[nb], pos, stem); }
       }
       st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0);
       // 装飾記号・指番号・弓の記号・譜表テキストの分も、上をあける
@@ -375,18 +381,20 @@ const Notation = (() => {
       st.orn = stack;
       st.textRoom = st.sub === 0 && (st.part.texts || []).length ? 16 : 0;
       st.above += stack * 11 + st.textRoom;
+      st.aboveX = stack * 11 + st.textRoom;
+      st.belowX = 0;
       st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0);
       // ピアノのペダル（Ped. ＊）：大譜表は下の段の下、ふつうは五線の下
       st.hasPed = (st.part.pedals || []).length > 0 && (st.grand ? st.sub === 1 : st.sub === 0);
-      if (st.hasPed) st.below += 16;
+      if (st.hasPed) { st.below += 16; st.belowX += 16; }
       // 小節のくり返し記号：前の小節とまったく同じなら、記号で書く
       const mr = st.part.mrep || {};
       const sig = (b) => { const a = bS(b); const z = bS(b + 1); return st.notes.concat(st.notes2).filter((n) => n.s >= a && n.s < z).map((n) => `${n.s - a}/${n.p}/${Math.min(n.l, z - n.s)}/${n.v || 1}`).sort().join(','); };
       st.mrepSame = (b) => !!(b > 0 && mr[b] && String(mAt(b)) === String(mAt(b - 1)) && sig(b) && sig(b) === sig(b - 1) && !st.notes.concat(st.notes2).some((n) => n.s < bS(b) && n.s + n.l > bS(b)) && !st.notes.concat(st.notes2).some((n) => n.s < bS(b + 1) && n.s + n.l > bS(b + 1)));
       st.ottUp = st.ott && st.ott.some((q) => q.k > 0) && st.sub === 0;
       st.ottDn = st.ott && st.ott.some((q) => q.k < 0) && (st.grand ? st.sub === 1 : true);
-      if (st.ottUp) st.above += 14;
-      if (st.ottDn) st.below += 14;
+      if (st.ottUp) { st.above += 14; st.aboveX += 14; }
+      if (st.ottDn) { st.below += 14; st.belowX += 14; }
       if (st.clef === 'tab') { st.above = 0; st.below = 0; st.hasPed = false; st.ottUp = st.ottDn = false; st.textRoom = 0; st.orn = 0; st.hasLyr = false; st.hasDyn = false; st.dynAbove = false; st.mrepSame = () => false; }
     }
 
@@ -538,7 +546,19 @@ const Notation = (() => {
       const v = staves.filter((st) => keep.has(st.pi));
       return v.length ? v : staves.slice(0, 1);
     });
-    const sysHOf = (line) => topRow + vis[line].reduce((a, s) => a + staffH(s), 0) + 16;
+    // 段ごとに、その段の音だけで上下のあきを決める（低い音がない段は、歌詞が五線の近くに来る）
+    const fitLine = (line) => {
+      const [b0, b1] = lines[line];
+      for (const st of vis[line]) {
+        if (st.clef === 'tab' || !st.loB) continue;
+        let lo = 0;
+        let hi = 8;
+        for (let b = b0; b < b1; b++) { lo = Math.min(lo, st.loB[b]); hi = Math.max(hi, st.hiB[b]); }
+        st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0) + st.aboveX;
+        st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0) + st.belowX;
+      }
+    };
+    const sysHOf = (line) => { fitLine(line); return topRow + vis[line].reduce((a, s) => a + staffH(s), 0) + 16; };
     const lineTop = [];
     { let y = 0; lines.forEach((_, i) => { lineTop.push(y); y += sysHOf(i); }); }
     const systemH = sysHOf(0);
@@ -572,6 +592,7 @@ const Notation = (() => {
     lines.forEach(([b0, b1], line) => {
       const sysTop = top + lineTop[line] + topRow;
       const VS = vis[line];
+      fitLine(line);
       const hx = left + headW(line === 0);
       const L = left + (line === 0 ? nameW : nameW2); // 段の左はし（パート名のぶん右へ。2段目からは短い名前）
       // 次の段の頭で調・拍子が変わるなら、この段の終わりに予告を書く場所をとる
@@ -760,6 +781,7 @@ const Notation = (() => {
           const drawEvs = (evs, mode, stream, allBars) => {
           const drawn = [];
           const tripRests = []; // 3連符の中の休符（かぎの はばに入れる）
+          const restLater = [];
           let prevHead = prevOf[stream];
           const yR = mode === 1 ? (q) => yOf(q + 4) : mode === 2 ? (q) => yOf(q - 4) : yOf;
           for (let ei = 0; ei < evs.length; ei++) {
@@ -768,7 +790,9 @@ const Notation = (() => {
             const x0 = xAt(bb, ev.pos);
             if (ev.rest) {
               const rx = ev.whole ? (B.x0 + B.x1) / 2 - 5 : x0;
-              drawRest(o, ev, rx, yR);
+              // 8分・16分などの休符は、連桁の中にあるかもしれないので、連桁を書いたあとに置く
+              if (!ev.whole && ev.base < 48) restLater.push({ ev, x: rx, yOf: yR });
+              else drawRest(o, ev, rx, yR);
               if (ev.trip) tripRests.push({ x: rx, ev, rest: true, yOf: yR });
               if (stream === 'A') melFlush();
               prevHead = null;
@@ -882,6 +906,7 @@ const Notation = (() => {
           }
           prevOf[stream] = prevHead;
           drawStemsAndBeams(o, drawn, mAt(bb));
+          for (const R of restLater) drawRest(o, R.ev, R.x, R.yOf, restShift(R, drawn));
           drawTriplets(o, drawn, yOf, tripRests);
           return drawn;
           };
@@ -980,9 +1005,9 @@ const Notation = (() => {
             const co = opts.chordObjs && opts.chordObjs[bb];
             const parts = String(chords[bb]).split('・');
             if (co && co.h && co.hAt && parts.length === 2) {
-              o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[0])}</text>`);
-              o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[1])}</text>`);
-            } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
+              o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}" data-h="1">${esc(parts[0])}</text>`);
+              o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}" data-h="2">${esc(parts[1])}</text>`);
+            } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c" class="chd" data-b="${bb}">${esc(chords[bb])}</text>`);
           }
           // 対位法のチェックの印（赤＝まちがい、オレンジ＝注意）
           if (si === 0 && opts.marks && opts.marks[bb]) {
@@ -1203,14 +1228,36 @@ const Notation = (() => {
       o.push(`<path d="M${x0} ${y0} Q${(x0 + x1) / 2} ${y0 + c} ${x1} ${y1} Q${(x0 + x1) / 2} ${y0 + c * 0.6} ${x0} ${y0}" fill="#111" stroke="#111" stroke-width="0.8"/>`);
     }
   }
-  function drawRest(o, ev, x, yOf) {
+  const restName = (base) => (base >= 192 ? 'restWhole' : base >= 96 ? 'restHalf' : base >= 48 ? 'restQuarter' : base >= 24 ? 'rest8th' : base >= 12 ? 'rest16th' : 'rest32nd');
+  function drawRest(o, ev, x, yOf, dpos = 0) {
     const base = ev.whole ? 192 : ev.base;
     const data = `class="rest" data-s="${ev.abs}" fill="#111"`;
-    const nm = base >= 192 ? 'restWhole' : base >= 96 ? 'restHalf' : base >= 48 ? 'restQuarter' : base >= 24 ? 'rest8th' : base >= 12 ? 'rest16th' : 'rest32nd';
-    // 全休符は第4線（上から2本目）からぶら下がる。ほかは中央の線
-    const y = nm === 'restWhole' ? yOf(6) : yOf(4);
+    const nm = restName(base);
+    // 全休符は第4線（上から2本目）からぶら下がる。ほかは中央の線（連桁とぶつかるときは dpos だけずらす）
+    const y = nm === 'restWhole' ? yOf(6) : yOf(4 + dpos);
     o.push(G(nm, x - GW(nm) / 2, y, data));
-    if (ev.dot) o.push(G('augmentationDot', x + GW(nm) / 2 + 3, yOf(5)));
+    if (ev.dot) o.push(G('augmentationDot', x + GW(nm) / 2 + 3, yOf(5 + dpos)));
+  }
+  // 連桁の中の休符：連桁にぶつからないよう、線の位置（1間ずつ）で上か下へずらす
+  function restShift(R, drawn) {
+    const pos = R.ev.pos;
+    let prev = null;
+    let next = null;
+    for (const d of drawn) { if (d.ev.pos < pos) prev = d; else if (d.ev.pos > pos && !next) next = d; }
+    if (!prev || !next || !prev.bg || prev.bg !== next.bg || !prev.bg.yAt) return 0;
+    const g = prev.bg;
+    let lv = 1;
+    while (lv < 3 && prev.flags > lv && next.flags > lv) lv++;
+    const bb = (Glyphs.g[restName(R.ev.base)] || {}).bbox || [0, -1, 1, 1];
+    const by = g.yAt(R.x);
+    const y0 = R.yOf(4);
+    let dpos = 0;
+    for (let k = 0; k < 12; k++) {
+      const y = y0 + (dpos * -SP) / 2;
+      if (g.up ? y + bb[1] * SP >= by + (lv - 1) * 6 + 4 + 3 : y + bb[3] * SP <= by - (lv - 1) * 6 - 4 - 3) break;
+      dpos += g.up ? -2 : 2;
+    }
+    return dpos;
   }
   // 符尾は符頭のはし（Bravura の stemUpSE / stemDownNW）
   const stemX = (d) => (d.up ? d.x + 4.25 : d.x - 4.25);
@@ -1280,6 +1327,8 @@ const Notation = (() => {
         off = up ? Math.min(off, need - lineY) : Math.max(off, need - lineY);
       }
       const by = (d) => off + slope * (stemX(d) - stemX(f));
+      g.up = up;
+      g.yAt = (X) => off + slope * (X - stemX(f));
       for (const d of g) o.push(`<line x1="${stemX(d)}" x2="${stemX(d)}" y1="${up ? d.yOf(d.lo) - 1.3 : d.yOf(d.hi) + 1.3}" y2="${by(d)}" stroke="#111" stroke-width="1"/>`);
       const beam = (xa, xz, lvl) => {
         const dy = (up ? 1 : -1) * (lvl - 1) * 6;
