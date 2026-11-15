@@ -3891,8 +3891,28 @@ function exportMscz() {
   download(makeZip([{ name: 'META-INF/container.xml', data: enc.encode(cont) }, { name: 'score.mscx', data: enc.encode(xml) }]), safeName() + '.mscz');
   toast('MuseScore のファイル（.mscz）を書き出しました');
 }
+// 2つのパートを1段にまとめる（印刷の画面だけ）：「1つ上のパートと1段に」にしたパートは、上のパートの声部2として書く
+function combineParts(o) {
+  const S = scoreSettings();
+  const cb = S.combine || {};
+  const out = [];
+  const outT = [];
+  o.parts.forEach((p, i) => {
+    const prev = out[out.length - 1];
+    if (cb[p.id] && prev && !prev.perc && !p.perc && prev.clef !== 'grand' && !prev._comb) {
+      const nm = (a, z) => { const m = /^(.*?)\s*(Ⅰ|Ⅱ|Ⅲ|1|2|3|１|２|３)$/.exec(a); const m2 = /^(.*?)\s*(Ⅰ|Ⅱ|Ⅲ|1|2|3|１|２|３)$/.exec(z); return m && m2 && m[1] === m2[1] ? `${m[1]} ${m[2]}・${m2[2]}` : `${a}・${z}`; };
+      out[out.length - 1] = { ...prev, _comb: true, name: nm(prev.name, p.name), short: prev.short, notes: prev.notes.filter((n) => n.v !== 2).concat(p.notes.map((n) => ({ ...n, v: 2 }))), slurs: (prev.slurs || []).concat(p.slurs || []) };
+      return;
+    }
+    out.push(p);
+    outT.push(o.partTracks[i]);
+  });
+  o.parts = out;
+  o.partTracks = outT;
+  return o;
+}
 function scoreSvg(trackIds) {
-  const o = scoreOpts(trackIds, true);
+  const o = combineParts(scoreOpts(trackIds, true));
   const S0 = scoreSettings();
   o.hideEmpty = !!S0.orch && S0.hideEmpty !== false; // フルスコアは、休んでいる段をかくす（2段目から）
   let svg = Notation.render(o);
@@ -3949,6 +3969,7 @@ function openScore() {
     <h4>パート</h4>
     ${mel.map((t) => `<div class="scorepart">
       <label class="chk"><input type="checkbox" class="spart" value="${t.id}" ${scoreSel.has(t.id) ? 'checked' : ''}> ${I(TYPE_ICON[t.type])} ${escapeHtml(t.name)}</label>
+      ${t.type === 'melody' && mel.indexOf(t) > 0 && mel[mel.indexOf(t) - 1].type === 'melody' ? `<label class="chk" title="フルート1・2のように、1つ上のパートと同じ五線に書きます（上のパートはぼう上、このパートはぼう下）"><input type="checkbox" class="scomb" data-id="${t.id}" ${(S.combine || {})[t.id] ? 'checked' : ''}> 1つ上のパートと1段にまとめる</label>` : ''}
       ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="alto">ハ音記号（アルト・ビオラ）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
       <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="auto">自動</option><option value="0">なし（C・実音）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
       <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
@@ -3979,6 +4000,7 @@ function openScore() {
   side.querySelector('[data-k="tempoText"]').onchange = (e) => { edit(() => { song.tempoText = e.target.value.slice(0, 30); }, '速さのことば'); upd(); };
   side.querySelector('[data-k="pickup"]').onchange = (e) => { edit(() => { song.pickup = +e.target.value; }, '弱起'); upd(); };
   side.querySelectorAll('.spart').forEach((c) => (c.onchange = () => { c.checked ? scoreSel.add(c.value) : scoreSel.delete(c.value); upd(); }));
+  side.querySelectorAll('.scomb').forEach((el) => (el.onchange = () => { S.combine = { ...(S.combine || {}) }; if (el.checked) S.combine[el.dataset.id] = true; else delete S.combine[el.dataset.id]; upd(); autosaveSoon(); }));
   side.querySelectorAll('.sclef').forEach((el) => (el.onchange = () => { S.clefs[el.dataset.id] = el.value; upd(); autosaveSoon(); }));
   side.querySelectorAll('.strans').forEach((el) => (el.onchange = () => { if (el.value === 'auto') delete S.trans[el.dataset.id]; else S.trans[el.dataset.id] = +el.value; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); }));
   side.querySelectorAll('.slyr').forEach((el) => {

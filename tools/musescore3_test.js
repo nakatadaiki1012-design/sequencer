@@ -52,5 +52,17 @@ const SHOT = process.argv[2];
   r['元に戻す'] = await p.evaluate(() => { undo(); return JSON.stringify(track().clefChg || null); });
   await p.evaluate(() => { redo(); renderScoreEditNow(); });
   if (SHOT) { await p.waitForTimeout(200); await (await p.$('#scoreEditView svg')).screenshot({ path: SHOT + '_r3.png' }); }
+  // 2つのパートを1段に（フルート1・2）
+  r['1段にまとめる'] = await p.evaluate(() => {
+    loadSong({ v: 2, title: 'a2', bpm: 100, bars: 2, tracks: [{ type: 'melody', id: 'f1', name: 'フルート1', inst: 'flute', notes: [{ s: 0, p: 79, l: 192 }] }, { type: 'melody', id: 'f2', name: 'フルート2', inst: 'flute', notes: [{ s: 0, p: 72, l: 192 }] }, { type: 'melody', id: 'ob', name: 'オーボエ', inst: 'oboe', notes: [{ s: 0, p: 69, l: 192 }] }] }, { own: true });
+    openScore(); scoreSel = new Set(['f1', 'f2', 'ob']);
+    const before = (scoreSvg([...scoreSel]), Notation.lastLayout.systems[0].staves.length);
+    const box = document.querySelector('.scomb[data-id="f2"]'); box.checked = true; box.onchange();
+    scoreSvg([...scoreSel]);
+    const after = Notation.lastLayout.systems[0].staves.length;
+    const names = [...document.querySelectorAll('#scoreView .pname')].map((t) => t.textContent).join(',');
+    document.querySelector('#dlgScore').close();
+    return `${before}段→${after}段 ${names} いちばん上のパートにはチェックなし:${!document.querySelector('.scomb[data-id="f1"]')}`;
+  });
   r.errs = errs; console.log(JSON.stringify(r, null, 1)); await b.close();
 })();
