@@ -1487,3 +1487,17 @@ body.view-score #chordPalette { display: none !important; }
 .dynpop .dynb { font: italic bold 14px serif; min-width: 34px; }
 .dynpop .dplen { margin-left: 6px; }
 .dynpop .danger { color: #c92a2a; }
+
+/* 段組みのパネル */
+.laypop { position: fixed; z-index: 62; width: min(560px, calc(100vw - 8px)); padding: 8px 10px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; display: flex; flex-direction: column; gap: 7px; }
+.laypop[hidden] { display: none; }
+.laypop .lphead { display: flex; justify-content: space-between; align-items: center; }
+.laypop .lprow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.laypop .lprow > label { width: 7em; flex: none; color: var(--muted); font-size: 12px; }
+.laypop .lprow input[type=range] { flex: 1; min-width: 120px; }
+.laypop .lprow.off { opacity: .4; pointer-events: none; }
+.laypop .lpval { min-width: 7em; font-size: 12px; }
+.laypop p { margin: 0; }
+
+/* 楽譜を四角でかこんでえらぶ */
+#scoreEditView .scband { position: absolute; z-index: 4; pointer-events: none; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 3px; }

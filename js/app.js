@@ -4345,7 +4345,7 @@ function scoreOpts(trackIds, withDrums) {
     blankBars: parseBars(S.blank),
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
     chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; if (!c) return null; const segs = chordSegs(c, b).map((x) => ({ o: x.o, r: x.c.r, q: x.c.q, name: chordName(x.c) })); return { ...c, segs, ...(c.h && !c.x ? { hAt: chordHalf(b) } : {}) }; }) : null,
-    nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780,
+    nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
 }
@@ -4683,7 +4683,10 @@ function renderScoreEditNow() {
   const pi = scoreParts.indexOf(track());
   if (ui.sc.lyr && pi >= 0 && track().id === ui.sc.lyr.tid) o.lyrPart = track().id;
   o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel, color: C('--accent'), curLabel: ui.sc.input ? ((SC_DURS.find((d) => d[0] === ui.sc.dur) || [0, '', ''])[2] + (ui.sc.dot ? '.' : '') + (ui.sc.trip ? '³' : '')) : '' };
-  o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
+  // 段の幅：画面に合わせる・自分で決める（layout.scW）。横に1列（右へ進む）にもできる
+  const fitW = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
+  o.width = !isPhone && layout.scW ? layout.scW : fitW;
+  o.continuous = !isPhone && layout.scFlow === 'h';
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
   if (cpOn()) Object.assign(o, cpScoreMarks());
@@ -4705,6 +4708,15 @@ function renderScoreEditNow() {
       const y1 = sys.y1 * k;
       if (y0 < box.scrollTop) box.scrollTop = Math.max(0, y0 - 12);
       else if (y1 > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, Math.min(y0 - 12, y1 - box.clientHeight + 8));
+      // 横に長いとき（横に1列・段の幅を広げたとき）は、横にもスクロール
+      const B = sys.bars.find((bb) => bb.b === cb);
+      if (B && svg.getBoundingClientRect().width > box.clientWidth + 4) {
+        const kx = svg.getBoundingClientRect().width / L.width;
+        const ox = svg.getBoundingClientRect().left - box.getBoundingClientRect().left + box.scrollLeft;
+        const xa = B.x0 * kx + ox;
+        const xz = B.x1 * kx + ox;
+        if (xa < box.scrollLeft + 20 || xz > box.scrollLeft + box.clientWidth - 20) box.scrollLeft = Math.max(0, xa - box.clientWidth * 0.25);
+      }
     }
   }
   if (ui.sc.tup) setTimeout(() => scTupEnd(false), 0);
@@ -5601,6 +5613,61 @@ function chordPick(bar, o) {
   box.hidden = false;
   chordPickRender(true);
 }
+/* ---------- 段組み：1段の小節数・詰まり具合・段の幅・改行・横に1列（右へ進む） ---------- */
+function scLayoutPop(anchor) {
+  let box = $('#layPop');
+  if (!box) { box = document.createElement('div'); box.id = 'layPop'; box.className = 'laypop'; document.body.appendChild(box); }
+  if (!box.hidden && box._open) { box.hidden = true; box._open = false; return; }
+  const S = scoreSettings();
+  const render = () => {
+    const brk = Array.isArray(S.breaks) ? S.breaks : [];
+    const cb = barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1));
+    const has = brk.includes(cb);
+    const h = layout.scFlow === 'h';
+    const fitW = Math.round($('#scoreEditView').clientWidth - 8);
+    box.innerHTML = `<div class="lphead"><b>段組み</b><button class="mini close" data-x="close" aria-label="とじる">✕</button></div>
+      <div class="lprow"><label>ならべ方</label><span class="seg"><button class="mini ${h ? '' : 'on'}" data-flow="wrap" title="段をかえて、下へ進む（ふつうの楽譜）">改行して下へ</button><button class="mini ${h ? 'on' : ''}" data-flow="h" title="1つの長い段で、右へ進んでいく（フルスコアを見るときなど）">横に1列（右へ）</button></span></div>
+      <div class="lprow ${h ? 'off' : ''}"><label>1段の小節数</label><span class="seg">${[0, 2, 3, 4, 5, 6, 8].map((n) => `<button class="mini ${(+S.perLine || 0) === n ? 'on' : ''}" data-per="${n}">${n ? n : '自動'}</button>`).join('')}</span></div>
+      <div class="lprow"><label>詰まり具合</label><small>つめる</small><input type="range" id="lpSpc" min="0.5" max="2" step="0.05" value="${+S.spacing || 1}"><small>ゆったり</small><button class="mini" data-spc="1" title="ふつうにもどす">ふつう</button></div>
+      <div class="lprow ${h ? 'off' : ''}"><label>段の幅</label><input type="range" id="lpW" min="420" max="${Math.max(2400, fitW)}" step="10" value="${layout.scW || fitW}"><span class="lpval">${layout.scW ? layout.scW + 'px' : '画面に合わせる'}</span><button class="mini" data-w="fit">画面に合わせる</button></div>
+      <div class="lprow ${h ? 'off' : ''}"><label>改行</label><button class="mini ${has ? 'on' : ''}" data-brk="1" ${cb === 0 ? 'disabled' : ''} title="カーソルのある小節（${cb + 1}小節）の前で、段をかえる">${has ? '✓ ' : ''}${cb + 1}小節の前で改行</button>${brk.length ? `<button class="mini" data-brk="clear">改行をぜんぶ消す（${brk.length}）</button>` : ''}</div>
+      <p class="muted small">印刷・PDF の楽譜にも、1段の小節数・詰まり具合・改行が使われます。</p>`;
+    box.querySelector('[data-x="close"]').onclick = () => { box.hidden = true; box._open = false; };
+    box.querySelectorAll('[data-flow]').forEach((b) => (b.onclick = () => { layout.scFlow = b.dataset.flow === 'h' ? 'h' : undefined; saveLayout(); ui.sc.scrollTo = true; renderScoreEdit(); render(); }));
+    box.querySelectorAll('[data-per]').forEach((b) => (b.onclick = () => { edit(() => { S.perLine = +b.dataset.per; }, '1段の小節数'); renderScoreEdit(); render(); }));
+    const spc = box.querySelector('#lpSpc');
+    let spSnap = null;
+    spc.onpointerdown = spc.onfocus = () => { spSnap = spSnap || snapshot(); };
+    spc.oninput = () => { S.spacing = +spc.value; renderScoreEdit(); };
+    spc.onchange = () => { if (spSnap && snapshot() !== spSnap) pushUndo(spSnap, '詰まり具合'); spSnap = null; changed(); };
+    box.querySelector('[data-spc]').onclick = () => { edit(() => { S.spacing = 1; }, '詰まり具合'); renderScoreEdit(); render(); };
+    const wr = box.querySelector('#lpW');
+    wr.oninput = () => { layout.scW = +wr.value; box.querySelector('.lpval').textContent = layout.scW + 'px'; renderScoreEdit(); };
+    wr.onchange = () => saveLayout();
+    box.querySelector('[data-w="fit"]').onclick = () => { delete layout.scW; saveLayout(); renderScoreEdit(); render(); };
+    box.querySelectorAll('[data-brk]').forEach((b) => (b.onclick = () => {
+      edit(() => {
+        if (b.dataset.brk === 'clear') { delete S.breaks; return; }
+        const list = new Set(Array.isArray(S.breaks) ? S.breaks : []);
+        if (list.has(cb)) list.delete(cb); else list.add(cb);
+        S.breaks = [...list].sort((x, y) => x - y);
+        if (!S.breaks.length) delete S.breaks;
+      }, '改行');
+      renderScoreEdit();
+      render();
+    }));
+  };
+  render();
+  box.hidden = false;
+  box._open = true;
+  box._render = render;
+  const r = anchor.getBoundingClientRect();
+  box.style.left = clamp(r.left - 100, 4, innerWidth - box.offsetWidth - 4) + 'px';
+  box.style.top = clamp(r.bottom + 6, 4, innerHeight - box.offsetHeight - 4) + 'px';
+  const outside = (ev) => { if (box.hidden) { document.removeEventListener('pointerdown', outside, true); return; } if (!box.contains(ev.target) && ev.target !== anchor && !(ev.target.closest && ev.target.closest('#scoreEditView'))) { document.removeEventListener('pointerdown', outside, true); box.hidden = true; box._open = false; } };
+  setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+}
+
 /* ---------- 曲名・サブタイトル・作詞・作曲を、楽譜の上で書きかえる（作詞・作曲などは、いるときだけ足す） ---------- */
 function titleEdit(want) {
   let box = $('#titleEd');
@@ -5814,7 +5881,7 @@ function renderScorePal() {
       <span class="grp"><button class="mini" id="scLyr" title="歌詞・キー L">あ 歌詞</button><button class="mini" id="scChd" title="コードネーム">C7 コード</button></span>
       <span class="grp"><button class="mini ${scVoice() === 2 ? 'on' : ''}" id="scVoice" title="声部（1段に2つのメロディ）：1＝上の声部（ぼう上）、2＝下の声部（ぼう下）。キー V">声部${scVoice()}</button><button class="mini" id="scBarSet" title="カーソルの小節から、テンポ・拍子・調を変える">拍子・調…</button></span>
       <span class="grp"><button class="mini icon" id="scCopyB" title="コピー（Ctrl+C）">${I('copy')}</button><button class="mini icon" id="scPasteB" title="貼りつけ（Ctrl+V）">${I('paste')}</button><button class="mini icon danger" id="scDel" title="消す（Delete）">${I('trash')}</button></span>
-      <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button></span>
+      <span class="grp"><button class="mini icon" id="scZoomOut" title="小さく">${I('minus')}</button><button class="mini icon" id="scZoomIn" title="大きく">${I('plus')}</button><button class="mini" id="scLayoutB" title="段組み：1段の小節数・詰まり具合・段の幅・改行・横に1列">段組み…</button></span>
       <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
@@ -5872,6 +5939,7 @@ function renderScorePal() {
   $('#scPasteB').onclick = scPaste;
   $('#scDel').onclick = scDelete;
   $('#scZoomIn').onclick = () => { ui.sc.zoom = Math.min(2, ui.sc.zoom + 0.15); renderScoreEdit(); };
+  $('#scLayoutB').onclick = (e) => scLayoutPop(e.currentTarget);
   $('#scZoomOut').onclick = () => { ui.sc.zoom = Math.max(0.6, ui.sc.zoom - 0.15); renderScoreEdit(); };
   renderScoreEdit();
 }
@@ -5948,6 +6016,67 @@ function scApplyDurToSel() {
       n.l = d;
     }
   }, '長さを変える');
+}
+// 楽譜を四角でかこんで、音符をまとめてえらぶ（何もない所からドラッグ。入力モードでは五線の外から）
+function scBandStart(e) {
+  if (e.pointerType === 'touch' && !ui.sc.rangeTap) return false;
+  const t = e.target;
+  if (t.closest && t.closest('.nh, .nhhit, .chd, .sctitle, .hp, .scpos')) return false;
+  const box = $('#scoreEditView');
+  const svg = box.querySelector('svg');
+  const L = box._layout;
+  if (!svg || !L) return false;
+  const r = svg.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (L.width / r.width);
+  const y = (e.clientY - r.top) * (L.height / r.height);
+  const h = Notation.hit(L, x, y);
+  if (ui.sc.input && h && h.pitch != null && !e.shiftKey) return false; // 入力モード：五線の上は、ふつうに音を置く
+  const br = box.getBoundingClientRect();
+  const x0 = e.clientX;
+  const y0 = e.clientY;
+  let band = null;
+  const add = e.shiftKey || e.ctrlKey || e.metaKey;
+  const rectOf = (ev) => ({ l: Math.min(x0, ev.clientX), r: Math.max(x0, ev.clientX), t: Math.min(y0, ev.clientY), b: Math.max(y0, ev.clientY) });
+  const mv = (ev) => {
+    if (!band) {
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      band = document.createElement('div');
+      band.className = 'scband';
+      box.appendChild(band);
+    }
+    ev.preventDefault();
+    const q = rectOf(ev);
+    Object.assign(band.style, { left: q.l - br.left + box.scrollLeft + 'px', top: q.t - br.top + box.scrollTop + 'px', width: q.r - q.l + 'px', height: q.b - q.t + 'px' });
+    // 画面のはしでは、自動でスクロール
+    if (ev.clientY > br.bottom - 20) box.scrollTop += 10; else if (ev.clientY < br.top + 20) box.scrollTop -= 10;
+  };
+  const up = (ev) => {
+    removeEventListener('pointermove', mv);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    if (!band) { scoreClick(e); return; }
+    band.remove();
+    const q = rectOf(ev);
+    const hits = [...box.querySelectorAll('.nh')].filter((el) => { const b = el.getBoundingClientRect(); const cx = (b.left + b.right) / 2; const cy = (b.top + b.bottom) / 2; return cx >= q.l && cx <= q.r && cy >= q.t && cy <= q.b; });
+    if (!hits.length) { toast('四角の中に音符がありませんでした'); return; }
+    // いくつかのパートにまたがるときは、いまのトラック（なければ、いちばん多いパート）
+    const count = {};
+    for (const el of hits) count[el.dataset.pi] = (count[el.dataset.pi] || 0) + 1;
+    const curPi = String(scoreParts.indexOf(track()));
+    const pi = count[curPi] ? curPi : Object.keys(count).sort((a, z) => count[z] - count[a])[0];
+    const tr = scoreParts[+pi];
+    if (tr && tr !== track()) selectTrack(song.tracks.indexOf(tr), false);
+    const keys = hits.filter((el) => el.dataset.pi === pi).map((el) => el.dataset.s + ':' + el.dataset.p);
+    ui.sc.sel = add ? new Set([...ui.sc.sel, ...keys]) : new Set(keys);
+    ui.sc.selByInput = false;
+    ui.sc.cursor = Math.min(...[...ui.sc.sel].map((k) => +k.split(':')[0]));
+    renderScoreEdit();
+    toast(`${ui.sc.sel.size}個の音をえらびました（スラー・クレッシェンド・コピー・Delete など）`);
+  };
+  addEventListener('pointermove', mv, { passive: false });
+  addEventListener('pointerup', up);
+  addEventListener('pointercancel', up);
+  return true;
 }
 function scoreClick(e) {
   const box = $('#scoreEditView');
@@ -6170,7 +6299,7 @@ function scoreKey(e) {
 }
 function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
-  $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; scoreClick(e); });
+  $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; if (scBandStart(e)) return; scoreClick(e); });
   // Ctrl＋ホイールで楽譜を大きく・小さく
   // 音符をドラッグしているあいだは、画面をスクロールさせない（タブレット）
   $('#scoreEditView').addEventListener('touchmove', (e) => { if (ui.sc && ui.sc.dragging) e.preventDefault(); }, { passive: false });

@@ -290,8 +290,9 @@ const Notation = (() => {
     // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
     const FING = opts.finger ? FINGERING[opts.finger] : null;
     const scale = opts.scale || 1;
-    const OUTW = opts.width || 780;
-    const width = OUTW / scale;
+    let OUTW = opts.width || 780;
+    let width = OUTW / scale;
+    const SPC = Math.max(0.4, Math.min(2.5, +opts.spacing || 1)); // 小節の詰まり具合（小さい＝つめる）
     // 小節の表（途中で拍子・調が変わってもよい）
     const GEO = opts.geo || { starts: Array.from({ length: bars + 1 }, (_, i) => i * barTicks), meters: Array(bars).fill(meter), keys: Array(bars).fill({ key, minor }) };
     const bS = (b) => GEO.starts[Math.max(0, Math.min(bars, b))];
@@ -445,7 +446,7 @@ const Notation = (() => {
         const a = need.get(ticks[i]) || { w: 0 };
         const z = need.get(ticks[i + 1]) || { w: 0, acc: false };
         // 音の長さに合った間隔・歌詞が重ならない間隔・臨時記号の分
-        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]), (a.w + z.w) / 2 + 5) + (z.acc ? 9 : 0) + (z.pre || 0));
+        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]) * SPC, (a.w + z.w) / 2 + 5) + (z.acc ? 9 : 0) + (z.pre || 0));
       }
       const nat = 14 + chgRoom + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
       barInfo.push({ ticks, segW, nat, accRoom, chgRoom, keyChg, mChg, clefChg });
@@ -502,41 +503,55 @@ const Notation = (() => {
         }
       }
     }
+    // 段組み：自分で入れた改行（breaks）ごとに区切って、その中で1段に入る小節を決める
     const lines = [];
-    let b = 0;
-    while (b < bars) {
-      const avail = width - left - headW(lines.length === 0) - 10;
-      let n = 0;
-      let w = 0;
-      if (opts.perLine) n = Math.min(opts.perLine, bars - b);
-      else {
-        while (b + n < bars && (n === 0 || barInfo[b + n].hide || w + barInfo[b + n].nat <= avail)) { w += barInfo[b + n].nat; n++; }
-      }
-      lines.push([b, b + n]);
-      b += n;
-    }
-    if (!opts.perLine && lines.length > 1) {
-      // 1段ごとの量を平均にそろえて、もう一度わける
-      const total = barInfo.reduce((a, x) => a + x.nat, 0);
-      const target = total / lines.length;
-      const availOf = (i) => width - left - headW(i === 0) - 10;
-      const even = [];
-      let bb = 0;
-      while (bb < bars) {
+    const forced = [...new Set((opts.breaks || []).map(Number).filter((x) => x > 0 && x < bars))].sort((x, y) => x - y);
+    const chunk = (a, z) => {
+      const loc = [];
+      let b = a;
+      while (b < z) {
+        const avail = width - left - headW(lines.length + loc.length === 0) - 10;
         let n = 0;
         let w = 0;
-        while (bb + n < bars && (n === 0 || barInfo[bb + n].hide || (w + barInfo[bb + n].nat <= Math.min(availOf(even.length), target * 1.12) && even.length < lines.length - 1) || (even.length === lines.length - 1 && w + barInfo[bb + n].nat <= availOf(even.length)))) { w += barInfo[bb + n].nat; n++; }
-        even.push([bb, bb + n]);
-        bb += n;
+        if (opts.perLine) n = Math.min(opts.perLine, z - b);
+        else {
+          while (b + n < z && (n === 0 || barInfo[b + n].hide || w + barInfo[b + n].nat <= avail)) { w += barInfo[b + n].nat; n++; }
+        }
+        loc.push([b, b + n]);
+        b += n;
       }
-      if (even.length <= lines.length) lines.splice(0, lines.length, ...even);
+      if (!opts.perLine && loc.length > 1) {
+        // 1段ごとの量を平均にそろえて、もう一度わける
+        const total = barInfo.slice(a, z).reduce((q, x) => q + x.nat, 0);
+        const target = total / loc.length;
+        const availOf = (i) => width - left - headW(lines.length + i === 0) - 10;
+        const even = [];
+        let bb = a;
+        while (bb < z) {
+          let n = 0;
+          let w = 0;
+          while (bb + n < z && (n === 0 || barInfo[bb + n].hide || (w + barInfo[bb + n].nat <= Math.min(availOf(even.length), target * 1.12) && even.length < loc.length - 1) || (even.length === loc.length - 1 && w + barInfo[bb + n].nat <= availOf(even.length)))) { w += barInfo[bb + n].nat; n++; }
+          even.push([bb, bb + n]);
+          bb += n;
+        }
+        if (even.length <= loc.length) loc.splice(0, loc.length, ...even);
+        const L = loc[loc.length - 1];
+        const P = loc[loc.length - 2];
+        if (P && L[1] - L[0] === 1 && P[1] - P[0] >= 3 && !barInfo[L[0]].hide && !barInfo[L[0] - 1].hide && !barInfo[L[0] - 1].mm) { P[1]--; L[0]--; }
+      }
+      lines.push(...loc);
+    };
+    if (opts.continuous) {
+      // 横に1列（右へ進んでいく）：段の幅を、小節の長さの合計にする
+      lines.push([0, bars]);
+      width = left + headW(true) + 10 + barInfo.reduce((q, x) => q + x.nat, 0) + 12;
+      OUTW = width * scale;
+    } else {
+      const cuts = [0, ...forced, bars];
+      for (let c = 0; c < cuts.length - 1; c++) chunk(cuts[c], cuts[c + 1]);
     }
 
-    if (!opts.perLine && lines.length > 1) {
-      const L = lines[lines.length - 1];
-      const P = lines[lines.length - 2];
-      if (L[1] - L[0] === 1 && P[1] - P[0] >= 3 && !barInfo[L[0]].hide && !barInfo[L[0] - 1].hide && !barInfo[L[0] - 1].mm) { P[1]--; L[0]--; }
-    }
+
     const chordRow = chords && chords.some(Boolean) ? 16 : 0;
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
     const anyReh = !!(opts.rehearsal && Object.keys(opts.rehearsal).some((k) => +k < bars));
