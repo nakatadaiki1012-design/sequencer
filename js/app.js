@@ -1547,7 +1547,7 @@ function resizeEditor() {
   const rows = rowsFor(tr);
   const spacer = $('#spacer');
   spacer.style.width = LW + totalTicks() * ppt() + 60 + 'px';
-  spacer.style.height = RH + rows.length * rowH(tr) + 4 + 'px';
+  spacer.style.height = RH + rows.length * rowH(tr) + 4 + (dynLaneOn(tr) ? DYN_LANE_H : 0) + 'px';
   fitCanvas(cv, wrap);
 }
 function fitCanvas(c, wrap) {
@@ -1974,7 +1974,126 @@ function draw(playPos) {
     g2.fillStyle = 'rgba(0,0,0,.08)';
     g2.fillRect(LW, RH, W - LW, H - RH);
   }
+  updateDynLane(tr, X, k, t0, t1);
 }
+
+/* ---------- 強弱のレーン（マス目の下）：強弱記号とクレッシェンドを見せる・おして入れる・はしをドラッグで長さ ---------- */
+const DYN_LANE_H = 30;
+function dynLaneOn(tr) { return !!tr && tr.type === 'melody' && ui.view !== 'score' && !isPhone && ui.dynLane !== false; }
+function updateDynLane(tr, X, k, t0, t1) {
+  let lane = $('#dynLane');
+  if (!lane) {
+    lane = document.createElement('div');
+    lane.id = 'dynLane';
+    lane.className = 'dynlane';
+    $('#editorWrap').appendChild(lane);
+    lane.addEventListener('pointerdown', dynLaneDown);
+  }
+  if (!dynLaneOn(tr)) { lane.hidden = true; return; }
+  lane.hidden = false;
+  lane.style.left = LW + 'px';
+  const key = [version, tr.id, Math.round(X(0)), k, t0, t1].join('|');
+  if (lane._key === key) return;
+  lane._key = key;
+  lane._X = X;
+  lane._k = k;
+  const parts = [`<span class="dlbl">強弱</span>`];
+  (tr.hairpins || []).forEach((hp, i) => {
+    if (hp.e < t0 || hp.s > t1) return;
+    const xa = X(hp.s) - LW;
+    const w = Math.max(10, (hp.e - hp.s) * k);
+    const up = hp.type === 'cresc';
+    parts.push(`<div class="dlhp" data-i="${i}" style="left:${xa}px;width:${w}px" title="${up ? 'クレッシェンド（だんだん強く）' : 'デクレッシェンド（だんだん弱く）'}・おすと長さを変える・右はしをドラッグ"><svg viewBox="0 0 100 20" preserveAspectRatio="none"><path d="${up ? 'M100 2 L2 10 L100 18' : 'M2 2 L98 10 L2 18'}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><i class="dlend" data-i="${i}"></i></div>`);
+  });
+  (tr.dyn || []).forEach((d, i) => {
+    if (d.t < t0 - 48 || d.t > t1) return;
+    parts.push(`<button class="dldyn" data-i="${i}" style="left:${X(d.t) - LW - 2}px" title="強弱記号 ${d.v}（おすと変える）">${d.v}</button>`);
+  });
+  lane.innerHTML = parts.join('');
+}
+function dynLaneTick(e) {
+  const lane = $('#dynLane');
+  const r = lane.getBoundingClientRect();
+  const sc = $('#scroller');
+  const t = (e.clientX - r.left + sc.scrollLeft) / ppt();
+  const g = Math.max(6, Math.min(ui.grid || 24, 48));
+  return clamp(Math.round(t / g) * g, 0, totalTicks() - 1);
+}
+function dynLaneDown(e) {
+  const tr = track();
+  if (tr.type !== 'melody') return;
+  if (locked(tr)) return toast('このトラックはロックされています');
+  e.preventDefault();
+  e.stopPropagation();
+  const end = e.target.closest('.dlend');
+  if (end) {
+    // クレッシェンドの右はしをドラッグして長さを変える
+    const i = +end.dataset.i;
+    const hp = tr.hairpins[i];
+    const snap = snapshot();
+    const mv = (ev) => { const t = dynLaneTick(ev); hp.e = Math.max(hp.s + 6, t); version++; draw(); showLenTip(ev, hp); };
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); posTipHide(); if (snapshot() !== snap) pushUndo(snap, 'クレッシェンドの長さ'); changed(); };
+    addEventListener('pointermove', mv);
+    addEventListener('pointerup', up);
+    return;
+  }
+  const hpEl = e.target.closest('.dlhp');
+  if (hpEl) return dynPop(tr, tr.hairpins[+hpEl.dataset.i].s, e.clientX, e.clientY, { hp: +hpEl.dataset.i });
+  const dEl = e.target.closest('.dldyn');
+  if (dEl) return dynPop(tr, tr.dyn[+dEl.dataset.i].t, e.clientX, e.clientY, {});
+  dynPop(tr, dynLaneTick(e), e.clientX, e.clientY, {});
+}
+function hpLenLabel(hp) {
+  const b = barOf(hp.s);
+  const L = hp.e - hp.s;
+  const bl = barLen(b);
+  const bs = beatAt(b);
+  if (L % bl === 0) return `${L / bl}小節`;
+  if (L > bl && (L % bl) % bs === 0) return `${Math.floor(L / bl)}小節と${(L % bl) / bs}拍`;
+  if (L % bs === 0) return `${L / bs}拍`;
+  return `${Math.round((L / bs) * 10) / 10}拍`;
+}
+function showLenTip(e, hp) { posTip(e, hp.e, 'おわり'); const tip = $('#posTip'); if (tip) tip.insertAdjacentHTML('beforeend', ` <small>（長さ ${hpLenLabel(hp)}）</small>`); }
+// 強弱記号・クレッシェンドの小さなパネル（マス目のレーンと楽譜の両方から使う）
+function dynPop(tr, t, cx, cy, focus) {
+  let box = $('#dynPop');
+  if (!box) { box = document.createElement('div'); box.id = 'dynPop'; box.className = 'dynpop'; document.body.appendChild(box); }
+  const S = { t, hp: focus.hp != null ? focus.hp : null };
+  const render = () => {
+    const cur = (tr.dyn || []).find((d) => d.t === S.t);
+    const hp = S.hp != null ? tr.hairpins[S.hp] : null;
+    const b = barOf(S.t);
+    const bs = beatAt(b);
+    const bl = barLen(b);
+    const lens = [[bs, '1拍'], [bs * 2, '2拍'], [bl, '1小節'], [bl * 2, '2小節'], [bl * 4, '4小節']];
+    box.innerHTML = `<div class="dphead"><b>${beatPos(hp ? hp.s : S.t).head}</b><button class="mini close" data-x="close" aria-label="とじる">✕</button></div>
+      ${hp ? `<div class="dprow"><span class="seg"><button class="mini ${hp.type === 'cresc' ? 'on' : ''}" data-ty="cresc">＜ cresc.</button><button class="mini ${hp.type === 'dim' ? 'on' : ''}" data-ty="dim">＞ dim.</button></span><span class="dplen">長さ <b>${hpLenLabel(hp)}</b></span></div>
+        <div class="dprow">${lens.map(([v, n]) => `<button class="mini ${hp.e - hp.s === v ? 'on' : ''}" data-len="${v}">${n}</button>`).join('')}<button class="mini" data-nudge="-1" title="少し短く（1拍）">◀</button><button class="mini" data-nudge="1" title="少し長く（1拍）">▶</button><button class="mini danger" data-delhp="1">消す</button></div>`
+      : `<div class="dprow">${['pp', 'p', 'mp', 'mf', 'f', 'ff', 'sf'].map((v) => `<button class="mini dynb ${cur && cur.v === v ? 'on' : ''}" data-v="${v}">${v}</button>`).join('')}${cur ? '<button class="mini danger" data-v="">消す</button>' : ''}</div>
+        <div class="dprow"><button class="mini" data-new="cresc" title="ここから、だんだん強く">＜ cresc.</button><button class="mini" data-new="dim" title="ここから、だんだん弱く">＞ dim.</button><span class="muted small">をここから入れる</span></div>`}`;
+    box.querySelector('[data-x="close"]').onclick = dynPopClose;
+    box.querySelectorAll('[data-v]').forEach((x) => (x.onclick = () => { const v = x.dataset.v; edit(() => { tr.dyn = (tr.dyn || []).filter((d) => d.t !== S.t); if (v) tr.dyn.push({ t: S.t, v }); tr.dyn.sort((a, z) => a.t - z.t); }, '強弱記号'); renderScoreEdit(); dynPopClose(); }));
+    box.querySelectorAll('[data-new]').forEach((x) => (x.onclick = () => {
+      const len = ui.hpLen || bl;
+      edit(() => { tr.hairpins = tr.hairpins || []; tr.hairpins.push({ s: S.t, e: Math.min(totalTicks(), S.t + len), type: x.dataset.new }); }, x.dataset.new === 'cresc' ? 'クレッシェンド' : 'デクレッシェンド');
+      S.hp = tr.hairpins.length - 1;
+      renderScoreEdit();
+      render();
+    }));
+    box.querySelectorAll('[data-ty]').forEach((x) => (x.onclick = () => { edit(() => { tr.hairpins[S.hp].type = x.dataset.ty; }, 'クレッシェンド'); renderScoreEdit(); render(); }));
+    box.querySelectorAll('[data-len]').forEach((x) => (x.onclick = () => { const v = +x.dataset.len; ui.hpLen = v; edit(() => { const h = tr.hairpins[S.hp]; h.e = Math.min(totalTicks(), h.s + v); }, 'クレッシェンドの長さ'); renderScoreEdit(); render(); }));
+    box.querySelectorAll('[data-nudge]').forEach((x) => (x.onclick = () => { edit(() => { const h = tr.hairpins[S.hp]; h.e = clamp(h.e + +x.dataset.nudge * beatAt(barOf(h.s)), h.s + 6, totalTicks()); }, 'クレッシェンドの長さ'); renderScoreEdit(); render(); }));
+    const dh = box.querySelector('[data-delhp]');
+    if (dh) dh.onclick = () => { edit(() => { tr.hairpins.splice(S.hp, 1); }, 'クレッシェンドを消す'); renderScoreEdit(); dynPopClose(); };
+  };
+  render();
+  box.hidden = false;
+  box.style.left = clamp(cx - 20, 4, innerWidth - box.offsetWidth - 4) + 'px';
+  box.style.top = clamp(cy - box.offsetHeight - 14, 4, innerHeight - box.offsetHeight - 4) + 'px';
+  const outside = (ev) => { if (box.hidden) { document.removeEventListener('pointerdown', outside, true); return; } if (!box.contains(ev.target)) { document.removeEventListener('pointerdown', outside, true); dynPopClose(); } };
+  setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+}
+function dynPopClose() { const box = $('#dynPop'); if (box) box.hidden = true; }
 
 /* ============================================================
    エディタの操作（クリック・ドラッグ）
@@ -4532,6 +4651,7 @@ function gridShowCursor() {
 }
 function setView(v) {
   if (ui.chd && typeof chordPickClose === 'function') chordPickClose();
+  if (typeof dynPopClose === 'function') dynPopClose();
   if (v !== ui.view) viewHandoff(v);
   ui.view = v;
   document.body.classList.toggle('view-score', v === 'score');
@@ -5050,7 +5170,17 @@ function scHairpin(type) {
   const tr = scEditable();
   if (!tr) return;
   const r = selRange(tr);
-  if (!r || r.s === r.e) return toast('クレッシェンドをかける音符を2つ以上えらんでください（Shift＋クリック）');
+  if (!r || r.s === r.e) {
+    // 音符が1つ（または何もえらんでいない）：そこから決まった長さで入れて、長さをえらぶパネルを出す
+    const s0 = r ? r.s : ui.sc.cursor;
+    const len = ui.hpLen || barLen(barOf(s0));
+    edit(() => { tr.hairpins = (tr.hairpins || []).filter((x) => x.s !== s0); tr.hairpins.push({ s: s0, e: Math.min(totalTicks(), s0 + len), type }); }, type === 'cresc' ? 'クレッシェンド' : 'デクレッシェンド');
+    renderScoreEditNow();
+    const c = $('#scoreEditView rect.cursor');
+    const q = c ? c.getBoundingClientRect() : { left: innerWidth / 2, bottom: innerHeight / 2 };
+    dynPop(tr, s0, q.left, q.bottom + 160, { hp: tr.hairpins.length - 1 });
+    return;
+  }
   edit(() => { tr.hairpins = (tr.hairpins || []).filter((x) => x.e <= r.s || x.s >= r.end); tr.hairpins.push({ s: r.s, e: r.end, type }); }, type === 'cresc' ? 'クレッシェンド' : 'デクレッシェンド');
   renderScoreEdit();
 }
@@ -5827,6 +5957,14 @@ function scoreClick(e) {
   const r = svg.getBoundingClientRect();
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
+  // クレッシェンドをおすと、長さを変えるパネル
+  const hpe = e.target.closest && e.target.closest('.hp');
+  if (hpe) {
+    const ptr = scoreParts[+hpe.dataset.pi];
+    if (ptr && ptr !== track()) selectTrack(song.tracks.indexOf(ptr), false);
+    const hi = +hpe.dataset.i;
+    if (track().hairpins && track().hairpins[hi]) { dynPop(track(), track().hairpins[hi].s, e.clientX, e.clientY, { hp: hi }); return; }
+  }
   // 曲名・作詞・作曲をおすと、その場で書きかえるパネル
   const ttl = e.target.closest && e.target.closest('.sctitle');
   if (ttl) { titleEdit(ttl.classList.contains('scadd') ? 'credit' : null); return; }

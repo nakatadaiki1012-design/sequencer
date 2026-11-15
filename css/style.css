@@ -1465,3 +1465,25 @@ body.phone .floatbtn { display: none; }
 
 /* 楽譜の画面では、マス目用のコードの板はかくす（楽譜の上のパネルで入れる） */
 body.view-score #chordPalette { display: none !important; }
+
+/* 強弱のレーン（マス目の下） */
+.dynlane { position: absolute; right: 0; bottom: 0; height: 30px; z-index: 3; background: color-mix(in srgb, var(--panel) 94%, transparent); border-top: 1px solid var(--border); overflow: hidden; cursor: copy; }
+.dynlane[hidden] { display: none; }
+.dynlane .dlbl { position: absolute; left: 4px; top: 8px; font-size: 10px; color: var(--muted); pointer-events: none; }
+.dynlane .dldyn { position: absolute; top: 4px; height: 22px; padding: 0 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font: italic bold 14px serif; cursor: pointer; }
+.dynlane .dldyn:hover { border-color: var(--accent); color: var(--accent); }
+.dynlane .dlhp { position: absolute; top: 5px; height: 20px; color: var(--text); cursor: pointer; }
+.dynlane .dlhp svg { display: block; width: 100%; height: 100%; }
+.dynlane .dlhp:hover { color: var(--accent); }
+.dynlane .dlend { position: absolute; z-index: 2; right: -5px; top: -2px; width: 10px; height: 24px; cursor: ew-resize; border-radius: 3px; }
+.dynlane .dlhp:hover .dlend { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+#scoreEditView .hp { cursor: pointer; }
+#scoreEditView .hp:hover { fill: color-mix(in srgb, var(--accent) 15%, transparent); }
+/* 強弱・クレッシェンドのパネル */
+.dynpop { position: fixed; z-index: 62; padding: 6px 8px 8px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; display: flex; flex-direction: column; gap: 5px; max-width: calc(100vw - 8px); }
+.dynpop[hidden] { display: none; }
+.dynpop .dphead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dynpop .dprow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dynpop .dynb { font: italic bold 14px serif; min-width: 34px; }
+.dynpop .dplen { margin-left: 6px; }
+.dynpop .danger { color: #c92a2a; }

@@ -1162,7 +1162,7 @@ const Notation = (() => {
             xx -= 5;
             for (const c of dy.v) { const nm = DYN_G[c]; if (!nm) continue; o.push(G(nm, xx, dynY + 2)); xx += GW(nm) * 0.92; }
           }
-          for (const hp of st.part.hairpins || []) {
+          for (const [hpi, hp] of (st.part.hairpins || []).entries()) {
             if (hp.e <= bS(b0) || hp.s >= bS(b1)) continue;
             const xa = hp.s >= bS(b0) ? tx(hp.s) + 18 : sys.bars[0].xs[0];
             const xz = hp.e < bS(b1) ? tx(hp.e) - 4 : xEnd - 6;
@@ -1172,6 +1172,7 @@ const Notation = (() => {
             const wa = open ? 0 : 5;
             const wz = open ? 5 : 0;
             o.push(`<path d="M${xz} ${yy - wz} L${xa} ${yy - wa} L${xz} ${yy + wz}" fill="none" stroke="#111" stroke-width="1.1"/>`);
+            if (edit) o.push(`<rect class="hp" data-i="${hpi}" data-pi="${st.pi}" x="${xa - 2}" y="${yy - 8}" width="${xz - xa + 4}" height="16" fill="transparent"/>`);
             if (!open) o.push(`<path d="M${xa} ${yy - wa} L${xz} ${yy}" fill="none" stroke="none"/>`);
           }
         }
