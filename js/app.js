@@ -2866,6 +2866,7 @@ function selectTrack(i, redraw = true) {
   draw();
   drawOverview();
   if (ui.showScore) renderScorePanel();
+  if (ui.view === 'score') { renderScorePal(); renderScoreEdit(); }
 }
 // 「◯小節目から変える」（テンポ・拍子・調・D.C.など）
 const JUMPS = [
@@ -4193,7 +4194,7 @@ function scoreOpts(trackIds, withDrums) {
       }
       // コード伴奏を、ピアノの大譜表の楽譜にする
       const notes = chordEvents(t).map((n) => ({ s: n.s, p: n.p, l: Math.max(24, Math.ceil(n.l / 24 - 0.05) * 24) })); // 楽譜ではきりのよい長さに
-      parts.push({ id: t.id, name: t.name + '（伴奏）', short: 'Pf.', family: S.orch ? 'kb' : '', notes, clef: 'grand', gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: /伴奏/.test(t.name) ? t.name : t.name + '（伴奏）', short: 'Pf.', family: S.orch ? 'kb' : '', notes, clef: 'grand', gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     }
   }
@@ -4447,7 +4448,8 @@ function renderScorePanel() {
   const el = $('#scorePanel');
   if (!ui.showScore) { el.hidden = true; return; }
   el.hidden = false;
-  $('#scorePanelBody').innerHTML = tr.type === 'melody' || tr.type === 'drum' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディかリズムのトラックを選ぶと、ここに楽譜が出ます</p>';
+  const accOn = tr.type === 'chord' && scoreSettings().accomp && tr.chords.some(Boolean);
+  $('#scorePanelBody').innerHTML = tr.type === 'melody' || tr.type === 'drum' || accOn ? scoreSvg([tr.id]) : tr.type === 'chord' ? '<p class="muted" style="padding:8px">楽譜の画面で、コード伴奏の書き方を「スラッシュ」か「ピアノ譜」にすると、ここにも楽譜が出ます</p>' : '<p class="muted" style="padding:8px">メロディかリズムのトラックを選ぶと、ここに楽譜が出ます</p>';
   const nm = $('#scorePanelName');
   if (nm) nm.textContent = tr.name;
 }
@@ -4482,7 +4484,8 @@ function scKeyAcc(tr = 0) {
 }
 function scEditable() {
   const tr = track();
-  if (tr.type !== 'melody') { toast('楽譜で書けるのはメロディのトラックです（リズム・コードはマス目で）'); return null; }
+  if (tr.type === 'chord') { toast('コードは「C7 コードを入れる」（Ctrl+K）か、楽譜のコード名・伴奏の段をおして入れます'); return null; }
+  if (tr.type !== 'melody') { toast('楽譜で書けるのはメロディのトラックです（リズムはマス目で）'); return null; }
   if (locked(tr)) { toast('このトラックはロックされています'); return null; }
   return tr;
 }
@@ -5685,6 +5688,28 @@ function renderScorePal() {
       <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
+  // コード伴奏：楽譜での書き方をえらぶ（コード名だけ・スラッシュ・ピアノ譜）。コードのトラックをえらんでいるときは、いちばん上に
+  const ct = chordTrackOf();
+  if (ct) {
+    const S = scoreSettings();
+    const cur = S.accomp ? (S.accompStyle === 'slash' ? 'slash' : 'grand') : 'none';
+    const sel = track().type === 'chord';
+    const row = `<div class="prow accrow ${sel ? 'on' : ''}">${sel ? `<b class="accttl">${I('piano')}${escapeHtml(ct.name)}</b><button class="mini accent" id="scChdIn" title="コードを入れる（Ctrl+K）・楽譜のコード名や伴奏の段をおしても入れられます">C7 コードを入れる</button>` : ''}
+      <span class="muted small">${sel ? '楽譜での書き方' : 'コード伴奏の楽譜'}</span>
+      <span class="seg" id="scAcc"><button class="mini ${cur === 'none' ? 'on' : ''}" data-a="none" title="五線の上にコードネームだけ書く（メロディ譜・リードシート）">コード名だけ</button><button class="mini ${cur === 'slash' ? 'on' : ''}" data-a="slash" title="拍ごとに「／」とコードネーム（ギター・バンドの楽譜）">スラッシュ</button><button class="mini ${cur === 'grand' ? 'on' : ''}" data-a="grand" title="伴奏をピアノの楽譜（大譜表）にする">ピアノ譜</button></span></div>`;
+    if (sel) pal.insertAdjacentHTML('afterbegin', row);
+    else pal.querySelectorAll('.prow')[1].insertAdjacentHTML('beforeend', row.replace('class="prow accrow ', 'class="accrow inline '));
+    pal.querySelectorAll('#scAcc [data-a]').forEach((b) => (b.onclick = () => {
+      const a = b.dataset.a;
+      edit(() => { const S2 = scoreSettings(); S2.accomp = a !== 'none'; if (a !== 'none') S2.accompStyle = a; }, 'コード伴奏の楽譜');
+      if (a !== 'none' && typeof scoreSel !== 'undefined' && scoreSel) scoreSel.add(ct.id);
+      renderScorePal();
+      renderScoreEdit();
+      toast(a === 'none' ? 'コードネームだけを書きます' : a === 'slash' ? 'コード伴奏を、スラッシュの楽譜で書きます' : 'コード伴奏を、ピアノの楽譜（大譜表）で書きます');
+    }));
+    const ci = $('#scChdIn');
+    if (ci) ci.onclick = () => scChord();
+  }
   // パレットをたたむ（1行だけ：入力・長さ・休符・ドレミ・♯♭）。画面が低いときは、はじめからたたむ
   if (ui.sc.compact == null) ui.sc.compact = lsGet('otsumiki-scpal', innerHeight < 860 && !isPhone ? '1' : '0') === '1';
   pal.classList.toggle('compact', ui.sc.compact);
@@ -5814,6 +5839,7 @@ function scoreClick(e) {
     if (tr && tr !== track()) { selectTrack(song.tracks.indexOf(tr), false); }
     const s0 = +nh.dataset.s;
     const p0 = +nh.dataset.p;
+    if (track().type === 'chord') { const b = barOf(s0); chordPick(b, Math.floor((s0 - barStart(b)) / beatAt(b)) * beatAt(b)); return; }
     if (track().type !== 'melody') { ui.sc.cursor = s0; renderScoreEdit(); return; }
     if ((e.shiftKey || ui.sc.rangeTap) && ui.sc.sel.size) {
       const ss = [...ui.sc.sel].map((k) => +k.split(':')[0]);
@@ -5838,6 +5864,8 @@ function scoreClick(e) {
   if (!h) return;
   const tr = scoreParts[h.pi];
   if (tr && tr !== track()) selectTrack(song.tracks.indexOf(tr), false);
+  // コード伴奏の段をおしたら、その小節・拍のコードを入れるパネル
+  if (track().type === 'chord') { const bs = beatAt(h.bar); chordPick(h.bar, Math.max(0, Math.floor((h.tick - barStart(h.bar)) / bs) * bs)); return; }
   const bt = barTicks();
   const unit = Math.min(scDur(), ui.sc.trip ? scDur() : 24);
   const bStart = barStart(h.bar);

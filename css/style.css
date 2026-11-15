@@ -1455,3 +1455,13 @@ body.phone .ovmode { display: none; }
 .floating.scorepanel { display: block; }
 body.float-tracks #splitTracks, body.float-canvas #splitOv, body.float-score #splitScore { display: none; }
 body.phone .floatbtn { display: none; }
+
+/* 楽譜の画面：コード伴奏の書き方 */
+.scorepal .accrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.scorepal .accrow.on { padding: 4px 8px; margin-bottom: 2px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.scorepal .accrow.inline { display: inline-flex; margin-left: 4px; }
+.scorepal .accrow .accttl { display: inline-flex; align-items: center; gap: 4px; }
+.scorepal .accrow .mini { font-size: 12px; }
+
+/* 楽譜の画面では、マス目用のコードの板はかくす（楽譜の上のパネルで入れる） */
+body.view-score #chordPalette { display: none !important; }
