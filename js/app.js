@@ -3997,7 +3997,7 @@ function openScore() {
       ${t.type === 'melody' && TAB_INST[t.inst] ? `<label title="ギター・ウクレレ・ベースの、弦とフレットの数字の楽譜">TAB譜 <select class="stab" data-id="${t.id}"><option value="">なし</option><option value="both">五線＋TAB</option><option value="only">TABだけ</option></select></label>` : ''}
       ${t.type === 'melody' ? `<label>音部記号 <select class="sclef" data-id="${t.id}"><option value="auto">自動</option><option value="treble">ト音記号</option><option value="treble8">ト音記号（8つ下・テノール）</option><option value="alto">ハ音記号（アルト・ビオラ）</option><option value="bass">ヘ音記号</option><option value="grand">大譜表（ピアノ）</option></select></label>
       <label title="クラリネットやトランペットなど、楽譜の音と実際の音がちがう楽器用">移調楽器 <select class="strans" data-id="${t.id}"><option value="auto">自動</option><option value="0">なし（C・実音）</option><option value="2">in B♭（クラリネット・トランペット）</option><option value="9">in E♭（アルトサックス）</option><option value="7">in F（ホルン）</option><option value="14">in B♭（テナーサックス）</option></select></label>
-      <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。1音ずつ直すときは「楽譜で編集」で音符をえらんで「歌詞」。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
+      <label class="col">歌詞をまとめて入れる <small>1音に1文字ずつ（「きゃ」「っ」は前の字といっしょ。スペースは見やすくするだけ。2文字以上を1音にするときは（ ）。英語は単語ごと）。英語は「Hap-py」のようにハイフンで音節を分けられます。1音ずつ打つときは「楽譜で編集」で音符をえらんで L キー（スペースでつぎの音へ）。</small><textarea class="slyr" data-id="${t.id}" rows="2" placeholder="れい：さいたさいたチューリップのはなが">${escapeHtml(t.lyrics || t.notes.filter((n) => n.ly).sort((a, b) => a.s - b.s).map((n) => (n.ly.length > 1 && !/^[A-Za-z]/.test(n.ly) ? '(' + n.ly + ')' : n.ly)).join(' '))}</textarea></label>` : t.type === 'chord' ? '<small class="muted">上の「コード伴奏をピアノの楽譜にする」をオンにすると出ます</small>' : ''}
     </div>`).join('')}
     <p class="muted">くり返し記号・1番/2番かっこ・強弱記号などは「楽譜で編集」で入れられます。</p>`;
   side.querySelectorAll('[data-s]').forEach((el) => { el.value = String(S[el.dataset.s]); });
@@ -4213,6 +4213,7 @@ function renderScoreEditNow() {
   const o = scoreOpts(scoreEditIds(), true);
   scoreParts = o.partTracks;
   const pi = scoreParts.indexOf(track());
+  if (ui.sc.lyr && pi >= 0 && track().id === ui.sc.lyr.tid) o.lyrPart = track().id;
   o.edit = { part: pi, cursor: pi >= 0 ? ui.sc.cursor : null, sel: ui.sc.sel, color: C('--accent'), curLabel: ui.sc.input ? ((SC_DURS.find((d) => d[0] === ui.sc.dur) || [0, '', ''])[2] + (ui.sc.dot ? '.' : '') + (ui.sc.trip ? '³' : '')) : '' };
   o.width = isPhone ? Math.max(320, box.clientWidth - 8) : Math.max(560, box.clientWidth - 8);
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
@@ -4950,17 +4951,115 @@ function scRehearsal() {
   }, 'リハーサル記号');
   renderScoreEdit();
 }
+// 歌詞：楽譜の上で、そのまま打つ（MuseScore・Dorico と同じ）
+//   スペース・Tab＝つぎの音へ  -＝ハイフンでつないでつぎへ  Shift+スペース＝まえの音へ  Enter・Esc＝おわる
+function lyrOnsets(tr) { return [...new Set(tr.notes.filter((n) => n.v !== 2).map((n) => n.s))].sort((a, b) => a - b); }
+function lyrTop(tr, t) { return tr.notes.filter((n) => n.s === t && n.v !== 2).sort((a, b) => b.p - a.p)[0]; }
 function scLyric() {
   const tr = scEditable();
   if (!tr) return;
   const ns = selNotes(tr);
-  const t = ns.length ? Math.min(...ns.map((n) => n.s)) : ui.sc.cursor;
-  const top = tr.notes.filter((n) => n.s === t).sort((a, b) => b.p - a.p)[0];
-  if (!top) return toast('歌詞をつける音符をえらんでください');
-  const v = prompt('この音符の歌詞（空にすると消します）', top.ly || '');
-  if (v === null) return;
-  edit(() => { for (const n of tr.notes) if (n.s === t) delete n.ly; if (v.trim()) top.ly = v.trim(); }, '歌詞');
-  scMove(1, false);
+  const ons = lyrOnsets(tr);
+  const t = ns.length ? Math.min(...ns.map((n) => n.s)) : ons.find((x) => x >= ui.sc.cursor);
+  if (t == null || !lyrTop(tr, t)) return toast('歌詞をつける音符をえらんでください');
+  lyrOpen(t);
+}
+function lyrOpen(t) {
+  const tr = track();
+  const top = lyrTop(tr, t);
+  if (!top) return lyrClose();
+  ui.sc.lyr = { t, tid: tr.id };
+  ui.sc.cursor = t;
+  ui.sc.sel = new Set([t + ':' + top.p]);
+  ui.sc.selByInput = false;
+  let box = $('#lyrEd');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'lyrEd';
+    box.className = 'lyred';
+    box.innerHTML = `<button class="mini" data-d="-1" title="まえの音（Shift+スペース）" aria-label="まえの音">◀</button><input type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="歌詞"><button class="mini" data-d="1" title="つぎの音（スペース）" aria-label="つぎの音">▶</button><button class="mini" data-d="0" title="おわる（Enter）" aria-label="おわる">✓</button>`;
+    document.body.appendChild(box);
+    const inp = box.querySelector('input');
+    box.querySelectorAll('button').forEach((b) => {
+      b.onpointerdown = (e) => e.preventDefault(); // 入力欄からフォーカスをはずさない
+      b.onclick = () => { const d = +b.dataset.d; if (d) lyrStep(d, false); else { lyrCommit(); lyrClose(); } };
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return; // かな漢字変換のとちゅう
+      const k = e.key;
+      if (k === ' ' || k === 'Tab') { e.preventDefault(); lyrStep(e.shiftKey ? -1 : 1, false); }
+      else if (k === '-' && inp.value.trim() && inp.selectionStart === inp.value.length) { e.preventDefault(); lyrStep(1, true); }
+      else if (k === 'ArrowRight' && inp.selectionStart === inp.value.length && (e.ctrlKey || e.metaKey || !inp.value)) { e.preventDefault(); lyrStep(1, false); }
+      else if (k === 'ArrowLeft' && inp.selectionStart === 0 && (e.ctrlKey || e.metaKey || !inp.value)) { e.preventDefault(); lyrStep(-1, false); }
+      else if (k === 'Enter') { e.preventDefault(); lyrCommit(); lyrClose(); }
+      else if (k === 'Escape') { e.preventDefault(); lyrClose(); }
+      e.stopPropagation();
+    });
+    // 全角スペースで次へ（日本語入力のまま打てるように）
+    inp.addEventListener('input', () => { if (/[　 ]/.test(inp.value)) { inp.value = inp.value.replace(/[　 ]+/g, ''); lyrStep(1, false); return; } lyrFit(); });
+    inp.addEventListener('blur', () => setTimeout(() => { if (ui.sc.lyr && document.activeElement !== inp) { lyrCommit(); lyrClose(); } }, 150));
+  }
+  const inp = box.querySelector('input');
+  inp.value = top.ly || '';
+  box.hidden = false;
+  lyrFit();
+  renderScoreEditNow();
+  lyrPlace();
+  inp.focus();
+  inp.select();
+}
+function lyrCommit(hy) {
+  const L = ui.sc.lyr;
+  const box = $('#lyrEd');
+  if (!L || !box) return;
+  const tr = song.tracks.find((x) => x.id === L.tid);
+  const top = tr && lyrTop(tr, L.t);
+  if (!top) return;
+  let v = box.querySelector('input').value.trim().slice(0, 20);
+  if (hy && v && !/-$/.test(v)) v += '-';
+  if ((top.ly || '') === v) return;
+  edit(() => { for (const n of tr.notes) if (n.s === L.t && n !== top) delete n.ly; if (v) top.ly = v; else delete top.ly; tr.lyrics = ''; }, '歌詞');
+}
+function lyrStep(d, hy) {
+  const L = ui.sc.lyr;
+  if (!L) return;
+  lyrCommit(hy);
+  const tr = song.tracks.find((x) => x.id === L.tid);
+  const ons = tr ? lyrOnsets(tr) : [];
+  const nx = d > 0 ? ons.find((x) => x > L.t) : [...ons].reverse().find((x) => x < L.t);
+  if (nx == null) { if (d > 0) { toast('さいごの音です'); } lyrOpen(L.t); return; }
+  lyrOpen(nx);
+}
+function lyrFit() { const inp = $('#lyrEd input'); if (inp) inp.style.width = Math.max(3, Math.min(12, [...inp.value].reduce((w, c) => w + (c.charCodeAt(0) > 255 ? 1.1 : 0.62), 0.6))) + 'em'; }
+function lyrClose() {
+  const box = $('#lyrEd');
+  if (box) box.hidden = true;
+  if (!ui.sc.lyr) return;
+  ui.sc.lyr = null;
+  renderScoreEdit();
+}
+// 入力欄を、その音符の歌詞の高さに置く
+function lyrPlace() {
+  const L = ui.sc.lyr;
+  const box = $('#lyrEd');
+  const view = $('#scoreEditView');
+  if (!L || !box || !view) return;
+  const pi = scoreParts.indexOf(track());
+  const head = view.querySelector(`.nh[data-pi="${pi}"][data-s="${L.t}"]`);
+  if (!head) { box.style.left = '50%'; box.style.top = '40%'; return; }
+  let r = head.getBoundingClientRect();
+  // 見えていなければスクロール
+  const vr = view.getBoundingClientRect();
+  if (r.top < vr.top + 10 || r.bottom > vr.bottom - 60) { view.scrollTop += r.top - vr.top - vr.height / 3; r = head.getBoundingClientRect(); }
+  let y = r.bottom + 30;
+  const lines = [...view.querySelectorAll(`.lyrbase[data-pi="${pi}"]`)].map((el) => el.getBoundingClientRect().top).filter((ly) => ly > r.top - 4);
+  if (lines.length) y = Math.min(...lines);
+  const w = box.offsetWidth || 200;
+  const cx = (r.left + r.right) / 2;
+  const inpEl = box.querySelector('input');
+  const off = inpEl.offsetLeft + inpEl.offsetWidth / 2;
+  box.style.left = clamp(cx - off, 4, innerWidth - w - 4) + 'px';
+  box.style.top = clamp(y - 16, 4, innerHeight - 40) + 'px';
 }
 // コードネーム（れい：Am7, F#m, B♭）→ コード伴奏トラックへ
 function parseChord(txt) {
@@ -5233,7 +5332,7 @@ function scoreKey(e) {
   }
   if (k === '<' || k === '>') { e.preventDefault(); scHairpin(k === '<' ? 'cresc' : 'dim'); return true; }
   if (k === 's' || k === 'S') { scSlur(); return true; }
-  if (k === 'l' || k === 'L') { scLyric(); return true; }
+  if (k === 'l' || k === 'L') { e.preventDefault(); scLyric(); return true; }
   if (k === 'v' || k === 'V') { scToggleVoice(); return true; }
   if (k === 'ArrowUp' || k === 'ArrowDown') {
     e.preventDefault();
@@ -5257,6 +5356,8 @@ function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
   $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; scoreClick(e); });
   // Ctrl＋ホイールで楽譜を大きく・小さく
+  $('#scoreEditView').addEventListener('scroll', () => { if (ui.sc && ui.sc.lyr) lyrPlace(); }, { passive: true });
+  addEventListener('resize', () => { if (ui.sc && ui.sc.lyr) setTimeout(lyrPlace, 60); });
   $('#scoreEditView').addEventListener('wheel', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();

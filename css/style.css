@@ -1340,3 +1340,8 @@ body.phone .paldlg .palgrid { grid-template-columns: repeat(7, 1fr); }
 /* 楽譜の再生カーソル（たての線） */
 #scoreEditView { position: relative; }
 #playCur { position: absolute; width: 4px; border-radius: 2px; background: var(--accent2); opacity: .55; pointer-events: none; z-index: 2; transition: left .06s linear; }
+/* 歌詞を楽譜の上で打つ入力欄 */
+.lyred { position: fixed; z-index: 60; display: flex; align-items: center; gap: 2px; padding: 2px; background: var(--panel, #fff); border: 1.5px solid var(--accent); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.lyred[hidden] { display: none; }
+.lyred input { width: 4.5em; font-size: 14px; padding: 3px 6px; border: 0; outline: none; background: transparent; color: var(--text, #111); text-align: center; }
+.lyred .mini { padding: 1px 4px; min-width: 0; min-height: 0; font-size: 11px; }

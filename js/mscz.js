@@ -71,6 +71,7 @@ const MuseScoreExport = (() => {
     const harmXml = (c, b) => `<Harmony><root>${tpcOf(N.spellPref(c.r + 60, kcOf(b), [1, 3, 6, 8, 10].includes(c.r) ? (kcOf(b) >= 0 ? 1 : -1) : 0))}</root>${HNAME[c.q] ? `<name>${HNAME[c.q]}</name>` : ''}</Harmony>`;
     // ---- 段（音） ----
     parts.forEach((p, pi) => {
+      let hyOpen = false; // まえの歌詞がハイフンでつづいている
       const tr = p.perc ? 0 : p.transpose || 0;
       let clef = p.perc ? 'perc' : p.clef || 'auto';
       if (clef === 'auto' || clef === 'grand') clef = N.autoClef(tr ? p.notes.map((n) => ({ ...n, p: n.p + tr })) : p.notes, p.name);
@@ -154,7 +155,7 @@ const MuseScoreExport = (() => {
               if (ev.first && ev.gr != null && !p.perc) { const gs = N.spell(ev.gr, kcOf(b)); x.push(`<Chord><acciaccatura/><durationType>eighth</durationType><Note><pitch>${ev.gr}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
               x.push('<Chord>');
               x.push(dur);
-              if (ev.first && ev.ly && vi === 0) x.push(`<Lyrics><text>${esc(ev.ly)}</text></Lyrics>`);
+              if (ev.first && ev.ly && vi === 0) { const [lt, sy] = N.sylOf(ev.ly, hyOpen); hyOpen = /.-$/.test(ev.ly); x.push(`<Lyrics>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); }
               for (const a of A) if (ART[a]) x.push(`<Articulation><subtype>${ART[a]}</subtype></Articulation>`);
               if (A.includes('trem')) x.push('<Tremolo><subtype>r32</subtype></Tremolo>');
               if (A.includes('arp') && ev.pitches.length > 1) x.push('<Arpeggio><subtype>0</subtype></Arpeggio>');

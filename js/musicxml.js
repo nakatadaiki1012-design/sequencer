@@ -260,7 +260,8 @@ const MusicXMLImport = (() => {
           const ly = lys.find((l) => (l.getAttribute('number') || '1') === '1') || lys[0];
           if (ly) {
             const s = kids(ly, 'text').map((t) => t.textContent).join('').trim();
-            if (s) n.ly = s;
+            const sy = txt(ly, 'syllabic');
+            if (s) n.ly = s + (sy === 'begin' || sy === 'middle' ? '-' : '');
           }
           M.items.push(n);
         } else if (tag === 'direction') {
@@ -974,7 +975,8 @@ const MusicXMLImport = (() => {
             if (kid(el, 'Tremolo') || kid(el, 'TremoloSingleChord')) arts.push('trem');
             if (kid(el, 'Arpeggio')) arts.push('arp');
             const lys = kids(el, 'Lyrics').filter((l) => !kid(l, 'no') || txt(l, 'no') === '0');
-            const ly = lys.length ? plain(kid(lys[0], 'text')) : '';
+            const sy0 = lys.length ? txt(lys[0], 'syllabic') : '';
+            const ly = lys.length ? plain(kid(lys[0], 'text')) + (sy0 === 'begin' || sy0 === 'middle' ? '-' : '') : '';
             // 2.x のスラー
             for (const sl of kids(el, 'Slur')) { const id = sl.getAttribute('id'); if (sl.getAttribute('type') === 'start') slur2[id] = absT(pos); else if (slur2[id] != null) { slurs.push({ s: slur2[id], e: absT(pos) }); delete slur2[id]; } }
             const s = absT(pos);
