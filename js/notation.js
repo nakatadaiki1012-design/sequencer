@@ -372,7 +372,11 @@ const Notation = (() => {
         if (pos > hi) hi = pos;
         // 符尾（ぼう）の先も入れる：中央線より上の音はぼうが下へ、下の音は上へ（3.5間ぶん）
         const stem = n.l < 192 && st.clef !== 'perc' ? (pos >= 4 ? pos - 7 : pos + 7) : pos;
-        if (nb >= 0 && nb < bars) { st.loB[nb] = Math.min(st.loB[nb], pos, stem); st.hiB[nb] = Math.max(st.hiB[nb], pos, stem); }
+        // スタッカート・アクセントなど：符頭の、符尾と反対がわに書く（ぼうが下なら上、全音符は上）
+        const arts = (n.art || []).filter((a) => ['stac', 'stacc2', 'ten', 'acc', 'marc'].includes(a));
+        const artUp = arts.length && (pos >= 4 || n.l >= 192) ? pos + 2 + arts.length * 2 + (arts.includes('marc') ? 1 : 0) : pos;
+        const artDn = arts.length && !(pos >= 4 || n.l >= 192) ? pos - 2 - arts.length * 2 : pos;
+        if (nb >= 0 && nb < bars) { st.loB[nb] = Math.min(st.loB[nb], pos, stem, artDn); st.hiB[nb] = Math.max(st.hiB[nb], pos, stem, artUp); }
       }
       st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0);
       // 装飾記号・指番号・弓の記号・譜表テキストの分も、上をあける
@@ -393,8 +397,8 @@ const Notation = (() => {
       st.mrepSame = (b) => !!(b > 0 && mr[b] && String(mAt(b)) === String(mAt(b - 1)) && sig(b) && sig(b) === sig(b - 1) && !st.notes.concat(st.notes2).some((n) => n.s < bS(b) && n.s + n.l > bS(b)) && !st.notes.concat(st.notes2).some((n) => n.s < bS(b + 1) && n.s + n.l > bS(b + 1)));
       st.ottUp = st.ott && st.ott.some((q) => q.k > 0) && st.sub === 0;
       st.ottDn = st.ott && st.ott.some((q) => q.k < 0) && (st.grand ? st.sub === 1 : true);
-      if (st.ottUp) { st.above += 14; st.aboveX += 14; }
-      if (st.ottDn) { st.below += 14; st.belowX += 14; }
+      if (st.ottUp) { st.above += 18; st.aboveX += 18; }
+      if (st.ottDn) { st.below += 18; st.belowX += 18; }
       if (st.clef === 'tab') { st.above = 0; st.below = 0; st.hasPed = false; st.ottUp = st.ottDn = false; st.textRoom = 0; st.orn = 0; st.hasLyr = false; st.hasDyn = false; st.dynAbove = false; st.mrepSame = () => false; }
     }
 
@@ -1114,7 +1118,7 @@ const Notation = (() => {
             if (q.e <= bS(b0) || q.s >= bS(b1)) continue;
             const up = q.k > 0;
             if (up ? !st.ottUp : !st.ottDn) continue;
-            const y = up ? stTop - st.above + st.textRoom + 11 : stTop + 4 * SP + st.below - (st.hasPed ? 16 : 0) - 2;
+            const y = up ? stTop - st.above + st.textRoom + 11 : stTop + 4 * SP + st.below - (st.hasPed ? 16 : 0) - 4;
             const xa = q.s >= bS(b0) ? ox(q.s) - 6 : sys.bars[0].xs[0] - 8;
             const lastStart = Math.max(q.s, ...st.notes.filter((n) => n.s >= q.s && n.s < q.e).map((n) => n.s));
             const xz = q.e <= bS(b1) ? ox(lastStart) + 8 : xEnd - 4;
@@ -1123,7 +1127,7 @@ const Notation = (() => {
             const lx = xa + textW(lab) * 0.9 + 2;
             if (xz > lx + 4) {
               o.push(`<line x1="${lx}" x2="${xz}" y1="${y - 4}" y2="${y - 4}" stroke="#111" stroke-width="0.9" stroke-dasharray="4 3"/>`);
-              if (q.e <= bS(b1)) o.push(`<line x1="${xz}" x2="${xz}" y1="${y - 4}" y2="${up ? y + 4 : y - 12}" stroke="#111" stroke-width="0.9"/>`);
+              if (q.e <= bS(b1)) o.push(`<line x1="${xz}" x2="${xz}" y1="${y - 4}" y2="${up ? y + 2 : y - 10}" stroke="#111" stroke-width="0.9"/>`);
             }
           }
         }
