@@ -1,4 +1,4 @@
-// おとつみき 検証スクリプト：操作性・音色・機能・UI・レイテンシーを数値で測る
+// ソラノート 検証スクリプト：操作性・音色・機能・UI・レイテンシーを数値で測る
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
 (async () => {

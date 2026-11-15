@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   おとつみき — アプリ本体
+   ソラノート — アプリ本体
    時間の単位：4分音符 = 48 ティック（3連符や32分音符も表せます）
    ============================================================ */
 const $ = (s) => document.querySelector(s);
@@ -6082,7 +6082,7 @@ function download(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 const safeName = () => (song.title || 'song').replace(/[\\/:*?"<>|]/g, '_');
-function exportJSON() { download(new Blob([JSON.stringify(song)], { type: 'application/json' }), safeName() + '.otsumiki.json'); toast('曲ファイルを書き出しました'); }
+function exportJSON() { download(new Blob([JSON.stringify(song)], { type: 'application/json' }), safeName() + '.soranote.json'); toast('曲ファイルを書き出しました'); }
 // ファイル（曲・MusicXML・MIDI）を曲のデータにする
 function readSongFile(file) {
   return new Promise((ok, ng) => {

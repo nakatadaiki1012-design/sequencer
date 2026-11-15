@@ -246,7 +246,8 @@ const Notation = (() => {
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   let textW = (t) => [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12 : 7), 0);
-  const spaceFor = (d) => 11 + 9 * Math.log2(Math.max(d, 4) / 6);
+  // 音の長さ → 横の間隔。16分・32分は符頭がくっつかないよう、少し多めにとる
+  const spaceFor = (d) => 11 + 9 * Math.log2(Math.max(d, 4) / 6) + (d < 24 ? ((24 - Math.max(d, 4)) / 18) * 4 : 0);
 
   /* ------------------------------------------------------------
      render(opts) → SVG文字列（Notation.lastLayout に位置の地図）
@@ -1269,9 +1270,12 @@ const Notation = (() => {
       // せまい2音でかたむきすぎないように（はば の1/4まで）
       if (Math.abs(slope) > 0.25) slope = Math.sign(slope) * 0.25;
       // すべてのぼうが短くなりすぎないように平行移動
+      // 連桁が3本（32分）のときは、ぼうを長くして、いちばん内がわの連桁と符頭のあいだをあける
+      const maxFl = Math.max(...g.map((d) => d.flags));
+      const minLen = Math.max(3.25 * SP, (maxFl - 1) * 6 + 4 + 2 * SP);
       let off = up ? Infinity : -Infinity;
       for (const d of g) {
-        const need = up ? d.yOf(d.hi) - 3.25 * SP : d.yOf(d.lo) + 3.25 * SP;
+        const need = up ? d.yOf(d.hi) - minLen : d.yOf(d.lo) + minLen;
         const lineY = slope * (stemX(d) - stemX(f));
         off = up ? Math.min(off, need - lineY) : Math.max(off, need - lineY);
       }
@@ -1438,7 +1442,7 @@ const Notation = (() => {
     x.push('<identification>');
     if (meta.composer) x.push(`<creator type="composer">${esc(meta.composer)}</creator>`);
     if (meta.lyricist) x.push(`<creator type="lyricist">${esc(meta.lyricist)}</creator>`);
-    x.push('<encoding><software>おとつみき</software></encoding></identification>');
+    x.push('<encoding><software>ソラノート</software></encoding></identification>');
     x.push('<part-list>');
     const drumIds = parts.map((p) => (p.perc ? [...new Set(p.notes.map((n) => n.id))] : null));
     parts.forEach((p, i) => x.push(p.perc && drumIds[i].length ? `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${drumIds[i].map((id, k) => `<score-instrument id="P${i + 1}-I${k + 1}"><instrument-name>${esc(id)}</instrument-name></score-instrument>`).join('')}${drumIds[i].map((id, k) => `<midi-instrument id="P${i + 1}-I${k + 1}"><midi-channel>10</midi-channel><midi-unpitched>${((opts.drumGm || {})[id] || 38) + 1}</midi-unpitched></midi-instrument>`).join('')}</score-part>` : `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${p.gm != null ? `<score-instrument id="P${i + 1}-I1"><instrument-name>${esc(p.name)}</instrument-name></score-instrument><midi-instrument id="P${i + 1}-I1">${p.perc ? '<midi-channel>10</midi-channel>' : ''}<midi-program>${(p.gm || 0) + 1}</midi-program></midi-instrument>` : ''}</score-part>`));

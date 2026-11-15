@@ -1,4 +1,4 @@
-// MusicXML（楽譜ソフトのファイル）を読みこんで、おとつみきの曲データにする
+// MusicXML（楽譜ソフトのファイル）を読みこんで、ソラノートの曲データにする
 // 使い方：MusicXMLImport.readFile(arrayBuffer, fileName).then((song) => ...)
 //         MusicXMLImport.parse(xmlText, fileName) → song
 const MusicXMLImport = (() => {
@@ -773,7 +773,7 @@ const MusicXMLImport = (() => {
     const score = kid(root, 'Score');
     if (!score) fail('MuseScore のファイルに楽譜が見つかりません');
     const D = num(txt(score, 'Division'), 480); // 4分音符の長さ
-    const T = (d) => (d * TPQ) / D; // MuseScore の長さ → おとつみきの tick
+    const T = (d) => (d * TPQ) / D; // MuseScore の長さ → ソラノートの tick
 
     // ---- 曲名 ----
     let title = '';
@@ -815,7 +815,7 @@ const MusicXMLImport = (() => {
     });
     const startDiv = [0];
     for (let i = 0; i < nBars; i++) startDiv.push(startDiv[i] + barLen[i].len);
-    // 1小節目が短い＝弱起。おとつみきでは、1小節目を「全部の長さ」として、うしろにつめて書く
+    // 1小節目が短い＝弱起。ソラノートでは、1小節目を「全部の長さ」として、うしろにつめて書く
     const pickupDiv = barLen[0].len < barLen[0].nominal - 1 ? barLen[0].len : 0;
     const shift = pickupDiv ? barLen[0].nominal - pickupDiv : 0;
     const absT = (div) => Math.round(T(div + shift));
