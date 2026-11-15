@@ -123,6 +123,29 @@ const Notation = (() => {
     return { letter, acc, oct, dn: oct * 7 + letter, step: 'CDEFGAB'[letter] };
   }
   const spell = (midi, kc) => spellPref(midi, kc, 0);
+  // メロディの中の臨時記号：前後の音との音程が「2度・3度…」として正しく読める書き方をえらぶ
+  // （F♯→E は2度、G♭→E は減3度なので F♯。G→G♭→F のような下がる半音階は♭）
+  function spellLine(m, kc, prevP, nextP) {
+    const def = spellPref(m, kc, 0);
+    const up = spellPref(m, kc, 1);
+    const dn = spellPref(m, kc, -1);
+    if (up.letter === dn.letter && up.acc === dn.acc) return def;
+    if (def.acc === 0 || ((LETTER_PC[def.letter] + keyAccOf(kc)[def.letter] + 12) % 12 === ((m % 12) + 12) % 12)) return def; // 調の中の音
+    const OK = { 0: [0], 1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [6, 7], 5: [8, 9], 6: [10, 11] };
+    const good = (c, o) => {
+      if (o == null) return 0;
+      const so = spell(o, kc);
+      const semis = Math.abs(m - o);
+      const lets = Math.abs(c.dn - so.dn);
+      if (lets > 6 || semis > 11) return 0;
+      return (OK[lets] || []).includes(semis) ? 1 : -1;
+    };
+    const sc = (c) => good(c, nextP) * 2 + good(c, prevP);
+    const a = sc(up);
+    const z = sc(dn);
+    if (a === z) return def;
+    return a > z ? up : dn;
+  }
   // 音部記号を自動でえらぶ：加線がいちばん少ないもの。テノールのパートは「ト音記号の8つ下」
   function autoClef(notes, name) {
     if (!notes.length) return 'treble';
@@ -247,7 +270,7 @@ const Notation = (() => {
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   let textW = (t) => [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12 : 7), 0);
   // 音の長さ → 横の間隔。16分・32分は符頭がくっつかないよう、少し多めにとる
-  const spaceFor = (d) => 11 + 9 * Math.log2(Math.max(d, 4) / 6) + (d < 24 ? ((24 - Math.max(d, 4)) / 18) * 4 : 0);
+  const spaceFor = (d) => 10 + 8.2 * Math.log2(Math.max(d, 4) / 6) + (d < 24 ? ((24 - Math.max(d, 4)) / 18) * 4 : 0);
 
   /* ------------------------------------------------------------
      render(opts) → SVG文字列（Notation.lastLayout に位置の地図）
@@ -544,13 +567,13 @@ const Notation = (() => {
         let w = 0;
         for (let j = i + 1; j <= n; j++) {
           w += barInfo[a + j - 1].nat;
-          if (w > avail && j > i + 1) break;
+          if (w > avail * 1.08 && j > i + 1) break; // 少しだけなら、つめて入れる（8%まで）
           if (j < n && barInfo[a + j].hide) continue; // まとめた休みの途中では改行しない
           const fill = w / avail;
           const lastLine = j === n && z === bars;
           // ゆるすぎる段・きつすぎる段ほど悪い。さいごの段は短くてもよいが、短すぎはさける
-          let bad = lastLine ? (fill < 0.45 ? (0.45 - fill) * (0.45 - fill) * 60 : 0) : (1 - fill) * (1 - fill) * 100;
-          if (j - i === 1 && n > 1 && !barInfo[a + i].mm) bad += 6; // 1小節だけの段は、なるべくつくらない
+          let bad = fill > 1 ? (fill - 1) * (fill - 1) * 900 : lastLine ? (fill < 0.45 ? (0.45 - fill) * (0.45 - fill) * 60 : 0) : (1 - fill) * (1 - fill) * 100;
+          if (j - i === 1 && n > 1 && !barInfo[a + i].mm) bad += lastLine ? 24 : 6; // 1小節だけの段（とくに、さいごの段）は、なるべくつくらない
           bad += 12; // 段の数はなるべく少なく
           if (best[i] + bad < best[j]) { best[j] = best[i] + bad; from[j] = i; }
         }
@@ -626,12 +649,16 @@ const Notation = (() => {
       const compound = m0[1] === 8 && m0[0] % 3 === 0 && m0[0] > 3;
       o.push(G('metNoteQuarterUp', left + tw, top - 12, 'fill="#111"', 6.5));
       if (compound) o.push(G('metAugmentationDot', left + tw + 9, top - 12, 'fill="#111"', 6.5));
-      o.push(`<text x="${left + tw + (compound ? 15 : 11)}" y="${top - 12}" font-size="13" fill="#111">= ${compound ? Math.round(bpm / 1.5) : bpm}</text>`);
+      o.push(`<text x="${left + tw + (compound ? 15 : 11)}" y="${top - 12}" font-size="13.5" font-weight="bold" fill="#111" font-family="${SERIF}">&#8202;= ${compound ? Math.round(bpm / 1.5) : bpm}</text>`);
     }
 
     let prevStretch = 1.2;
     // 臨時記号は段ごと・小節ごとに覚える
+    layout.title = title;
+    layout.barNat = barInfo.map((x) => Math.round(x.nat));
     lines.forEach(([b0, b1], line) => {
+      if (line === 0) layout.headSvg = o.slice(2).join(''); // 曲名・作曲者・テンポなど（1ページ目の上）
+      const oStart = o.length;
       const sysTop = top + lineTop[line] + topRow;
       const VS = vis[line];
       fitLine(line);
@@ -844,14 +871,16 @@ const Notation = (() => {
             let nextP = null;
             for (let j = ei + 1; j < evs.length; j++) if (!evs[j].rest) { nextP = evs[j].pitches[evs[j].pitches.length - 1]; break; }
             if (nextP == null && allBars[bb + 1]) { const nx = allBars[bb + 1].find((e) => !e.rest); if (nx) nextP = nx.pitches[nx.pitches.length - 1]; }
+            let prevP = null;
+            for (let j = ei - 1; j >= 0; j--) if (!evs[j].rest) { prevP = evs[j].pitches[evs[j].pitches.length - 1]; break; }
+            if (prevP == null && bb > 0 && allBars[bb - 1]) { const pv = [...allBars[bb - 1]].reverse().find((e) => !e.rest); if (pv) prevP = pv.pitches[pv.pitches.length - 1]; }
             let heads;
             if (perc) {
               heads = ev.pitches.map((p) => ({ pos: Math.floor((p - 1000) / 10), shape: (p - 1000) % 10, accTxt: null, p }));
             } else {
               heads = ev.pitches.map((m) => {
                 const top = ev.pitches[ev.pitches.length - 1];
-                const pref = nextP == null ? 0 : nextP > top ? 1 : nextP < top ? -1 : 0;
-                const sp = spellPref(m, kcB, ev.enh || pref);
+                const sp = ev.enh ? spellPref(m, kcB, ev.enh) : m === top ? spellLine(m, kcB, prevP, nextP) : spellPref(m, kcB, 0);
                 const pos = sp.dn - st.baseDn;
                 const cur = sp.dn in barAcc ? barAcc[sp.dn] : keyAcc[sp.letter];
                 let accTxt = null;
@@ -1274,6 +1303,7 @@ const Notation = (() => {
           for (const B of sys.bars) o.push(conn(B, yA + 4 * SP, tops[si + 1]));
         }
       });
+      sys.svg = o.slice(oStart).join('');
       layout.systems.push(sys);
     });
     o.push('</svg>');
@@ -1641,6 +1671,9 @@ const Notation = (() => {
         tripGroups(evs);
         // 3連符のかぎ（はじめ・おわり）
         const tupXml = (ev) => (ev._tg ? (ev._tg.evs[0] === ev ? '<tuplet type="start" bracket="yes"/>' : '') + (ev._tg.evs[ev._tg.evs.length - 1] === ev ? '<tuplet type="stop"/>' : '') : '');
+        // 前後の音（臨時記号の書き方を、楽譜の絵と同じにする）
+        const flat = (vi === 0 ? evBars : evBars2).flat().filter((e) => !e.rest);
+        const idxOf = new Map(flat.map((e, i) => [e, i]));
         for (const ev of evs) {
           if (vi === 0) dirAt(ev.abs);
           const typeXml = (e) => `<type>${TYPE_NAME[e.base] || 'whole'}</type>${e.dot ? '<dot/>' : ''}${e.trip ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>' : ''}`;
@@ -1650,7 +1683,7 @@ const Notation = (() => {
             const did = p.perc ? dIds[m - 2000] : null;
             const dpos = p.perc ? (DRUM_POS[did] || [5, 'n']) : null;
             if (p.perc) pitch = `<unpitched><display-step>${'CDEFGAB'[(dpos[0] + 2) % 7]}</display-step><display-octave>${4 + Math.floor((dpos[0] + 2) / 7)}</display-octave></unpitched>`;
-            else { const sp = ev.enh ? spellPref(m, kc, ev.enh) : spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
+            else { const ii = idxOf.get(ev); const top = ev.pitches[ev.pitches.length - 1]; const tp = (e) => (e ? e.pitches[e.pitches.length - 1] : null); const sp = ev.enh ? spellPref(m, kc, ev.enh) : m === top && ii != null ? spellLine(m, kc, tp(flat[ii - 1]), tp(flat[ii + 1])) : spell(m, kc); pitch = `<pitch><step>${sp.step}</step>${sp.acc ? `<alter>${sp.acc}</alter>` : ''}<octave>${sp.oct}</octave></pitch>`; }
             const ties = (ev.tieEnd ? '<tie type="stop"/>' : '') + (ev.tie ? '<tie type="start"/>' : '');
             let nots = (ev.tieEnd ? '<tied type="stop"/>' : '') + (ev.tie ? '<tied type="start"/>' : '') + (k === 0 ? tupXml(ev) : '');
             if (k === 0 && ev.first) {
@@ -1705,27 +1738,51 @@ const Notation = (() => {
 
   // 印刷用：楽譜を A4 のページに分ける（段のとちゅうでは切らない）
   // ratio = ページの高さ ÷ はば（A4・よはく12mm で 273/186）
+  // ページに分ける：段をページにつめ、ページの中で段の間を同じだけあけて、下までそろえる（さいごのページは、つめすぎのときだけ）
+  // 2ページ目からは、上に小さく曲名とページ番号（外がわのすみ）
   function paginate(svg, layout, ratio = 273 / 186) {
     if (!layout || !layout.systems.length) return [svg];
     const W = layout.width;
     const PH = W * ratio;
     const sc = layout.scale || 1;
-    const inner = svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
     const sys = layout.systems;
-    const cuts = [];
-    let y0 = 0;
+    if (!sys.every((x) => x.svg != null)) return [svg];
+    const top0 = sys[0].y0; // 1ページ目：曲名などの下から
+    const TOPn = 46; // 2ページ目から：上の見出しの下から
+    const BOT = 34;
+    const pages = [];
     let i = 0;
     while (i < sys.length) {
+      const first = pages.length === 0;
+      const yTop = first ? top0 : TOPn;
+      const room = PH - BOT - yTop;
       let j = i;
-      while (j < sys.length && sys[j].y1 + 4 - y0 <= PH - 20) j++;
-      if (j === i) j = i + 1; // 1段がページより大きいとき
-      const cut = j < sys.length ? sys[j].y0 - 15 : layout.height; // 次の段の小節番号は次のページへ
-      cuts.push({ y0, cut });
-      if (j < sys.length) y0 = sys[j].y0 - 16;
+      let h = 0;
+      while (j < sys.length && (j === i || h + (sys[j].y1 - sys[j].y0) <= room)) { h += sys[j].y1 - sys[j].y0; j++; }
+      pages.push({ a: i, z: j, yTop, room, h });
       i = j;
     }
-    if (cuts.length === 1) return [svg];
-    return cuts.map(({ y0: a, cut }, k) => `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 ${a} ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect x="0" y="${a}" width="${W}" height="${PH}" fill="#fff"/>${inner}<rect x="0" y="${cut}" width="${W}" height="${Math.max(0, a + PH - cut) + 200}" fill="#fff"/><text x="${W / 2}" y="${a + PH - 8}" text-anchor="middle" font-size="10" fill="#666">${k + 1} / ${cuts.length}</text></svg>`);
+    if (pages.length === 1) return [svg];
+    const SERIF = "'Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
+    const esc2 = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    return pages.map((pg, k) => {
+      const n = pg.z - pg.a;
+      const last = k === pages.length - 1;
+      const extra = Math.max(0, pg.room - pg.h);
+      // 段と段のあいだに、あまりを同じだけ足す（あけすぎない。さいごのページは7割以上うまっているときだけ）
+      const fillOk = !last || pg.h > pg.room * 0.7;
+      const gap = n > 1 && fillOk ? Math.min(extra / (n - 1), 90) : 0;
+      let y = pg.yTop;
+      const body = [];
+      for (let q = pg.a; q < pg.z; q++) {
+        const S = sys[q];
+        body.push(`<g transform="translate(0 ${(y - S.y0).toFixed(2)})">${S.svg}</g>`);
+        y += S.y1 - S.y0 + gap;
+      }
+      const odd = (k + 1) % 2 === 1;
+      const head = k === 0 ? layout.headSvg || '' : `<text x="${W / 2}" y="24" text-anchor="middle" font-size="11" fill="#444" font-family="${SERIF}">${esc2(layout.title)}</text><text x="${odd ? W - 16 : 16}" y="24" text-anchor="${odd ? 'end' : 'start'}" font-size="12" fill="#222" font-family="${SERIF}">${k + 1}</text>`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 0 ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect width="${W}" height="${PH}" fill="#fff"/>${head}${body.join('')}</svg>`;
+    });
   }
 
   return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, musicXML, autoClef, DRUM_POS, lastLayout: null };

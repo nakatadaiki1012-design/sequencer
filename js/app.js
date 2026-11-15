@@ -4352,7 +4352,7 @@ function scoreOpts(trackIds, withDrums) {
     blankBars: parseBars(S.blank),
     chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
     chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; if (!c) return null; const segs = chordSegs(c, b).map((x) => ({ o: x.o, r: x.c.r, q: x.c.q, name: chordName(x.c) })); return { ...c, segs, ...(c.h && !c.x ? { hAt: chordHalf(b) } : {}) }; }) : null,
-    nameOf, perLine: +S.perLine || (isPhone ? 2 : 0), scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
+    nameOf, perLine: +S.perLine || 0, scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
 }
