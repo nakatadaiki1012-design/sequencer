@@ -544,11 +544,40 @@ function pushUndo(snap, label) {
   redoStack.length = 0;
   updateUndoButtons();
 }
+/* ---------- トラックの名前：ふつうは楽器の名前。同じ楽器が2つ以上なら、上から トランペット1・トランペット2… ----------
+   自分でつけた名前（cname）はそのまま。名前を空にすると、楽器の名前にもどる */
+const ROMAN_NUM = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ', 'Ⅺ', 'Ⅻ'];
+function trackBaseName(t) {
+  if (t.type === 'melody') return Sound.INSTRUMENTS[t.inst] || 'メロディ';
+  if (t.type === 'drum') return (Sound.KITS.find((k) => k.id === t.kit) || {}).name || 'リズム';
+  return 'コード伴奏';
+}
+function isAutoName(t) {
+  if (t.cname) return false;
+  const n = String(t.name || '').replace(/\s*([0-9０-９]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ])$/, '').trim();
+  if (!n || ['メロディ', 'リズム', 'ドラム', 'コード伴奏'].includes(n)) return true;
+  return Object.values(Sound.INSTRUMENTS).includes(n) || Sound.KITS.some((k) => k.name === n);
+}
+function autoNameTracks() {
+  const groups = new Map();
+  for (const t of song.tracks) {
+    if (!isAutoName(t)) continue;
+    const base = trackBaseName(t);
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(t);
+  }
+  for (const [base, ts] of groups) {
+    const roman = ts.some((t) => /[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]$/.test(t.name || '')); // バイオリンⅠ・Ⅱ のような書き方なら、そのまま
+    const sep = /[0-9]$/.test(base) ? ' ' : '';
+    ts.forEach((t, i) => { t.name = ts.length === 1 ? base : base + sep + (roman && i < ROMAN_NUM.length ? ROMAN_NUM[i] : String(i + 1)); });
+  }
+}
 function edit(fn, label = '編集') {
   const snap = snapshot();
   const nTr = song.tracks.length;
   const trId = track() && track().id;
   fn();
+  autoNameTracks();
   if (song.tracks.length !== nTr || (track() && track().id) !== trId) { nsel.clear(); updateSelBar(); }
   if (snapshot() !== snap) pushUndo(snap, label);
   changed();
@@ -3398,7 +3427,7 @@ function renderTracks() {
     const badge = realOk ? (loading ? `<span class="badge wait" title="録音を読み込み中">${I('mic')}</span>` : `<span class="badge" title="本物の楽器の録音">${I('mic')}</span>`) : `<span class="badge syn" title="電子音">${I('wave')}</span>`;
     const lockMute = song.locks.mute;
     d.innerHTML = `
-      <div class="trow"><span class="tgrip" title="ドラッグで順番を入れかえ（楽譜の順番も変わります）" aria-hidden="true">⋮⋮</span><span class="ticon">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
+      <div class="trow"><span class="tgrip" title="ドラッグで順番を入れかえ（楽譜の順番も変わります）" aria-hidden="true">⋮⋮</span><span class="ticon" data-n="${i + 1}" title="${escapeHtml(tr.name)}">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
         <button class="mini icon mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>M</button>
         <button class="mini icon solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>S</button>
         <details class="pop right tmenu" data-pop="t${i}"><summary class="mini icon" title="名前・並べかえ・複製・削除">${I('more')}</summary><div class="popbody menu-list">
@@ -3423,12 +3452,16 @@ function renderTracks() {
       ev.stopPropagation();
       closePops();
       const a = b.dataset.a;
-      if (a === 'rename') { const n = prompt('トラックの名前', tr.name); if (n) edit(() => { tr.name = n.slice(0, 20); }, 'トラック名'); renderTracks(); }
+      if (a === 'rename') {
+        const n = prompt('トラックの名前（空にすると楽器の名前にもどります）', tr.name);
+        if (n != null) edit(() => { const v = n.trim().slice(0, 20); tr.name = v; if (v && !isAutoName({ name: v })) tr.cname = true; else delete tr.cname; }, 'トラック名');
+        renderTracks();
+      }
       else if (a === 'up') moveTrack(i, -1);
       else if (a === 'down') moveTrack(i, 1);
       else if (a === 'dup') {
         if (song.tracks.length >= MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
-        edit(() => { song.tracks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(tr)), id: uid(), name: (tr.name + 'のコピー').slice(0, 20), locked: false }); cur = i + 1; }, 'トラックを複製');
+        edit(() => { song.tracks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(tr)), id: uid(), name: isAutoName(tr) ? tr.name : (tr.name + 'のコピー').slice(0, 20), locked: false }); cur = i + 1; }, 'トラックを複製');
         renderTracks();
       } else if (a === 'del') {
         if (song.tracks.length <= 1) return alert('トラックは1つ以上必要です');
@@ -6290,6 +6323,11 @@ function applyLayout() {
   const side = $('.main > .tracks');
   if (side) side.style.width = !phone && layout.tw ? layout.tw + 'px' : '';
   if (!phone) OV_RH = layout.ovrh || 20;
+  if (side) side.classList.toggle('narrow', !phone && layout.tw != null && layout.tw < 150);
+  const ca = $('.canvas-area');
+  if (ca) ca.classList.toggle('folded', !phone && !!layout.ovHide);
+  const fb = $('#ovFold');
+  if (fb) { fb.textContent = layout.ovHide ? '▾ ひらく' : '▴ たたむ'; fb.setAttribute('aria-expanded', String(!layout.ovHide)); }
   const sp = $('#scorePanel');
   if (sp) { sp.style.maxHeight = !phone && layout.sph ? layout.sph + 'px' : ''; sp.style.height = !phone && layout.sph ? layout.sph + 'px' : ''; }
 }
@@ -6334,15 +6372,22 @@ function initSplitters() {
   splitterDrag($('#splitTracks'), (m) => {
     const side = $('.main > .tracks');
     if (!m) return side.getBoundingClientRect().width;
-    layout.tw = Math.round(clamp(m.st + m.dx, 170, Math.min(560, innerWidth * 0.5)));
+    // せまくすると、アイコンと番号だけになる（楽譜を広く見たいとき）
+    layout.tw = Math.round(clamp(m.st + m.dx, 64, Math.min(560, innerWidth * 0.5)));
+    if (layout.tw < 150 && layout.tw > 110) layout.tw = m.dx < 0 ? 72 : 150;
     side.style.width = layout.tw + 'px';
+    side.classList.toggle('narrow', layout.tw < 150);
   }, () => { delete layout.tw; });
   splitterDrag($('#splitOv'), (m) => {
-    if (!m) return OV_RH;
-    // キャンバスの高さ＝行の高さ（トラックの数で割る）
-    layout.ovrh = Math.round(clamp(m.st + m.dy / Math.max(1, ovRows().length), 12, 56));
-    OV_RH = layout.ovrh;
-  }, () => { delete layout.ovrh; });
+    if (!m) return layout.ovHide ? 4 : OV_RH;
+    // キャンバスの高さ＝行の高さ（トラックの数で割る）。上までよせると、たたむ
+    const v = m.st + m.dy / Math.max(1, ovRows().length);
+    layout.ovHide = v < 9;
+    if (!layout.ovHide) { layout.ovrh = Math.round(clamp(v, 12, 56)); OV_RH = layout.ovrh; }
+    applyLayout();
+  }, () => { delete layout.ovrh; delete layout.ovHide; });
+  const fb = $('#ovFold');
+  if (fb) fb.onclick = () => { layout.ovHide = !layout.ovHide; applyLayout(); saveLayout(); relayoutAll(); };
   splitterDrag($('#splitScore'), (m) => {
     const sp = $('#scorePanel');
     if (!m) return sp.getBoundingClientRect().height;
@@ -6462,6 +6507,7 @@ function loadSong(s, opts = {}) {
   const base = newSong();
   song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
   song.tracks = s.tracks.slice(0, MAX_TRACKS).map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
+  autoNameTracks();
   song.repeats = { start: [], end: [], volta: {}, ...(s.repeats || {}) };
   song.pickup = s.pickup || 0;
   song.meters = s.meters || {};

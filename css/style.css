@@ -1406,3 +1406,22 @@ body.splitting, body.splitting * { user-select: none; }
 body.view-score #splitScore { display: none; }
 body.phone .splitter { display: none; }
 @media (max-width: 860px) { #splitTracks { display: none; } }
+
+/* キャンバスをたたむ */
+.ovfold { font-size: 11px; padding: 1px 6px; }
+.canvas-area.folded .ovwrap, .canvas-area.folded .ovtools .hint, .canvas-area.folded .ovtools .grp { display: none; }
+.canvas-area.folded .ovtools { padding-bottom: 4px; }
+body.phone .ovfold { display: none; }
+/* トラック欄をせまくしたとき：アイコンと番号だけ */
+.tracks.narrow { padding: 8px 4px; overflow-x: hidden; }
+.tracks.narrow .tracks-head h2, .tracks.narrow .tracks-head summary span, .tracks.narrow .tgrip, .tracks.narrow .tname, .tracks.narrow .tlock,
+.tracks.narrow .mute, .tracks.narrow .solo, .tracks.narrow .tmenu, .tracks.narrow .trow + .trow { display: none; }
+.tracks.narrow .tracks-head { justify-content: center; }
+.tracks.narrow .track { padding: 6px 2px; display: flex; justify-content: center; cursor: grab; }
+.tracks.narrow .trow { justify-content: center; }
+.tracks.narrow .ticon::after { content: attr(data-n); font-size: 11px; font-weight: 700; margin-left: 2px; }
+/* 区切りを見つけやすく（まん中に つまみ） */
+.splitter::before { content: ''; position: absolute; z-index: 1; border-radius: 3px; background: var(--muted); opacity: .35; transition: opacity .15s; }
+.splitter.v::before { top: 50%; left: 2px; width: 3px; height: 28px; margin-top: -14px; }
+.splitter.h::before { left: 50%; top: 2px; height: 3px; width: 32px; margin-left: -16px; }
+.splitter:hover::before, .splitter.on::before { opacity: .8; background: var(--accent); }
