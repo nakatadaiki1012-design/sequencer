@@ -4265,6 +4265,7 @@ function parseBars(txt) {
   return [...out];
 }
 // 楽譜での音部記号と移調（書く音＝鳴る音＋trans）。オーケストラの書き方では楽器に合わせる（自分で決めたときはそれ）
+const GRAND_INST = new Set(['piano', 'epiano', 'epiano2', 'clavinet', 'harpsichord', 'organ', 'pipeorgan', 'harp', 'celesta']);
 function partClefTrans(t) {
   const S = scoreSettings();
   const oi = ORCH[t.inst];
@@ -4272,6 +4273,12 @@ function partClefTrans(t) {
   let trans = +(S.trans || {})[t.id] || 0;
   // ギターは「ト音記号の8つ下」がふつう
   if (clef === 'auto' && TAB_INST[t.inst] === 'guitar') clef = 'treble8';
+  // ピアノなど鍵盤の楽器で、高い音と低い音の両方をたくさん使うときは、大譜表（上下2段）にする
+  if (clef === 'auto' && GRAND_INST.has(t.inst) && Array.isArray(t.notes) && t.notes.length >= 4) {
+    const lo = t.notes.filter((n) => n.p < 57).length;
+    const hi = t.notes.filter((n) => n.p >= 64).length;
+    if (lo >= Math.max(2, t.notes.length * 0.15) && hi >= Math.max(2, t.notes.length * 0.15)) clef = 'grand';
+  }
   if (S.orch && oi) {
     if (clef === 'auto' && oi[3]) clef = oi[3];
     if ((S.trans || {})[t.id] == null && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
