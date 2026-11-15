@@ -558,6 +558,7 @@ const Notation = (() => {
         const lastLy = lyOwn ? Math.max(...st.notes.filter((n) => n.ly).map((n) => n.s)) : -1;
         const inSlur = (a, z) => (st.part.slurs || []).some((sl) => sl.s <= a && sl.e >= z);
         let mel = null;
+        const lyrBuf = []; // 歌詞は段ごとにまとめて書く（せまいときは、となりと重ならないように小さく）
         const melFlush = () => {
           if (mel && mel.last != null && mel.last + 5 > mel.x0 + 4) o.push(`<line x1="${mel.x0}" x2="${mel.last + 5}" y1="${lyrY + 1}" y2="${lyrY + 1}" stroke="#111" stroke-width="1.1"/>`);
           mel = null;
@@ -680,7 +681,7 @@ const Notation = (() => {
               if (f) o.push(fingerSvg(x, fingY, f));
             }
             const lyr = ev.first ? (ev.ly || (st.notes.some((n) => n.ly) ? '' : st.lyrics[ev.syll])) : '';
-            if (st.sub === 0 && lyr && stream === 'A') o.push(`<text x="${x}" y="${lyrY}" font-size="12" text-anchor="middle" fill="#111">${esc(lyr)}</text>`);
+            if (st.sub === 0 && lyr && stream === 'A') lyrBuf.push({ x, t: lyr });
             // 対位法：定旋律との音程の数字
             if (opts.ivNums && st.part.id === opts.ivPart && ev.first && stream === 'A' && opts.ivNums[ev.src] != null) o.push(`<text x="${x}" y="${lyrY}" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1e3a8a">${esc(opts.ivNums[ev.src])}</text>`);
             if (lyOwn && stream === 'A') {
@@ -780,14 +781,14 @@ const Notation = (() => {
             const co = opts.chordObjs && opts.chordObjs[bb];
             const parts = String(chords[bb]).split('・');
             if (co && co.h && co.hAt && parts.length === 2) {
-              o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[0])}</text>`);
-              o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[1])}</text>`);
-            } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st)}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
+              o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[0])}</text>`);
+              o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(parts[1])}</text>`);
+            } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13" font-weight="bold" fill="#c2410c">${esc(chords[bb])}</text>`);
           }
           // 対位法のチェックの印（赤＝まちがい、オレンジ＝注意）
           if (si === 0 && opts.marks && opts.marks[bb]) {
             let mx = B.xs[0] - 4;
-            const my = stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0) - (opts.words && opts.words[bb] ? 15 : 0);
+            const my = stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0) - (opts.words && opts.words[bb] ? 15 : 0);
             for (const m of opts.marks[bb]) { o.push(`<text x="${mx}" y="${my}" font-size="11" font-weight="bold" fill="${m.err ? '#e03131' : '#e67700'}">${esc(m.t)}</text>`); mx += textW(m.t) * 0.95 + 6; }
           }
           // リハーサル記号（四角でかこんだ文字）：段のいちばん上
@@ -799,10 +800,10 @@ const Notation = (() => {
             o.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="18" fill="#fff" stroke="#111" stroke-width="1.3"/><text x="${rx + rw / 2}" y="${ry + 14}" font-size="14" font-weight="bold" text-anchor="middle" fill="#111" class="reh">${esc(t)}</text>`);
           }
           // rit. / accel. はコード名の上に（かさならないように）
-          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
+          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
           // とちゅうのテンポの変化（♩ = 80）
           if (si === 0 && bb > 0 && opts.tempos && opts.tempos[bb]) {
-            const ty = stTop - 2.9 * SP - dynRoom(st) - (chords && chords[bb] ? 15 : 0);
+            const ty = stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0);
             const tx = B.xs[0] + (opts.words && opts.words[bb] ? textW(opts.words[bb]) + 10 : 0);
             const mm = mAt(bb);
             const cmp = mm[1] === 8 && mm[0] % 3 === 0 && mm[0] > 3;
@@ -812,6 +813,19 @@ const Notation = (() => {
           }
         }
         melFlush();
+        lyrBuf.sort((a, c) => a.x - c.x).forEach((L, i) => {
+          const prev = lyrBuf[i - 1];
+          const next = lyrBuf[i + 1];
+          const room = Math.min(prev ? L.x - prev.x : 1e9, next ? next.x - L.x : 1e9) - 4;
+          const w = textW(L.t);
+          let fs = 12;
+          let fit = '';
+          if (w > room) {
+            fs = Math.max(8.5, (12 * room) / w);
+            if ((w * fs) / 12 > room) fit = ` textLength="${Math.max(8, room).toFixed(1)}" lengthAdjust="spacingAndGlyphs"`;
+          }
+          o.push(`<text x="${L.x}" y="${lyrY}" font-size="${+fs.toFixed(1)}" text-anchor="middle" fill="#111" class="lyr"${fit}>${esc(L.t)}</text>`);
+        });
         // 予告の調号・拍子（段の終わり）
         if (caut) {
           let cx3 = xEnd + 7;
@@ -847,7 +861,7 @@ const Notation = (() => {
             const bb2 = barOfT(tx2.t);
             // 加線・装飾記号より上、コード名などより上。リハーサル記号にはかからない
             const tyA = stTop - 2 * SP - st.above - dynRoom(st) + 12;
-            const tyB = stTop - 2.9 * SP - dynRoom(st) - (si === 0 && chords && chords[bb2] ? 15 : 0) - (si === 0 && opts.words && opts.words[bb2] ? 15 : 0) - (si === 0 && opts.marks && opts.marks[bb2] ? 15 : 0);
+            const tyB = stTop - 2.9 * SP - dynRoom(st) - st.above - (si === 0 && chords && chords[bb2] ? 15 : 0) - (si === 0 && opts.words && opts.words[bb2] ? 15 : 0) - (si === 0 && opts.marks && opts.marks[bb2] ? 15 : 0);
             const ty = Math.max(si === 0 ? sys.y0 + (anyReh ? 24 : 0) + 12 : -1e9, Math.min(tyA, tyB));
             o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="12.5" fill="#111" class="stxt">${esc(tx2.x)}</text>`);
           }
