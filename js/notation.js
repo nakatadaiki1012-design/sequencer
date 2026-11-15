@@ -1333,5 +1333,5 @@ const Notation = (() => {
     return cuts.map(({ y0: a, cut }, k) => `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 ${a} ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect x="0" y="${a}" width="${W}" height="${PH}" fill="#fff"/>${inner}<rect x="0" y="${cut}" width="${W}" height="${Math.max(0, a + PH - cut) + 200}" fill="#fff"/><text x="${W / 2}" y="${a + PH - 8}" text-anchor="middle" font-size="10" fill="#666">${k + 1} / ${cuts.length}</text></svg>`);
   }
 
-  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, musicXML, DRUM_POS, lastLayout: null };
+  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, musicXML, autoClef, DRUM_POS, lastLayout: null };
 })();

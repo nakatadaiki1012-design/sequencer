@@ -37,7 +37,7 @@ const MusicXMLImport = (() => {
     set(16, 18, 'organ'); set(19, 20, 'pipeorgan'); t[21] = 'accordion'; t[22] = 'kenhamo'; t[23] = 'accordion';
     t[24] = 'guitar'; t[25] = 'steelguitar'; set(26, 28, 'eguitar'); set(29, 31, 'rockguitar');
     t[32] = 'acbass'; set(33, 39, 'ebass');
-    t[40] = 'violin'; set(41, 42, 'cello'); t[43] = 'contrabass'; t[44] = 'strings'; t[45] = 'pizz'; t[46] = 'harp'; t[47] = 'timpani';
+    t[40] = 'violin'; t[41] = 'viola'; t[42] = 'cello'; t[43] = 'contrabass'; t[44] = 'strings'; t[45] = 'pizz'; t[46] = 'harp'; t[47] = 'timpani';
     set(48, 51, 'strings'); set(52, 54, 'choir'); t[55] = 'strings';
     t[56] = 'trumpet'; t[57] = 'trombone'; t[58] = 'tuba'; t[59] = 'trumpet'; t[60] = 'horn'; set(61, 63, 'brassens');
     set(64, 67, 'sax'); set(68, 69, 'oboe'); t[70] = 'bassoon'; t[71] = 'clarinet';
@@ -65,7 +65,8 @@ const MusicXMLImport = (() => {
     [/tuba|チューバ|euphonium|ユーフォ/i, 'tuba'],
     [/horn|ホルン/i, 'horn'],
     [/violin|バイオリン|ヴァイオリン/i, 'violin'],
-    [/viola|ビオラ|ヴィオラ|cello|チェロ/i, 'cello'],
+    [/viola|ビオラ|ヴィオラ/i, 'viola'],
+    [/cello|チェロ/i, 'cello'],
     [/contrabass|double bass|コントラバス/i, 'contrabass'],
     [/string|ストリングス|弦楽/i, 'strings'],
     [/harp|ハープ/i, 'harp'],
@@ -723,12 +724,309 @@ const MusicXMLImport = (() => {
     return parse(decodeText(await zipRead(bytes, target)), fileName);
   }
 
-  async function readFile(arrayBuffer, fileName) {
-    const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
-    const isZip = /\.mxl$/i.test(fileName || '') || (bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4);
-    if (isZip) return readMxl(bytes, fileName);
-    return parse(decodeText(bytes), fileName);
+  // ============================================================
+  // MuseScore のファイル（.mscz ＝ zip の中に .mscx、.mscx ＝ MuseScore の XML）
+  // MuseScore 2（2.xx）・3（3.xx）・4（4.xx）の形式を読む
+  // ============================================================
+  const DUR_Q = { long: 16, breve: 8, whole: 4, half: 2, quarter: 1, eighth: 0.5, '16th': 0.25, '32nd': 0.125, '64th': 0.0625, '128th': 0.03125, '256th': 0.015625 };
+  const tpcPc = (tpc) => ((((+tpc - 14) * 7) % 12) + 12) % 12;
+  const fracVal = (s) => { const m = /^\s*(-?\d+)\s*\/\s*(\d+)\s*$/.exec(String(s || '')); return m && +m[2] ? +m[1] / +m[2] : 0; };
+  const ARTMAP = [
+    [/staccatissimo/i, 'stacc2'], [/staccato/i, 'stac'], [/tenuto/i, 'ten'], [/marcato/i, 'marc'], [/accent|sforzato/i, 'acc'],
+    [/fermata/i, 'ferm'], [/shorttrill|prall|tremblement/i, 'prall'], [/trill/i, 'tr'], [/mordent/i, 'mord'], [/turn/i, 'turn'],
+    [/upbow/i, 'upb'], [/downbow/i, 'dnb'],
+  ];
+  const artOf = (sub) => { for (const [re, a] of ARTMAP) if (re.test(sub || '')) return a; return null; };
+  const HQ = (name) => {
+    const n = String(name || '').replace(/[()\s]/g, '');
+    if (n === '' || /^(maj|M)?$/.test(n)) return 'M';
+    if (/^(m|mi|min|-)$/.test(n)) return 'm';
+    if (/^(maj7|Maj7|MAJ7|M7|Ma7|\^7|\^|Δ7?|j7)$/.test(n)) return 'M7';
+    if (/^(m7|mi7|min7|-7)$/.test(n)) return 'm7';
+    if (/^7/.test(n)) return '7';
+    if (/sus/.test(n)) return 'sus4';
+    if (/^(dim|o|°)/.test(n)) return 'dim';
+    if (/^(aug|\+)/.test(n)) return 'aug';
+    if (/^m/.test(n)) return 'm';
+    return 'M';
+  };
+  const plain = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+
+  function parseMscx(xmlText, fileName) {
+    let doc;
+    try { doc = new DOMParser().parseFromString(String(xmlText).replace(/^﻿/, ''), 'application/xml'); } catch (e) { fail('MuseScore のファイルの形式がちがいます'); }
+    if (!doc || doc.getElementsByTagName('parsererror').length) fail('MuseScore のファイルがこわれているかもしれません');
+    const root = doc.documentElement;
+    if (root.localName !== 'museScore') fail('MuseScore のファイルの形式がちがいます');
+    const ver = parseFloat(root.getAttribute('version') || '3');
+    if (ver < 2) fail('MuseScore 1 の古いファイルは読めません。MuseScore で開いて保存しなおしてください');
+    const score = kid(root, 'Score');
+    if (!score) fail('MuseScore のファイルに楽譜が見つかりません');
+    const D = num(txt(score, 'Division'), 480); // 4分音符の長さ
+    const T = (d) => (d * TPQ) / D; // MuseScore の長さ → おとつみきの tick
+
+    // ---- 曲名 ----
+    let title = '';
+    for (const mt of kids(score, 'metaTag')) if (mt.getAttribute('name') === 'workTitle' && mt.textContent.trim()) title = mt.textContent.trim();
+    if (!title) for (const vb of Array.from(score.getElementsByTagName('VBox'))) for (const t of kids(vb, 'Text')) if (/title/i.test(txt(t, 'style')) && !title) title = plain(kid(t, 'text'));
+    if (!title) title = String(fileName || '').replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, '') || 'MuseScore の曲';
+
+    // ---- パート（楽器）と段 ----
+    const staffInfo = {}; // 段の id → { part, idx, perc }
+    const parts = [];
+    for (const pe of kids(score, 'Part')) {
+      const inst = kid(pe, 'Instrument');
+      const name = plain(kid(pe, 'trackName')) || plain(kid(inst, 'longName')) || plain(kid(inst, 'trackName')) || 'パート';
+      const ch = kid(inst, 'Channel');
+      const prg = ch && kid(ch, 'program') ? +kid(ch, 'program').getAttribute('value') : null;
+      const staves = kids(pe, 'Staff');
+      const perc = staves.some((s) => (kid(s, 'StaffType') || { getAttribute: () => '' }).getAttribute('group') === 'percussion') || txt(inst, 'useDrumset') === '1' || !!kid(inst, 'Drum');
+      const part = { name: name.slice(0, 30), prg, perc, staves: [] };
+      staves.forEach((s, i) => { const id = s.getAttribute('id'); staffInfo[id] = { part, idx: i }; part.staves.push(id); });
+      parts.push(part);
+    }
+
+    // ---- 小節の長さ（最初の段で決める） ----
+    const staffEls = kids(score, 'Staff');
+    if (!staffEls.length) fail('MuseScore のファイルに音符が見つかりません');
+    const voicesOf = (m) => { const v = kids(m, 'voice'); return v.length ? v : [m]; };
+    const measuresOf = (st) => kids(st, 'Measure').slice(0, MAX_BARS);
+    const m0 = measuresOf(staffEls[0]);
+    const nBars = Math.max(1, m0.length);
+    let sig = [4, 4];
+    const meters = {};
+    const barLen = [];
+    m0.forEach((m, i) => {
+      for (const v of voicesOf(m)) for (const ts of kids(v, 'TimeSig')) { const n = +txt(ts, 'sigN'); const d = +txt(ts, 'sigD'); if (n > 0 && d > 0) { if (i > 0 && (n !== sig[0] || d !== sig[1])) meters[i] = [n, d]; sig = [n, d]; } }
+      if (i === 0) meters[0] = sig.slice();
+      const nominal = (sig[0] * 4 * D) / sig[1];
+      const len = m.getAttribute('len') ? fracVal(m.getAttribute('len')) * 4 * D : nominal;
+      barLen.push({ len, nominal });
+    });
+    const startDiv = [0];
+    for (let i = 0; i < nBars; i++) startDiv.push(startDiv[i] + barLen[i].len);
+    // 1小節目が短い＝弱起。おとつみきでは、1小節目を「全部の長さ」として、うしろにつめて書く
+    const pickupDiv = barLen[0].len < barLen[0].nominal - 1 ? barLen[0].len : 0;
+    const shift = pickupDiv ? barLen[0].nominal - pickupDiv : 0;
+    const absT = (div) => Math.round(T(div + shift));
+
+    // ---- 曲全体のもの（テンポ・調・くり返し・コード・記号） ----
+    let bpm = 0;
+    let tempoText = '';
+    const tempos = {};
+    const keys = {};
+    let key0 = null;
+    const rStart = [];
+    const rEnd = [];
+    const volta = {};
+    const jumps = {};
+    const rehearsal = {};
+    const chords = new Array(nBars).fill(null);
+    let hasHarm = false;
+
+    // 位置（relative location）→ 絶対位置（div）
+    const locTo = (spanner, mi, posDiv) => {
+      const nx = kid(spanner, 'next');
+      const loc = nx && kid(nx, 'location');
+      if (!loc) return null;
+      const dm = Math.round(num(txt(loc, 'measures'), 0));
+      const fr = fracVal(txt(loc, 'fractions')) * 4 * D;
+      const tm = clamp(mi + dm, 0, nBars);
+      return (dm ? startDiv[tm] + (posDiv - startDiv[mi]) : posDiv) + fr;
+    };
+
+    // ---- 段ごとに音を読む ----
+    const tracks = [];
+    const drumTracks = new Map();
+    for (const stEl of staffEls) {
+      const info = staffInfo[stEl.getAttribute('id')] || { part: { name: 'パート', prg: null, perc: false, staves: [stEl.getAttribute('id')] }, idx: 0 };
+      const part = info.part;
+      const isFirstStaff = stEl === staffEls[0];
+      const notes = [];
+      const dyn = [];
+      const hairpins = [];
+      const slurs = [];
+      const texts = [];
+      const grid = {};
+      const openTie = {}; // `${voice}:${pitch}` → note
+      const slur2 = {}; // MuseScore 2 のスラー id → 始まり
+      measuresOf(stEl).forEach((m, mi) => {
+        if (mi >= nBars) return;
+        const mStart = startDiv[mi];
+        if (isFirstStaff) {
+          if (kid(m, 'startRepeat')) rStart.push(mi);
+          if (kid(m, 'endRepeat')) rEnd.push(mi);
+        }
+        const vs = voicesOf(m);
+        vs.forEach((vEl, vi0) => {
+          let pos = mStart;
+          let voice = vi0;
+          const tupStack = []; // [比]
+          const tup2 = {}; // MuseScore 2 の 3連符 id → 比
+          let pendingArt = [];
+          let pendingGrace = null;
+          let lastChord = null;
+          for (const el of vEl.children) {
+            const tag = el.localName;
+            const ratio = () => tupStack.reduce((a, r) => a * r, 1);
+            if (tag === 'tick') { pos = num(el.textContent, pos); continue; } // MuseScore 2：絶対位置
+            if (tag === 'location') { const dm = Math.round(num(txt(el, 'measures'), 0)); pos = (dm ? startDiv[clamp(mi + dm, 0, nBars)] + (pos - mStart) : pos) + fracVal(txt(el, 'fractions')) * 4 * D; continue; }
+            if (tag === 'Tuplet') {
+              const r = num(txt(el, 'normalNotes'), 2) / num(txt(el, 'actualNotes'), 3);
+              if (el.getAttribute('id') != null) tup2[el.getAttribute('id')] = r; else tupStack.push(r);
+              continue;
+            }
+            if (tag === 'endTuplet') { tupStack.pop(); continue; }
+            if (tag === 'KeySig' && isFirstStaff) {
+              const k = Math.round(num(txt(el, 'concertKey') || txt(el, 'accidental') || txt(el, 'key'), 0));
+              const minor = txt(el, 'mode') === 'minor';
+              const tonic = ((((k * 7) % 12) + 12) % 12 + (minor ? 9 : 0)) % 12;
+              if (mi === 0 && key0 == null) key0 = { key: tonic, minor };
+              else if (mi > 0) keys[mi] = { key: tonic, minor };
+              continue;
+            }
+            if (tag === 'Tempo') {
+              const q = num(txt(el, 'tempo'), 0);
+              if (q > 0) { const b = Math.round(q * 60); if (!bpm && mi === 0) bpm = b; else if (mi > 0) tempos[mi] = b; }
+              const tx = plain(kid(el, 'text')).replace(/[-]/g, '').replace(/\s*=\s*\d+.*$/, '').trim();
+              if (mi === 0 && tx && !/^[\d\s=.]*$/.test(tx) && !tempoText) tempoText = tx.slice(0, 30);
+              continue;
+            }
+            if (tag === 'Dynamic') { const v = txt(el, 'subtype'); if (/^(ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp)$/.test(v)) dyn.push({ t: absT(pos), v }); continue; }
+            if (tag === 'RehearsalMark') { if (isFirstStaff && plain(kid(el, 'text'))) rehearsal[mi] = plain(kid(el, 'text')).slice(0, 8); continue; }
+            if (tag === 'StaffText' || tag === 'SystemText' || tag === 'Expression') { const s = plain(kid(el, 'text')); if (s) texts.push({ t: absT(pos), x: s.slice(0, 80) }); continue; }
+            if (tag === 'Harmony') {
+              const r = txt(el, 'root');
+              if (r !== '') {
+                hasHarm = true;
+                const c = { r: tpcPc(r), q: HQ(txt(el, 'name')) };
+                if (!chords[mi]) chords[mi] = c; else if (!chords[mi].h && pos > mStart && (c.r !== chords[mi].r || c.q !== chords[mi].q)) chords[mi].h = c;
+              }
+              continue;
+            }
+            if (tag === 'Marker' && isFirstStaff) {
+              const lb = (txt(el, 'label') || txt(el, 'subtype') || plain(kid(el, 'text'))).toLowerCase();
+              if (/segno/.test(lb)) jumps.segno = mi; else if (/tocoda|to coda/.test(lb)) jumps.tocoda = mi; else if (/coda/.test(lb)) jumps.coda = mi; else if (/fine/.test(lb)) jumps.fine = mi;
+              continue;
+            }
+            if (tag === 'Jump' && isFirstStaff) { const to = (txt(el, 'jumpTo') + ' ' + plain(kid(el, 'text'))).toLowerCase(); if (/segno|d\.?s/.test(to)) jumps.ds = mi; else jumps.dc = mi; continue; }
+            if (tag === 'Fermata') { pendingArt.push('ferm'); continue; }
+            if (tag === 'Breath') { if (lastChord) for (const n of lastChord) n.art = [...new Set([...(n.art || []), /caesura/i.test(txt(el, 'subtype')) ? 'caes' : 'breath'])]; continue; }
+            if (tag === 'Spanner') {
+              const type = el.getAttribute('type');
+              const end = locTo(el, mi, pos);
+              if (end == null) continue; // 終わりの印
+              if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end) });
+              else if (type === 'HairPin') { const hp = kid(el, 'HairPin'); const sub = txt(hp, 'subtype'); hairpins.push({ s: absT(pos), e: absT(end), type: sub === '1' || /decresc|dim/i.test(sub) ? 'dim' : 'cresc' }); }
+              else if (type === 'Volta' && isFirstStaff) { const vo = kid(el, 'Volta'); const no = clamp(Math.round(num((txt(vo, 'endings') || '1').split(/[ ,]/)[0], 1)), 1, 2); for (let b = mi; b < nBars && startDiv[b] < end - 1; b++) volta[b] = no; }
+              continue;
+            }
+            if (tag === 'Slur' && ver < 3) { continue; }
+            if (tag !== 'Chord' && tag !== 'Rest') continue;
+            // 2.x：音の track で声部
+            if (kid(el, 'track')) voice = Math.round(num(txt(el, 'track'), 0)) % 4;
+            const dt = txt(el, 'durationType');
+            let dur;
+            if (dt === 'measure' || !dt) dur = kid(el, 'duration') ? fracVal(txt(el, 'duration')) * 4 * D : barLen[mi].len;
+            else dur = (DUR_Q[dt] || 1) * D;
+            const dots = Math.round(num(txt(el, 'dots'), 0));
+            if (dots > 0 && dt !== 'measure') dur *= 2 - Math.pow(0.5, dots);
+            const tref = txt(el, 'Tuplet');
+            dur *= ratio() * (tref && tup2[tref] ? tup2[tref] : 1);
+            const isGrace = ['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after', 'grace16after', 'grace32after'].some((g) => kid(el, g));
+            if (tag === 'Rest') { pos += dur; pendingArt = []; continue; }
+            const ns = kids(el, 'Note').filter((n) => txt(n, 'pitch') !== '');
+            if (isGrace) { if (ns.length && !/after/.test(['grace8after', 'grace16after', 'grace32after'].find((g) => kid(el, g)) || '')) pendingGrace = Math.round(num(txt(ns[ns.length - 1], 'pitch'), 60)); continue; }
+            const arts = pendingArt.slice();
+            pendingArt = [];
+            for (const a of kids(el, 'Articulation')) { const x = artOf(txt(a, 'subtype')); if (x && !arts.includes(x)) arts.push(x); }
+            for (const o of kids(el, 'Ornament')) { const x = artOf(txt(o, 'subtype')); if (x && !arts.includes(x)) arts.push(x); }
+            if (kid(el, 'Tremolo') || kid(el, 'TremoloSingleChord')) arts.push('trem');
+            if (kid(el, 'Arpeggio')) arts.push('arp');
+            const lys = kids(el, 'Lyrics').filter((l) => !kid(l, 'no') || txt(l, 'no') === '0');
+            const ly = lys.length ? plain(kid(lys[0], 'text')) : '';
+            // 2.x のスラー
+            for (const sl of kids(el, 'Slur')) { const id = sl.getAttribute('id'); if (sl.getAttribute('type') === 'start') slur2[id] = absT(pos); else if (slur2[id] != null) { slurs.push({ s: slur2[id], e: absT(pos) }); delete slur2[id]; } }
+            const s = absT(pos);
+            const e = absT(pos + dur);
+            const made = [];
+            if (part.perc) {
+              for (const n of ns) {
+                const id = GM_DRUM[Math.round(num(txt(n, 'pitch'), 38))] || 'snare';
+                if (s >= 0 && s < Math.round(T(startDiv[nBars] + shift))) { grid[id] = grid[id] || {}; grid[id][s] = arts.includes('acc') || arts.includes('marc') ? 2 : Math.max(grid[id][s] || 0, 1); }
+              }
+            } else {
+              ns.forEach((n, k) => {
+                const p = clamp(Math.round(num(txt(n, 'pitch'), 60)), 0, 127);
+                const key = voice + ':' + p;
+                let note = null;
+                const tiePrev = kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Tie' && kid(sp, 'prev')) || kids(n, 'endSpanner').length > 0;
+                if (tiePrev && openTie[key] && Math.abs(openTie[key].s + openTie[key].l - s) <= 2) { note = openTie[key]; note.l = e - note.s; }
+                if (!note) {
+                  note = { s, p, l: Math.max(1, e - s) };
+                  if (voice > 0) note.v = 2;
+                  if (arts.length) note.art = arts.slice();
+                  if (ly && k === ns.length - 1) note.ly = ly.slice(0, 20);
+                  if (pendingGrace != null && k === ns.length - 1) note.gr = pendingGrace;
+                  const fg = kids(n, 'Fingering').map((f) => plain(kid(f, 'text')) || plain(f)).join('').replace(/[^0-5]/g, '').slice(0, 1);
+                  if (fg) note.fg = fg;
+                  notes.push(note);
+                }
+                const tieNext = kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Tie' && kid(sp, 'next')) || !!kid(n, 'Tie');
+                if (tieNext) openTie[key] = note; else delete openTie[key];
+                made.push(note);
+              });
+              pendingGrace = null;
+            }
+            lastChord = made;
+            pos += dur;
+          }
+        });
+      });
+      if (part.perc) {
+        const dt = drumTracks.get(part) || { type: 'drum', name: part.name, kit: 'drums', grid: {} };
+        for (const id in grid) { dt.grid[id] = { ...(dt.grid[id] || {}), ...grid[id] }; }
+        drumTracks.set(part, dt);
+        if (!tracks.includes(dt)) tracks.push(dt);
+        continue;
+      }
+      const nStaves = part.staves.length;
+      const nm = nStaves === 2 ? part.name + (info.idx === 0 ? '（右手）' : '（左手）') : nStaves > 2 ? `${part.name} ${info.idx + 1}` : part.name;
+      const inst = guessInst(part.prg != null ? part.prg + 1 : null, part.name);
+      const ps = notes.map((n) => n.p);
+      const avg = ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 64;
+      tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}) });
+    }
+    let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
+    if (!out.length) out = tracks.slice(0, 1);
+    const room = hasHarm ? MAX_TRACKS - 1 : MAX_TRACKS;
+    out = out.slice(0, room);
+    if (hasHarm) out.push({ type: 'chord', name: 'コード伴奏', inst: 'piano', pattern: 'whole', bassOn: true, chords });
+    const k0 = key0 || { key: 0, minor: false };
+    return {
+      v: 2, title: title.slice(0, 60), bpm: clamp(bpm || 100, 30, 240), meter: meters[0] || [4, 4], bars: nBars, key: k0.key, scale: k0.minor ? 'minor' : 'major',
+      tempos, meters: Object.fromEntries(Object.entries(meters).filter(([b]) => +b > 0)), keys: Object.fromEntries(Object.entries(keys).map(([b, k]) => [b, k])),
+      pickup: pickupDiv ? Math.round(T(pickupDiv)) : 0, jumps,
+      repeats: { start: rStart, end: rEnd, volta }, tempoText, ...(Object.keys(rehearsal).length ? { rehearsal } : {}),
+      tracks: out,
+    };
   }
 
-  return { parse, readFile };
+  async function readFile(arrayBuffer, fileName) {
+    const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
+    const isZip = /\.(mxl|mscz)$/i.test(fileName || '') || (bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4);
+    if (isZip) {
+      // MuseScore（.mscz）：zip の中の .mscx を読む
+      const ents = zipEntries(bytes);
+      const ms = ents.find((e) => /\.mscx$/i.test(e.name) && !/\//.test(e.name)) || ents.find((e) => /\.mscx$/i.test(e.name) && !/^META-INF|excerpt/i.test(e.name));
+      if (ms) return parseMscx(decodeText(await zipRead(bytes, ms)), fileName);
+      return readMxl(bytes, fileName);
+    }
+    const text = decodeText(bytes);
+    if (/\.mscx$/i.test(fileName || '') || /<museScore\b/.test(text.slice(0, 500))) return parseMscx(text, fileName);
+    return parse(text, fileName);
+  }
+
+  return { parse, parseMscx, readFile };
 })();

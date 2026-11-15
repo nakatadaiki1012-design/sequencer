@@ -3850,6 +3850,20 @@ function assignLyrics(tr, text) {
   });
   tr.lyrics = text;
 }
+// MuseScore（.mscz）で書き出す
+function exportMscz() {
+  const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
+  o.chords = o.chordObjs;
+  o.parts = o.parts.flatMap((p) => (p.clef === 'grand' ? [
+    { ...p, name: p.name.replace('（伴奏）', '') + '（右手）', clef: 'treble', notes: p.notes.filter((n) => n.p >= 60) },
+    { ...p, id: p.id + '-L', name: p.name.replace('（伴奏）', '') + '（左手）', clef: 'bass', notes: p.notes.filter((n) => n.p < 60) },
+  ] : [p]));
+  const enc = new TextEncoder();
+  const xml = MuseScoreExport.mscx(o);
+  const cont = '<?xml version="1.0" encoding="UTF-8"?>\n<container>\n<rootfiles>\n<rootfile full-path="score.mscx"></rootfile>\n</rootfiles>\n</container>\n';
+  download(makeZip([{ name: 'META-INF/container.xml', data: enc.encode(cont) }, { name: 'score.mscx', data: enc.encode(xml) }]), safeName() + '.mscz');
+  toast('MuseScore のファイル（.mscz）を書き出しました');
+}
 function scoreSvg(trackIds) {
   const o = scoreOpts(trackIds, true);
   let svg = Notation.render(o);
@@ -5619,7 +5633,7 @@ function readSongFile(file) {
   return new Promise((ok, ng) => {
     const r = new FileReader();
     r.onerror = () => ng(new Error('ファイルを読めませんでした'));
-    if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
+    if (/\.(musicxml|xml|mxl|mscz|mscx)$/i.test(file.name)) {
       r.onload = () => MusicXMLImport.readFile(r.result, file.name).then(ok, ng);
       r.readAsArrayBuffer(file);
     } else if (/\.midi?$/i.test(file.name)) {
@@ -5877,7 +5891,7 @@ function compareMarks(g2, tr, X, rowIndex, rh, sy, k) {
 function startCompare() {
   const inp = document.createElement('input');
   inp.type = 'file';
-  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl';
+  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl,.mscz,.mscx';
   inp.onchange = async () => {
     const f = inp.files[0];
     if (!f) return;
@@ -5918,7 +5932,7 @@ function batchCompare() {
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.multiple = true;
-  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl';
+  inp.accept = '.json,.mid,.midi,.musicxml,.xml,.mxl,.mscz,.mscx';
   inp.onchange = async () => {
     const rows = [];
     for (const f of inp.files) {
@@ -5958,11 +5972,11 @@ function batchCompare() {
 }
 function importFile(file) {
   const r = new FileReader();
-  if (/\.(musicxml|xml|mxl)$/i.test(file.name)) {
+  if (/\.(musicxml|xml|mxl|mscz|mscx)$/i.test(file.name)) {
     r.onload = () => {
       MusicXMLImport.readFile(r.result, file.name)
-        .then((sg) => { loadSong(sg, { own: true }); toast('MusicXMLを読み込みました'); })
-        .catch((e) => alert('MusicXMLを読み込めませんでした：' + e.message));
+        .then((sg) => { loadSong(sg, { own: true }); toast(/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイルを読み込みました' : 'MusicXMLを読み込みました'); })
+        .catch((e) => alert((/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイル' : 'MusicXML') + 'を読み込めませんでした：' + e.message));
     };
     r.readAsArrayBuffer(file);
     return;
@@ -6499,6 +6513,7 @@ function init() {
   $('#btnPrintParts').onclick = printParts;
   $('#btnPngScore').onclick = exportPng;
   $('#btnXmlScore').onclick = exportMusicXML;
+  $('#btnMsczScore').onclick = exportMscz;
   $('#btnSvgScore').onclick = () => download(new Blob([scoreFull], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
   $('#btnScorePanel').onchange = (e) => { ui.showScore = e.target.checked; renderScorePanel(); };
   $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };

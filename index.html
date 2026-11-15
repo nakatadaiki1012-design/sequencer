@@ -131,7 +131,7 @@
           <button id="btnSave"><svg class="i"><use href="#i-save"/></svg>このブラウザに保存</button>
           <button id="btnOpen"><svg class="i"><use href="#i-folder"/></svg>ブラウザに保存した曲を開く</button>
           <button id="btnExportJson"><svg class="i"><use href="#i-download"/></svg>曲ファイルに保存（配る・出す）</button>
-          <button id="btnImportJson"><svg class="i"><use href="#i-upload"/></svg>ファイルを開く（曲・MIDI・MusicXML）</button>
+          <button id="btnImportJson"><svg class="i"><use href="#i-upload"/></svg>ファイルを開く（曲・MIDI・MusicXML・MuseScore）</button>
           <div class="ddh">書き出す</div>
           <button id="btnMp3"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（MP3）</button>
           <button id="btnWav"><svg class="i"><use href="#i-audio"/></svg>音声ファイル（WAV・高音質）</button>
@@ -151,7 +151,7 @@
           <button id="btnKeys"><svg class="i"><use href="#i-keys"/></svg>キーボードのショートカット</button>
         </div>
       </details>
-      <input id="fileIn" type="file" accept=".json,.mid,.midi,.musicxml,.xml,.mxl,application/json,audio/midi" hidden>
+      <input id="fileIn" type="file" accept=".json,.mid,.midi,.musicxml,.xml,.mxl,.mscz,.mscx,application/json,audio/midi" hidden>
     </div>
   </header>
 
@@ -278,6 +278,7 @@
     </div>
     <div class="dlgfoot">
       <button id="btnXmlScore" class="tbtn" title="MuseScore・Finale・Sibelius などの楽譜ソフトで開けるファイル"><svg class="i"><use href="#i-file"/></svg>MusicXML</button>
+      <button id="btnMsczScore" class="tbtn" title="MuseScore（3・4）のファイル。MuseScore でそのまま開けます">MuseScore</button>
       <button id="btnPngScore" class="tbtn"><svg class="i"><use href="#i-image"/></svg>画像（PNG）</button>
       <button id="btnSvgScore" class="tbtn">SVG</button>
       <button id="btnPrintParts" class="tbtn" title="えらんだパートを1つずつ、べつのページで印刷（パート譜）">パート譜</button>
@@ -465,7 +466,8 @@
       <li><b>音域</b>：道具の行の音域ボタン（ソ3〜ミ6 など）で、高い音・低い音のはんいをえらんだり、1オクターブずつ広げたりできます。</li>
       <li><b>おまかせ作曲</b>／<b>輪唱づくり</b>／<b>音の移動</b>（キャンバスで選んだ小節だけでも動かせます）。</li>
       <li><b>パレット</b>：ミキサー、イコライザー、メトロノームの音、押している間だけかかる<b>エフェクトパッド</b>。</li>
-      <li><b>楽譜</b>：打ちこんだ音を五線譜にします。歌詞・ドレミ・作詞作曲者も入れられます。印刷・PDF・画像のほか、MusicXML（MuseScoreなどの楽譜ソフト用）でも保存できます。</li>
+      <li><b>楽譜</b>：打ちこんだ音を五線譜にします。歌詞・ドレミ・作詞作曲者も入れられます。印刷・PDF・画像のほか、MusicXML（MuseScoreなどの楽譜ソフト用）や MuseScore のファイル（.mscz）でも保存できます。</li>
+      <li><b>MuseScore のファイル</b>：MuseScore（2・3・4）の .mscz・.mscx をそのまま開けます（メニュー →「ファイルを開く」、またはファイルをドラッグ）。音・和音・声部・3連符・タイ・スラー・強弱・クレッシェンド・歌詞・アーティキュレーション・装飾音・コードネーム・テンポ・拍子・調・弱起・くり返し・リハーサル記号・打楽器を読みこみます。印刷の画面の「MuseScore」で .mscz に書き出すと、MuseScore 3・4 で開けます。</li>
       <li><b>履歴</b>：これまでの操作の一覧から、好きな所までもどれます。</li>
       <li><b>共有</b>：URLを送るだけで曲を見せられます。</li>
       <li><b>先生用</b>：トラックのロックや機能の制限をして、課題ファイルを配れます。暗証番号もかけられます。</li>
@@ -495,6 +497,7 @@
   <script src="js/glyphs.js"></script>
   <script src="js/notation.js"></script>
   <script src="js/musicxml.js"></script>
+  <script src="js/mscz.js"></script>
   <script src="js/counterpoint.js"></script>
   <script src="js/insticons.js"></script>
   <script src="js/mp3.js"></script>
