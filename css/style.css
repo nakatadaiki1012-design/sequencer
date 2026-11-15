@@ -1425,3 +1425,33 @@ body.phone .ovfold { display: none; }
 .splitter.v::before { top: 50%; left: 2px; width: 3px; height: 28px; margin-top: -14px; }
 .splitter.h::before { left: 50%; top: 2px; height: 3px; width: 32px; margin-left: -16px; }
 .splitter:hover::before, .splitter.on::before { opacity: .8; background: var(--accent); }
+
+/* 曲名・作詞・作曲を楽譜の上で書きかえる */
+#scoreEditView .sctitle { cursor: text; }
+#scoreEditView .sctitle:hover { fill: var(--accent); }
+.titleed { position: fixed; z-index: 60; width: min(420px, calc(100vw - 8px)); padding: 8px 10px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.titleed[hidden] { display: none; }
+.titleed .ttlrow { display: flex; align-items: center; gap: 6px; }
+.titleed .ttlrow label { width: 6.5em; flex: none; color: var(--muted); font-size: 12px; }
+.titleed .ttlrow input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 14px; }
+.titleed .ttladd { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.titleed .grow { flex: 1; }
+
+.ovmode .mini { font-size: 11px; padding: 1px 7px; }
+.canvas-area.folded .ovmode { display: none; }
+body.phone .ovmode { display: none; }
+
+/* 下の楽譜の見出し */
+.scorepanel .sphead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.scorepanel .sphead .grow, .tracks-head .grow { flex: 1; }
+/* ポップアップ（うかせた窓） */
+.floatbtn { font-size: 13px; line-height: 1; padding: 2px 6px; margin-left: 4px; }
+.floating { position: fixed !important; z-index: 40; resize: both; overflow: auto; background: var(--panel) !important; backdrop-filter: none !important; border: 1.5px solid var(--accent) !important; border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,.25); min-width: 160px; min-height: 60px; }
+.floating .tracks-head, .floating .ovtools, .floating .sphead { cursor: move; user-select: none; }
+.floating.tracks { padding-top: 0; }
+.floating.tracks .tracks-head { position: sticky; top: 0; z-index: 2; background: var(--panel); padding: 8px 2px 6px; }
+.floating.canvas-area { display: flex; flex-direction: column; }
+.floating.canvas-area .ovwrap { flex: 1; }
+.floating.scorepanel { display: block; }
+body.float-tracks #splitTracks, body.float-canvas #splitOv, body.float-score #splitScore { display: none; }
+body.phone .floatbtn { display: none; }

@@ -786,13 +786,105 @@ function voiceLead(tones, prev) {
   }
   return best;
 }
+/* ---------- 和声法にそった音のえらび方（4声体のきまり） ----------
+   ・ベースは根音。前のベースからいちばん近い高さへ
+   ・上の声は、前の和音と同じ音（共通音）はそのまま、ほかはなるべく近く（順次進行）へ
+   ・連続5度・連続8度（2つの声が同じ向きに動いて、5度→5度・8度→8度）はさける
+   ・ベースとソプラノの並達（かくれた）5度・8度は、ソプラノが跳ぶならさける
+   ・導音（音階の7番目の音）は、主音へ半音上がって解決する
+   ・7の和音の7度の音は、2度下がって解決する
+   ・声と声のあいだは1オクターブ以内（ベースと上の声はひらいてよい） */
+function harmonyVoicing(c, prev) {
+  const iv = CHORD_Q[c.q].iv;
+  const rpc = ((c.r % 12) + 12) % 12;
+  let pcs = iv.map((x) => (rpc + x) % 12);
+  // 7の和音：上の3声は5度の音をはぶく（4声体のふつうの書き方）。5度が変わる和音では根音をはぶく（ベースが根音）
+  if (pcs.length > 3) pcs = iv[2] === 7 ? [pcs[0], pcs[1], pcs[3]] : [pcs[1], pcs[2], pcs[3]];
+  // ベースの候補（E2〜G3）
+  const bassCands = [];
+  for (let m = 40; m <= 55; m++) if (m % 12 === rpc) bassCands.push(m);
+  // 上の声の候補：和音の音をそれぞれ1回ずつ、F3〜A5 の中で
+  const lists = pcs.map((pc) => { const a = []; for (let m = 53; m <= 81; m++) if (m % 12 === pc) a.push(m); return a; });
+  const ups = [];
+  const rec = (i, acc) => {
+    if (i === lists.length) {
+      const v = [...acc].sort((a, b) => a - b);
+      for (let k = 1; k < v.length; k++) if (v[k] === v[k - 1] || v[k] - v[k - 1] > 12) return;
+      if (v[v.length - 1] - v[0] > 19) return;
+      ups.push(v);
+      return;
+    }
+    for (const m of lists[i]) { acc.push(m); rec(i + 1, acc); acc.pop(); }
+  };
+  rec(0, []);
+  const tonic = ((song.key % 12) + 12) % 12;
+  const lead = (tonic + 11) % 12;
+  const prevBass = prev && prev.bass;
+  const prevUp = prev && prev.length ? [...prev] : null;
+  const prevC = prev && prev.chord;
+  const prevSeventh = prevC && CHORD_Q[prevC.q].iv.length > 3 ? (prevC.r + CHORD_Q[prevC.q].iv[3]) % 12 : null;
+  const prevDominant = prevC && (prevC.r % 12) === (tonic + 7) % 12;
+  let best = null;
+  let bc = Infinity;
+  for (const bass of bassCands) {
+    let bcost = prevBass != null ? Math.abs(bass - prevBass) * 0.6 : Math.abs(bass - 48) * 0.3;
+    if (prevBass != null && Math.abs(bass - prevBass) > 7) bcost += 2; // ベースの大きな跳躍は少しだけさける
+    for (const up of ups) {
+      if (up[0] <= bass + 2) continue;
+      let cost = bcost;
+      const top = up[up.length - 1];
+      if (!prevUp) {
+        cost += Math.abs((up[0] + top) / 2 - 66) * 0.5 + (top - up[0]) * 0.15; // はじめの和音：まん中あたりに、まとめて
+      } else {
+        // 声ごとに：前の音からのうごき（同じ数の声どうしで、下から順に）
+        const n = Math.min(up.length, prevUp.length);
+        const a = prevUp.slice(-n);
+        const z = up.slice(-n);
+        for (let k = 0; k < n; k++) {
+          const d = Math.abs(z[k] - a[k]);
+          cost += d === 0 ? -0.6 : d <= 2 ? d * 0.6 : d * 1.1; // 共通音はそのまま、順次進行がよい
+        }
+        // 連続5度・連続8度（ベースも入れて、すべての声の組で）
+        const A = [prevBass, ...a];
+        const Z = [bass, ...z];
+        for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) {
+          const i0 = (A[j] - A[i] + 120) % 12;
+          const i1 = (Z[j] - Z[i] + 120) % 12;
+          const moved = A[i] !== Z[i] && A[j] !== Z[j];
+          const same = Math.sign(Z[i] - A[i]) === Math.sign(Z[j] - A[j]);
+          if (moved && same && ((i0 === 7 && i1 === 7) || (i0 === 0 && i1 === 0))) cost += 40;
+        }
+        // 並達5度・8度：ベースとソプラノが同じ向きで、5度・8度に入り、ソプラノが跳ぶ
+        const ib = (top - bass + 120) % 12;
+        const topPrev = a[a.length - 1];
+        if ((ib === 7 || ib === 0) && Math.sign(top - topPrev) === Math.sign(bass - prevBass) && top !== topPrev && Math.abs(top - topPrev) > 2) cost += 6;
+        // 導音 → 主音（属和音から）
+        if (prevDominant && pcs.includes(tonic)) {
+          for (let k = 0; k < n; k++) if (a[k] % 12 === lead && z[k] !== a[k] + 1) cost += k === n - 1 ? 14 : 5; // ソプラノの導音はかならず
+        }
+        // 7度の音は2度下がる
+        if (prevSeventh != null) {
+          for (let k = 0; k < n; k++) if (a[k] % 12 === prevSeventh) { const d = a[k] - z[k]; if (d !== 1 && d !== 2 && d !== 0) cost += 8; }
+        }
+        cost += Math.abs((up[0] + top) / 2 - 66) * 0.08; // 高すぎ・低すぎにならないよう
+      }
+      if (cost < bc) { bc = cost; best = { bass, up }; }
+    }
+  }
+  if (!best) return null;
+  const tones = best.up;
+  tones.bass = best.bass;
+  tones.chord = { r: rpc, q: c.q };
+  return tones;
+}
 function chordPart(tr, ev, c, o, bl, from, to, bs, prev) {
   let root = 48 + ((c.r % 12) + 12) % 12;
   if (root > 54) root -= 12;
   const iv = CHORD_Q[c.q].iv;
-  const tones = voiceLead(iv.map((x) => root + 12 + x), prev);
+  const hv = harmonyVoicing(c, prev);
+  const tones = hv || voiceLead(iv.map((x) => root + 12 + x), prev);
   const top = tones[tones.length - 1];
-  const bass = root - 12 + (root < 43 ? 12 : 0);
+  const bass = hv ? hv.bass : root - 12 + (root < 43 ? 12 : 0);
   const fifth = bass + (iv[2] != null ? iv[2] : 7); // 和音の5度（減・増でも正しく）
   let bassed = false;
   // s は小節の頭からの位置。区切り（from〜to）の外の音は鳴らさない
@@ -2513,7 +2605,14 @@ let OV_LW = 110;
 let OV_RH = 20;
 const OV_TOP = 16;
 let ovDrag = null;
-function ovBarW() { return Math.max(34, Math.min(90, ($('#ovWrap').clientWidth - OV_LW - 10) / Math.min(song.bars, 16))); }
+// キャンバスの1小節のはば：全体（つめて曲ぜんぶ）・ふつう・大きく
+function ovBarW() {
+  const room = $('#ovWrap').clientWidth - OV_LW - 10;
+  const mode = typeof layout === 'object' && layout.ovMode;
+  if (mode === 'fit') return Math.max(3, room / Math.max(1, song.bars));
+  if (mode === 'big') return Math.max(120, Math.min(220, room / Math.min(song.bars, 6)));
+  return Math.max(34, Math.min(90, room / Math.min(song.bars, 16)));
+}
 function ovRows() { return [...song.tracks.map((t, i) => ({ kind: 'track', i })), { kind: 'rule' }]; }
 function resizeOverview() {
   const wrap = $('#ovWrap');
@@ -2601,7 +2700,8 @@ function drawOverviewBase(og, { W, H, dpr, sx, bw, rows }) {
     og.fillStyle = C('--muted');
     og.font = '10px sans-serif';
     og.textBaseline = 'middle';
-    og.fillText(String(b + 1), x + 3, OV_TOP / 2);
+    const nStep = bw < 9 ? 8 : bw < 18 ? 4 : bw < 26 ? 2 : 1; // せまいときは、小節番号を何個かおきに
+    if (b % nStep === 0) og.fillText(String(b + 1), x + 3, OV_TOP / 2);
     rows.forEach((r, ri) => {
       const y = OV_TOP + ri * OV_RH;
       if (r.kind === 'rule') {
@@ -2614,12 +2714,12 @@ function drawOverviewBase(og, { W, H, dpr, sx, bw, rows }) {
       const sel = ui.sel.t === r.i && b >= ui.sel.b0 && b <= ui.sel.b1;
       const has = barHasContent(tr, b);
       og.fillStyle = sel ? C('--sel-strong') : has ? TRACK_COLORS[r.i % TRACK_COLORS.length] + '26' : C('--row-b');
-      roundRect(og, x + 1, y + 1, bw - 2, OV_RH - 2, 4);
-      og.fill();
+      if (bw < 12) og.fillRect(x + 0.5, y + 1, Math.max(1, bw - 1), OV_RH - 2);
+      else { roundRect(og, x + 1, y + 1, bw - 2, OV_RH - 2, 4); og.fill(); }
       if (sel) { og.strokeStyle = C('--accent2'); og.lineWidth = 2; og.stroke(); }
-      if (tr.type === 'chord' && tr.chords[b]) {
+      if (tr.type === 'chord' && tr.chords[b] && bw >= 20) {
         og.fillStyle = C('--text');
-        og.font = 'bold 10px sans-serif';
+        og.font = 'bold ' + (bw >= 110 ? 12 : 10) + 'px sans-serif';
         og.fillText(chordLabel(tr.chords[b]), x + 4, y + OV_RH / 2 + 1, bw - 6);
       }
     });
@@ -4347,7 +4447,9 @@ function renderScorePanel() {
   const el = $('#scorePanel');
   if (!ui.showScore) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = tr.type === 'melody' || tr.type === 'drum' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディかリズムのトラックを選ぶと、ここに楽譜が出ます</p>';
+  $('#scorePanelBody').innerHTML = tr.type === 'melody' || tr.type === 'drum' ? scoreSvg([tr.id]) : '<p class="muted" style="padding:8px">メロディかリズムのトラックを選ぶと、ここに楽譜が出ます</p>';
+  const nm = $('#scorePanelName');
+  if (nm) nm.textContent = tr.name;
 }
 
 /* ============================================================
@@ -5366,6 +5468,59 @@ function chordPick(bar, o) {
   box.hidden = false;
   chordPickRender(true);
 }
+/* ---------- 曲名・サブタイトル・作詞・作曲を、楽譜の上で書きかえる（作詞・作曲などは、いるときだけ足す） ---------- */
+function titleEdit(want) {
+  let box = $('#titleEd');
+  if (!box) { box = document.createElement('div'); box.id = 'titleEd'; box.className = 'titleed'; document.body.appendChild(box); }
+  const S = scoreSettings();
+  const snap = snapshot();
+  const shown = new Set(['subtitle', 'lyricist', 'composer'].filter((k) => S[k]));
+  if (want === 'credit') { shown.add('lyricist'); shown.add('composer'); }
+  const LBL = { subtitle: 'サブタイトル', lyricist: '作詞', composer: '作曲' };
+  const draw = (focusKey) => {
+    box.innerHTML = `<div class="ttlrow"><label>曲名</label><input data-k="title" value="${escapeHtml(song.title)}" maxlength="120"></div>
+      ${['subtitle', 'lyricist', 'composer'].filter((k) => shown.has(k)).map((k) => `<div class="ttlrow"><label>${LBL[k]}</label><input data-k="${k}" value="${escapeHtml(S[k] || '')}" maxlength="80"><button class="mini" data-del="${k}" title="${LBL[k]}を消す" aria-label="${LBL[k]}を消す">✕</button></div>`).join('')}
+      <div class="ttladd">${['subtitle', 'lyricist', 'composer'].filter((k) => !shown.has(k)).map((k) => `<button class="mini" data-add="${k}">＋ ${LBL[k]}</button>`).join('')}<span class="grow"></span><button class="mini accent" data-x="ok">OK</button></div>`;
+    box.querySelectorAll('input').forEach((inp) => {
+      inp.oninput = () => {
+        const k = inp.dataset.k;
+        if (k === 'title') song.title = inp.value.slice(0, 120); else S[k] = inp.value.slice(0, 80);
+        renderScoreEdit();
+        $('#miniTitle').textContent = song.title || '';
+      };
+      inp.onkeydown = (e) => { e.stopPropagation(); if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); titleClose(); } };
+    });
+    box.querySelectorAll('[data-add]').forEach((b) => (b.onclick = () => { shown.add(b.dataset.add); draw(b.dataset.add); }));
+    box.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => { const k = b.dataset.del; S[k] = ''; shown.delete(k); renderScoreEdit(); draw(); }));
+    box.querySelector('[data-x="ok"]').onclick = titleClose;
+    const f = box.querySelector(`input[data-k="${focusKey || 'title'}"]`);
+    if (f) { f.focus(); if (!focusKey) f.select(); }
+  };
+  box._snap = snap;
+  box.hidden = false;
+  draw(want === 'credit' ? 'lyricist' : null);
+  // おした直後に楽譜のほうへ入力が行かないよう、少しあとで入力欄へ
+  setTimeout(() => { const f = box.querySelector(`input[data-k="${want === 'credit' ? 'lyricist' : 'title'}"]`); if (f && !box.hidden) { f.focus(); if (want !== 'credit') f.select(); } }, 40);
+  // 曲名の下あたりに置く
+  const svg = $('#scoreEditView svg');
+  const r = svg ? svg.getBoundingClientRect() : { left: 100, top: 120, width: 600 };
+  box.style.left = clamp(r.left + r.width / 2 - box.offsetWidth / 2, 4, innerWidth - box.offsetWidth - 4) + 'px';
+  box.style.top = clamp(r.top + 46, 4, innerHeight - box.offsetHeight - 4) + 'px';
+  // パネルの外をおしたら、とじる
+  const outside = (e) => { if (box.hidden) { document.removeEventListener('pointerdown', outside, true); return; } if (!box.contains(e.target) && !(e.target.closest && e.target.closest('.sctitle'))) { document.removeEventListener('pointerdown', outside, true); titleClose(); } };
+  setTimeout(() => document.addEventListener('pointerdown', outside, true), 0);
+}
+function titleClose() {
+  const box = $('#titleEd');
+  if (!box || box.hidden) return;
+  box.hidden = true;
+  if (!song.title.trim()) song.title = 'あたらしい曲';
+  if (box._snap && snapshot() !== box._snap) pushUndo(box._snap, '曲名・作詞・作曲');
+  box._snap = null;
+  changed();
+  renderSettings();
+  renderScoreEdit();
+}
 function chordPickClose() {
   const box = $('#chdEd');
   if (box) box.hidden = true;
@@ -5647,6 +5802,9 @@ function scoreClick(e) {
   const r = svg.getBoundingClientRect();
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
+  // 曲名・作詞・作曲をおすと、その場で書きかえるパネル
+  const ttl = e.target.closest && e.target.closest('.sctitle');
+  if (ttl) { titleEdit(ttl.classList.contains('scadd') ? 'credit' : null); return; }
   // 楽譜の上のコードネームをおすと、そのコードを変えるパネル
   const chd = e.target.closest && e.target.closest('.chd');
   if (chd) { chordPick(+chd.dataset.b, +chd.dataset.o || 0); return; }
@@ -6316,20 +6474,114 @@ function applyPhone() {
 }
 /* ---------- 画面の区切りをドラッグして、トラック・キャンバス・下の楽譜の大きさを変える（パソコン・タブレット） ---------- */
 const LAYOUT_KEY = 'otsumiki-layout';
-let layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; } })();
+var layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; } })();
 function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* 保存できなくても動く */ } }
 function applyLayout() {
   const phone = document.body.classList.contains('phone');
   const side = $('.main > .tracks');
-  if (side) side.style.width = !phone && layout.tw ? layout.tw + 'px' : '';
+  if (side && !floatOn('tracks')) side.style.width = !phone && layout.tw ? layout.tw + 'px' : '';
   if (!phone) OV_RH = layout.ovrh || 20;
-  if (side) side.classList.toggle('narrow', !phone && layout.tw != null && layout.tw < 150);
+  if (side && !floatOn('tracks')) side.classList.toggle('narrow', !phone && layout.tw != null && layout.tw < 150);
   const ca = $('.canvas-area');
   if (ca) ca.classList.toggle('folded', !phone && !!layout.ovHide);
   const fb = $('#ovFold');
   if (fb) { fb.textContent = layout.ovHide ? '▾ ひらく' : '▴ たたむ'; fb.setAttribute('aria-expanded', String(!layout.ovHide)); }
+  $$('#ovMode button').forEach((b) => b.classList.toggle('on', (layout.ovMode || 'normal') === b.dataset.m));
   const sp = $('#scorePanel');
-  if (sp) { sp.style.maxHeight = !phone && layout.sph ? layout.sph + 'px' : ''; sp.style.height = !phone && layout.sph ? layout.sph + 'px' : ''; }
+  if (sp && !floatOn('score')) { sp.style.maxHeight = !phone && layout.sph ? layout.sph + 'px' : ''; sp.style.height = !phone && layout.sph ? layout.sph + 'px' : ''; }
+  applyFloats();
+}
+/* ---------- 窓をポップアップ（うかせる）・もとの場所にもどす：トラック・キャンバス・下の楽譜 ---------- */
+const FLOATS = {
+  tracks: { sel: '.main > .tracks', head: '.tracks-head', name: 'トラック', w: 270, h: 460 },
+  canvas: { sel: '.canvas-area', head: '.ovtools', name: 'キャンバス', w: 760, h: 220 },
+  score: { sel: '#scorePanel', head: '.sphead', name: '楽譜', w: 720, h: 320 },
+};
+let floatZ = 40;
+function floatOn(k) { return !!(layout.float && layout.float[k]) && !document.body.classList.contains('phone'); }
+function applyFloats() {
+  for (const k in FLOATS) {
+    const el = $(FLOATS[k].sel);
+    if (!el) continue;
+    const on = floatOn(k);
+    el.classList.toggle('floating', on);
+    document.body.classList.toggle('float-' + k, on);
+    const btn = el.querySelector('.floatbtn');
+    if (btn) { btn.title = on ? 'もとの場所にもどす（ならべて表示）' : 'ポップアップにする（うかせて、すきな場所へ）'; btn.textContent = on ? '⇲' : '⧉'; btn.setAttribute('aria-pressed', String(on)); }
+    if (on) {
+      const R = layout.float[k];
+      R.w = clamp(R.w || FLOATS[k].w, 160, innerWidth - 8);
+      R.h = clamp(R.h || FLOATS[k].h, 60, innerHeight - 8);
+      R.x = clamp(R.x != null ? R.x : innerWidth - R.w - 24, 4, innerWidth - 60);
+      R.y = clamp(R.y != null ? R.y : 90, 4, innerHeight - 40);
+      Object.assign(el.style, { left: R.x + 'px', top: R.y + 'px', width: R.w + 'px', height: R.h + 'px', maxHeight: 'none' });
+      if (k === 'tracks') el.classList.toggle('narrow', R.w < 150);
+    } else if (el.style.left) {
+      el.style.left = el.style.top = el.style.zIndex = '';
+      if (k !== 'tracks') el.style.width = '';
+      if (k !== 'score') el.style.height = '';
+      if (k === 'score') el.style.height = el.style.maxHeight = '';
+      if (k === 'tracks') el.style.width = '';
+    }
+  }
+}
+function floatToggle(k) {
+  if (!layout.float) layout.float = {};
+  if (floatOn(k)) delete layout.float[k];
+  else {
+    const el = $(FLOATS[k].sel);
+    const r = el.getBoundingClientRect();
+    // いまの場所から少しずらして、うかせる
+    layout.float[k] = { x: Math.round(r.left + 24), y: Math.round(r.top + 24), w: Math.round(k === 'tracks' ? r.width : Math.min(Math.max(FLOATS[k].w * 0.8, r.width), FLOATS[k].w * 1.25)), h: Math.round(k === 'canvas' || k === 'score' ? Math.max(FLOATS[k].h, Math.min(r.height, 420)) : Math.min(r.height, FLOATS[k].h + 200)) };
+    if (k === 'score') { ui.showScore = true; const cb = $('#btnScorePanel'); if (cb) cb.checked = true; renderScorePanel(); }
+  }
+  applyLayout();
+  saveLayout();
+  relayoutAll();
+  toast(floatOn(k) ? `「${FLOATS[k].name}」をポップアップにしました（上の帯をドラッグで動かす・右下で大きさ）` : `「${FLOATS[k].name}」をもとの場所にもどしました`);
+}
+function initFloats() {
+  for (const k in FLOATS) {
+    const el = $(FLOATS[k].sel);
+    const head = el && el.querySelector(FLOATS[k].head);
+    if (!head) continue;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mini floatbtn';
+    btn.onclick = (e) => { e.stopPropagation(); floatToggle(k); };
+    head.appendChild(btn);
+    // 上の帯をつかんで動かす
+    head.addEventListener('pointerdown', (e) => {
+      if (!floatOn(k) || e.button !== 0 || e.target.closest('button, input, select, summary, details, a, label')) return;
+      e.preventDefault();
+      const R = layout.float[k];
+      const x0 = e.clientX - R.x;
+      const y0 = e.clientY - R.y;
+      el.style.zIndex = ++floatZ;
+      document.body.classList.add('splitting');
+      const mv = (ev) => { R.x = clamp(ev.clientX - x0, 4 - R.w + 80, innerWidth - 80); R.y = clamp(ev.clientY - y0, 4, innerHeight - 40); el.style.left = R.x + 'px'; el.style.top = R.y + 'px'; };
+      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); document.body.classList.remove('splitting'); saveLayout(); };
+      addEventListener('pointermove', mv);
+      addEventListener('pointerup', up);
+      addEventListener('pointercancel', up);
+    });
+    el.addEventListener('pointerdown', () => { if (floatOn(k)) el.style.zIndex = ++floatZ; }, true);
+    // 右下をつまんで大きさを変えたら、おぼえて描きなおす
+    let t = 0;
+    new ResizeObserver(() => {
+      if (!floatOn(k)) return;
+      const R = layout.float[k];
+      const w = Math.round(el.offsetWidth);
+      const h = Math.round(el.offsetHeight);
+      if (w === R.w && h === R.h) return;
+      R.w = w;
+      R.h = h;
+      if (k === 'tracks') el.classList.toggle('narrow', w < 150);
+      clearTimeout(t);
+      t = setTimeout(() => { saveLayout(); relayoutAll(); }, 60);
+    }).observe(el);
+  }
+  addEventListener('resize', () => { if (layout.float && Object.keys(layout.float).length) applyFloats(); });
 }
 function relayoutAll() {
   resizeOverview();
@@ -6368,6 +6620,7 @@ function splitterDrag(el, onMove, onReset) {
   });
 }
 function initSplitters() {
+  initFloats();
   applyLayout();
   splitterDrag($('#splitTracks'), (m) => {
     const side = $('.main > .tracks');
@@ -6388,6 +6641,12 @@ function initSplitters() {
   }, () => { delete layout.ovrh; delete layout.ovHide; });
   const fb = $('#ovFold');
   if (fb) fb.onclick = () => { layout.ovHide = !layout.ovHide; applyLayout(); saveLayout(); relayoutAll(); };
+  $$('#ovMode button').forEach((b) => (b.onclick = () => {
+    layout.ovMode = b.dataset.m === 'normal' ? undefined : b.dataset.m;
+    if (layout.ovHide) layout.ovHide = false;
+    applyLayout(); saveLayout(); relayoutAll();
+    toast(b.dataset.m === 'fit' ? 'キャンバス：曲ぜんぶを、つめて表示' : b.dataset.m === 'big' ? 'キャンバス：大きく表示（横にスクロール）' : 'キャンバス：ふつうの大きさ');
+  }));
   splitterDrag($('#splitScore'), (m) => {
     const sp = $('#scorePanel');
     if (!m) return sp.getBoundingClientRect().height;

@@ -572,14 +572,16 @@ const Notation = (() => {
     const layout = { systems: [], width, height, scale, barTicks, starts: GEO.starts };
     o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">`);
     o.push(`<rect width="100%" height="100%" fill="#fff"/>`);
-    o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="21" font-weight="bold" fill="#111">${esc(title)}</text>`);
-    if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13" fill="#333">${esc(meta.subtitle)}</text>`);
+    o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="21" font-weight="bold" fill="#111" class="sctitle">${esc(title)}</text>`);
+    if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13" fill="#333" class="sctitle">${esc(meta.subtitle)}</text>`);
     // パート譜：左上にパートの名前
     if (opts.partHeader) o.push(`<rect x="14" y="${12 + NL}" width="${textW(opts.partHeader) * 1.05 + 14}" height="22" rx="4" fill="none" stroke="#111" stroke-width="1"/><text x="21" y="${28 + NL}" font-size="13.5" font-weight="bold" fill="#111" class="parthead">${esc(opts.partHeader)}</text>`);
     const credits = [meta.lyricist ? '作詞：' + meta.lyricist : '', meta.composer ? '作曲：' + meta.composer : ''].filter(Boolean);
     // 名前を書くらん（プリント用）
     if (meta.nameLine) o.push(`<text x="${width - 340}" y="20" font-size="12" fill="#111">　年　　組　　番　名前</text><line x1="${width - 216}" y1="23" x2="${width - 16}" y2="23" stroke="#111" stroke-width="0.8"/>`);
-    credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12" fill="#222">${esc(c)}</text>`));
+    credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12" fill="#222" class="sctitle">${esc(c)}</text>`));
+    // 楽譜を書く画面だけ：作詞・作曲を入れるための、うすい印（印刷には出ない）
+    if (opts.edit && !credits.length) o.push(`<text x="${width - 16}" y="${top - 26}" text-anchor="end" font-size="11" fill="#9aa1ad" class="sctitle scadd">＋ 作詞・作曲</text>`);
     {
       const tw = opts.tempoText ? textW(opts.tempoText) * 1.05 + 8 : 0;
       if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="13" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);

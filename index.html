@@ -177,7 +177,7 @@
       <div id="trackChips" class="trackchips"></div>
       <div class="canvas-area">
         <div class="ovtools">
-          <b>キャンバス</b><button id="ovFold" class="mini ovfold" type="button" title="キャンバスをたたむ・ひらく（楽譜やマス目を広く）" aria-expanded="true">▴ たたむ</button>
+          <b>キャンバス</b><button id="ovFold" class="mini ovfold" type="button" title="キャンバスをたたむ・ひらく（楽譜やマス目を広く）" aria-expanded="true">▴ たたむ</button><span class="seg ovmode" id="ovMode" title="キャンバスの横の大きさ"><button class="mini" type="button" data-m="fit" title="曲ぜんぶが見えるように、つめて表示">全体</button><button class="mini on" type="button" data-m="normal">ふつう</button><button class="mini" type="button" data-m="big" title="小節を大きく表示（横にスクロール）">大きく</button></span>
           <span class="hint">ドラッグでコピー・ゴミ箱へ落として消去・Shift＋クリックで範囲</span>
           <span class="grp">
             <button id="btnIns" class="mini" title="選んでいる小節の前に、同じ数の空の小節を入れます"><svg class="i"><use href="#i-plus"/></svg>小節を入れる</button>
@@ -252,7 +252,7 @@
         <div id="phonePad" class="phonepad" hidden></div>
       </div>
       <div id="splitScore" class="splitter h" role="separator" aria-orientation="horizontal" aria-label="下の楽譜の高さを変える" title="ドラッグで、下の楽譜の高さを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
-      <div id="scorePanel" class="scorepanel" hidden></div>
+      <div id="scorePanel" class="scorepanel" hidden><div class="sphead"><b>楽譜</b><span id="scorePanelName" class="muted"></span><span class="grow"></span></div><div id="scorePanelBody"></div></div>
       <div id="chordPalette" class="palette" hidden></div>
       <div id="phoneKbd" class="phonekbd" hidden></div>
     </section>
