@@ -1395,12 +1395,12 @@ body.trackdrag, body.trackdrag * { cursor: grabbing !important; user-select: non
 .splitter { flex: none; position: relative; z-index: 3; background: transparent; touch-action: none; }
 .splitter::after { content: ''; position: absolute; border-radius: 2px; background: var(--border); transition: background .15s; }
 .splitter:hover::after, .splitter.on::after, .splitter:focus-visible::after { background: var(--accent); }
-.splitter.v { width: 7px; margin: 0 -3px; cursor: col-resize; }
-.splitter.v::after { top: 0; bottom: 0; left: 3px; width: 1px; }
-.splitter.v:hover::after, .splitter.v.on::after { left: 2px; width: 3px; }
-.splitter.h { height: 7px; margin: -3px 0; cursor: row-resize; }
-.splitter.h::after { left: 0; right: 0; top: 3px; height: 1px; }
-.splitter.h:hover::after, .splitter.h.on::after { top: 2px; height: 3px; }
+.splitter.spv { width: 7px; margin: 0 -3px; cursor: col-resize; }
+.splitter.spv::after { top: 0; bottom: 0; left: 3px; width: 1px; }
+.splitter.spv:hover::after, .splitter.spv.on::after { left: 2px; width: 3px; }
+.splitter.sph { height: 7px; margin: -3px 0; cursor: row-resize; }
+.splitter.sph::after { left: 0; right: 0; top: 3px; height: 1px; }
+.splitter.sph:hover::after, .splitter.sph.on::after { top: 2px; height: 3px; }
 body.splitting, body.splitting * { user-select: none; }
 #splitScore:has(+ #scorePanel[hidden]) { display: none; }
 body.view-score #splitScore { display: none; }
@@ -1422,8 +1422,8 @@ body.phone .ovfold { display: none; }
 .tracks.narrow .ticon::after { content: attr(data-n); font-size: 11px; font-weight: 700; margin-left: 2px; }
 /* 区切りを見つけやすく（まん中に つまみ） */
 .splitter::before { content: ''; position: absolute; z-index: 1; border-radius: 3px; background: var(--muted); opacity: .35; transition: opacity .15s; }
-.splitter.v::before { top: 50%; left: 2px; width: 3px; height: 28px; margin-top: -14px; }
-.splitter.h::before { left: 50%; top: 2px; height: 3px; width: 32px; margin-left: -16px; }
+.splitter.spv::before { top: 50%; left: 2px; width: 3px; height: 28px; margin-top: -14px; }
+.splitter.sph::before { left: 50%; top: 2px; height: 3px; width: 32px; margin-left: -16px; }
 .splitter:hover::before, .splitter.on::before { opacity: .8; background: var(--accent); }
 
 /* 曲名・作詞・作曲を楽譜の上で書きかえる */
@@ -1501,3 +1501,33 @@ body.view-score #chordPalette { display: none !important; }
 
 /* 楽譜を四角でかこんでえらぶ */
 #scoreEditView .scband { position: absolute; z-index: 4; pointer-events: none; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 3px; }
+
+/* かんたん表示：上級のボタンをかくす（右上の「くわしく」で全部出る） */
+body.simple:not(.phone) #popPractice, body.simple:not(.phone) #btnPal, body.simple:not(.phone) #btnStepRec, body.simple:not(.phone) .floatbtn, body.simple:not(.phone) #ovMode,
+body.simple:not(.phone) #btnIns, body.simple:not(.phone) #btnDelBars, body.simple:not(.phone) .ovtools .hint, body.simple:not(.phone) .adv-only,
+body.simple:not(.phone) #scLayoutB, body.simple:not(.phone) #scVoice, body.simple:not(.phone) .tgrip { display: none !important; }
+.simplebtn { border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent) !important; }
+.simplebtn span { display: inline !important; }
+body.phone .simplebtn { display: none; }
+
+/* 上のバーの絵だけのボタンに、小さな文字（何のボタンかわかるように） */
+body:not(.phone) .topbar { padding-bottom: 15px; }
+body:not(.phone) .topbar [data-cap] { position: relative; }
+body:not(.phone) .topbar [data-cap]::after { content: attr(data-cap); position: absolute; left: 50%; bottom: -13px; transform: translateX(-50%); font-size: 9.5px; line-height: 1; color: var(--muted); white-space: nowrap; pointer-events: none; font-weight: 500; letter-spacing: 0; }
+/* 文字が見えているボタン（広い画面）は、下の小さな文字をださない */
+@media (min-width: 1151px) {
+  body:not(.phone) .topbar summary[data-cap="ルール"]::after, body:not(.phone) .topbar summary[data-cap="練習"]::after, body:not(.phone) .topbar summary[data-cap="メニュー"]::after, body:not(.phone) .topbar #btnShare::after { display: none; }
+}
+@media (min-width: 1401px) { body:not(.phone) .topbar #btnScore::after, body:not(.phone) .topbar #btnPal::after { display: none; } }
+/* 長おしで出る説明 */
+.lpTip { position: fixed; z-index: 90; max-width: min(320px, calc(100vw - 16px)); padding: 7px 11px; border-radius: 10px; background: rgba(20,22,35,.92); color: #fff; font-size: 13px; line-height: 1.45; pointer-events: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+
+/* トラックの「消音」「ソロ」：文字のボタン（小さめ） */
+.track .mute, .track .solo { width: auto !important; min-width: 0; padding: 0 5px !important; font-size: 11px; letter-spacing: 0; }
+.tracks.narrow .mute, .tracks.narrow .solo { display: none; }
+
+@media (min-width: 1151px) { body:not(.phone) .topbar #keySum::after { display: none; } }
+/* かんたん表示では、ボタンの数が少ないので、文字もいっしょに出す */
+body.simple:not(.phone) .toolbar .mini > span, body.simple:not(.phone) #viewSeg span { display: inline !important; }
+/* トラックの名前が切れないように、少し広く */
+body:not(.phone) .main > .tracks:not(.narrow):not(.floating) { width: 290px; }

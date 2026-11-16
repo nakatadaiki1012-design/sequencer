@@ -80,7 +80,7 @@
       <div id="miniNote" class="mini-note"></div>
     </div>
     <details class="pop" id="popRules" data-pop="rules">
-      <summary class="tbtn" title="調・音階・拍子・小節の数・スウィング"><svg class="i"><use href="#i-tune"/></svg><span>ルール</span></summary>
+      <summary data-cap="ルール" class="tbtn" title="調・音階・拍子・小節の数・スウィング"><svg class="i"><use href="#i-tune"/></svg><span>ルール</span></summary>
       <div class="popbody">
         <fieldset id="rules" class="rules">
           <label>調 <select id="key"></select></label>
@@ -94,17 +94,17 @@
       </div>
     </details>
     <details class="pop" id="popKey" data-pop="key">
-      <summary class="tbtn" id="keySum" title="調（ハ長調など）をえらぶ・移調する">調</summary>
+      <summary class="tbtn" data-cap="調" id="keySum" title="調（ハ長調など）をえらぶ・移調する">調</summary>
       <div class="popbody keypop" id="keyBody"></div>
     </details>
     <div class="transport">
-      <button id="btnPlay" class="play" title="再生／一時停止（スペースキー）"><svg class="i"><use href="#i-play"/></svg></button>
-      <button id="btnStop" class="tbtn icon" title="停止（もう一度おすと曲の最初へ）"><svg class="i"><use href="#i-stop"/></svg></button>
-      <button id="btnRec" class="tbtn icon rec" title="録音：再生しながらひくと、そのまま音が入ります（カウントのあとスタート）" aria-label="録音"><span class="recdot"></span></button>
-      <button id="btnLoop" class="tbtn icon toggle" title="ループ再生（くりかえす範囲は小節番号の上の帯で決めます）"><svg class="i"><use href="#i-loop"/></svg></button>
-      <button id="btnMetro" class="tbtn icon toggle" title="メトロノーム"><svg class="i"><use href="#i-metro"/></svg></button>
+      <button id="btnPlay" class="play" data-cap="再生" title="再生／一時停止（スペースキー）"><svg class="i"><use href="#i-play"/></svg></button>
+      <button id="btnStop" class="tbtn icon" data-cap="停止" title="停止（もう一度おすと曲の最初へ）"><svg class="i"><use href="#i-stop"/></svg></button>
+      <button id="btnRec" class="tbtn icon rec" data-cap="録音" title="録音：再生しながらひくと、そのまま音が入ります（カウントのあとスタート）" aria-label="録音"><span class="recdot"></span></button>
+      <button id="btnLoop" class="tbtn icon toggle" data-cap="くり返し" title="ループ再生（くりかえす範囲は小節番号の上の帯で決めます）"><svg class="i"><use href="#i-loop"/></svg></button>
+      <button id="btnMetro" class="tbtn icon toggle" data-cap="メトロ" title="メトロノーム"><svg class="i"><use href="#i-metro"/></svg></button>
       <details class="pop" id="popPractice" data-pop="practice">
-        <summary class="tbtn icon" title="練習：はじめる前のカウント・ゆっくり再生"><svg class="i"><use href="#i-turtle"/></svg><span>練習</span></summary>
+        <summary data-cap="練習" class="tbtn icon" title="練習：はじめる前のカウント・ゆっくり再生"><svg class="i"><use href="#i-turtle"/></svg><span>練習</span></summary>
         <div class="popbody practice">
           <div class="sub">はじめる前にカウント（カッ・カッ・カッ・カッ）</div>
           <div class="seg" id="countSeg"><button class="mini" data-c="0">なし</button><button class="mini" data-c="1">1小節</button><button class="mini" data-c="2">2小節</button></div>
@@ -119,13 +119,14 @@
       </label>
     </div>
     <div class="menu">
-      <button id="btnUndo" class="tbtn icon" title="元に戻す（Ctrl+Z）"><svg class="i"><use href="#i-undo"/></svg></button>
-      <button id="btnRedo" class="tbtn icon" title="やり直す（Ctrl+Y）"><svg class="i"><use href="#i-redo"/></svg></button>
-      <button id="btnScore" class="tbtn" title="楽譜をつくる・印刷する・PDF"><svg class="i"><use href="#i-print"/></svg><span>印刷</span></button>
-      <button id="btnPal" class="tbtn" title="ミキサー・イコライザー・エフェクト"><svg class="i"><use href="#i-mixer"/></svg><span>パレット</span></button>
-      <button id="btnShare" class="tbtn" title="ともだちや先生に送る（リンク）"><svg class="i"><use href="#i-share"/></svg><span>送る</span></button>
+      <button id="btnSimple" class="tbtn simplebtn" type="button" title="ボタンの数を切りかえます"><span>くわしく</span></button>
+      <button id="btnUndo" class="tbtn icon" data-cap="もどす" title="元に戻す（Ctrl+Z）"><svg class="i"><use href="#i-undo"/></svg></button>
+      <button id="btnRedo" class="tbtn icon" data-cap="やり直す" title="やり直す（Ctrl+Y）"><svg class="i"><use href="#i-redo"/></svg></button>
+      <button id="btnScore" class="tbtn" data-cap="印刷" title="楽譜をつくる・印刷する・PDF"><svg class="i"><use href="#i-print"/></svg><span>印刷</span></button>
+      <button id="btnPal" class="tbtn" data-cap="音の調整" title="ミキサー・イコライザー・エフェクト"><svg class="i"><use href="#i-mixer"/></svg><span>パレット</span></button>
+      <button id="btnShare" class="tbtn" data-cap="送る" title="ともだちや先生に送る（リンク）"><svg class="i"><use href="#i-share"/></svg><span>送る</span></button>
       <details class="dropdown pop" data-pop="menu">
-        <summary class="tbtn" title="ファイル・履歴・先生用・使い方"><svg class="i"><use href="#i-menu"/></svg><span>メニュー</span></summary>
+        <summary data-cap="メニュー" class="tbtn" title="ファイル・履歴・先生用・使い方"><svg class="i"><use href="#i-menu"/></svg><span>メニュー</span></summary>
         <div class="dd">
           <div class="ddh">曲</div>
           <button id="btnNew"><svg class="i"><use href="#i-newfile"/></svg>新しい曲をつくる</button>
@@ -172,7 +173,7 @@
       </div>
       <div id="trackList"></div>
     </aside>
-    <div id="splitTracks" class="splitter v" role="separator" aria-orientation="vertical" aria-label="トラックのはばを変える" title="ドラッグで、トラックのはばを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
+    <div id="splitTracks" class="splitter spv" role="separator" aria-orientation="vertical" aria-label="トラックのはばを変える" title="ドラッグで、トラックのはばを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
     <section class="editor">
       <div id="trackChips" class="trackchips"></div>
       <div class="canvas-area">
@@ -191,7 +192,7 @@
           <div id="ovTrash" class="ovtrash"><svg class="i"><use href="#i-trash"/></svg>ここに落とすと消す</div>
         </div>
       </div>
-      <div id="splitOv" class="splitter h" role="separator" aria-orientation="horizontal" aria-label="キャンバスの高さを変える" title="ドラッグで、キャンバスの高さを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
+      <div id="splitOv" class="splitter sph" role="separator" aria-orientation="horizontal" aria-label="キャンバスの高さを変える" title="ドラッグで、キャンバスの高さを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
       <div class="toolbar">
         <div id="editorTools" class="tools"></div>
         <div class="tools static">
@@ -251,7 +252,7 @@
         <div id="scoreEditView" class="scoreeditview"></div>
         <div id="phonePad" class="phonepad" hidden></div>
       </div>
-      <div id="splitScore" class="splitter h" role="separator" aria-orientation="horizontal" aria-label="下の楽譜の高さを変える" title="ドラッグで、下の楽譜の高さを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
+      <div id="splitScore" class="splitter sph" role="separator" aria-orientation="horizontal" aria-label="下の楽譜の高さを変える" title="ドラッグで、下の楽譜の高さを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
       <div id="scorePanel" class="scorepanel" hidden><div class="sphead"><b>楽譜</b><span id="scorePanelName" class="muted"></span><span class="grow"></span></div><div id="scorePanelBody"></div></div>
       <div id="chordPalette" class="palette" hidden></div>
       <div id="phoneKbd" class="phonekbd" hidden></div>

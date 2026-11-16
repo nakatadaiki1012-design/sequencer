@@ -1979,7 +1979,7 @@ function draw(playPos) {
 
 /* ---------- 強弱のレーン（マス目の下）：強弱記号とクレッシェンドを見せる・おして入れる・はしをドラッグで長さ ---------- */
 const DYN_LANE_H = 30;
-function dynLaneOn(tr) { return !!tr && tr.type === 'melody' && ui.view !== 'score' && !isPhone && ui.dynLane !== false; }
+function dynLaneOn(tr) { return !!tr && tr.type === 'melody' && ui.view !== 'score' && !isPhone && ui.dynLane !== false && !simpleOn(); }
 function updateDynLane(tr, X, k, t0, t1) {
   let lane = $('#dynLane');
   if (!lane) {
@@ -3648,8 +3648,8 @@ function renderTracks() {
     const lockMute = song.locks.mute;
     d.innerHTML = `
       <div class="trow"><span class="tgrip" title="ドラッグで順番を入れかえ（楽譜の順番も変わります）" aria-hidden="true">⋮⋮</span><span class="ticon" data-n="${i + 1}" title="${escapeHtml(tr.name)}">${icon}</span><span class="tname" title="${escapeHtml(tr.name)}">${i + 1}. ${escapeHtml(tr.name)}</span>${tr.locked ? `<span class="tlock" title="ロック中">${I('lock')}</span>` : ''}
-        <button class="mini icon mute ${tr.mute ? 'on' : ''}" title="ミュート（このトラックを鳴らさない）" ${lockMute ? 'disabled' : ''}>M</button>
-        <button class="mini icon solo ${tr.solo ? 'on' : ''}" title="ソロ（このトラックだけ鳴らす）" ${lockMute ? 'disabled' : ''}>S</button>
+        <button class="mini icon mute ${tr.mute ? 'on' : ''}" title="消音：このトラックを鳴らさない（ミュート）" aria-label="消音" ${lockMute ? 'disabled' : ''}>消音</button>
+        <button class="mini icon solo ${tr.solo ? 'on' : ''}" title="ソロ：このトラックだけ鳴らす" aria-label="ソロ" ${lockMute ? 'disabled' : ''}>ソロ</button>
         <details class="pop right tmenu" data-pop="t${i}"><summary class="mini icon" title="名前・並べかえ・複製・削除">${I('more')}</summary><div class="popbody menu-list">
           <button data-a="rename" ${tr.locked ? 'disabled' : ''}>${I('pencil')}名前を変える</button>
           <button data-a="up" ${i === 0 ? 'disabled' : ''}>${I('chevron')}上へ</button>
@@ -3870,7 +3870,7 @@ function renderEditorTools() {
       <div class="btnrow"><button class="mini" data-ext="hi-1">${I('minus')}上をせまく</button><button class="mini" data-ext="lo+1">${I('minus')}下をせまく</button></div>
     </div></details>
     <button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>
-    <button class="mini ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('sharp')}<span>半音</span></button>`;
+    <button class="mini adv-only ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('sharp')}<span>半音</span></button>`;
     tools = `
       <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
       <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
@@ -3909,7 +3909,7 @@ function renderEditorTools() {
       setTimeout(() => { const el = $('#cType'); if (el) el.focus(); }, 0);
     });
   }
-  html += `<details class="pop" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">${I('tool')}<span>道具</span></summary><div class="popbody">${tools}
+  html += `<details class="pop adv-only" data-pop="tools"><summary class="mini" title="音域・音の移動・輪唱・消去など">${I('tool')}<span>道具</span></summary><div class="popbody">${tools}
     <div class="sub">再生</div><div class="btnrow"><button class="mini" id="btnViewLoop" title="いま見えている小節だけをくりかえし再生">${I('loop')}見えている所だけくりかえす</button></div>
     <div class="sub">消す</div><div class="btnrow"><button class="mini danger" id="btnClear" ${lk ? 'disabled' : ''}>このトラックをぜんぶ消す</button></div></div></details>`;
   box.innerHTML = html;
@@ -6774,6 +6774,62 @@ function applyPhone() {
   draw();
   drawOverview();
 }
+/* ---------- かんたん表示：はじめての人には、よく使うボタンだけ（「くわしく」で全部のボタン） ---------- */
+function simpleOn() { return document.body.classList.contains('simple') && !document.body.classList.contains('phone'); }
+function applySimple(on, quiet) {
+  document.body.classList.toggle('simple', on);
+  lsSet('otsumiki-simple', on ? '1' : '0');
+  const b = $('#btnSimple');
+  if (b) { b.querySelector('span').textContent = on ? 'くわしく' : 'かんたん'; b.title = on ? 'もっとたくさんのボタンを出す（くわしい表示）' : 'よく使うボタンだけにする（かんたん表示）'; b.setAttribute('aria-pressed', String(!on)); }
+  if (ui.sc) ui.sc.compact = on ? true : lsGet('otsumiki-scpal', '0') === '1';
+  if (typeof renderScorePal === 'function' && ui.view === 'score') renderScorePal();
+  if (!quiet) {
+    resizeEditor(); draw(); drawOverview();
+    if (ui.view === 'score') renderScoreEdit();
+    toast(on ? 'かんたん表示：よく使うボタンだけにしました（右上の「くわしく」で全部出ます）' : 'くわしい表示：全部のボタンを出しました（「かんたん」でもどせます）', 3500);
+  }
+}
+// タッチの画面：ボタンを長おしすると、そのボタンの説明が出る（マウスをのせられないので）
+function initLongPress() {
+  let timer = 0;
+  let shown = null;
+  let swallow = false;
+  const hide = () => { if (shown) { shown.remove(); shown = null; } };
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const el = e.target.closest && e.target.closest('button[title], summary[title], [data-cap][title], label[title], select[title]');
+    if (!el) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      hide();
+      const tip = document.createElement('div');
+      tip.className = 'lpTip';
+      tip.textContent = el.title;
+      document.body.appendChild(tip);
+      const r = el.getBoundingClientRect();
+      tip.style.left = clamp(r.left + r.width / 2 - tip.offsetWidth / 2, 8, innerWidth - tip.offsetWidth - 8) + 'px';
+      tip.style.top = (r.bottom + 8 + tip.offsetHeight < innerHeight ? r.bottom + 8 : r.top - tip.offsetHeight - 8) + 'px';
+      shown = tip;
+      swallow = true; // 長おしのあとは、ボタンをおしたことにしない
+      setTimeout(hide, 2600);
+    }, 550);
+  }, true);
+  const cancel = () => clearTimeout(timer);
+  document.addEventListener('pointerup', cancel, true);
+  document.addEventListener('pointercancel', cancel, true);
+  document.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch' && Math.abs(e.movementX) + Math.abs(e.movementY) > 6) cancel(); }, true);
+  document.addEventListener('click', (e) => { if (swallow) { swallow = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener('contextmenu', (e) => { if (shown) e.preventDefault(); }, true);
+}
+function initSimple() {
+  initLongPress();
+  // はじめて使う人（保存した曲がない）は、かんたん表示から
+  let v = lsGet('otsumiki-simple', '');
+  if (!v) { let used = NO_TOUR; try { used = used || !!(localStorage.getItem('otsumiki-autosave') || localStorage.getItem('otsumiki-songs')); } catch (e) { /* なし */ } v = used ? '0' : '1'; }
+  applySimple(v === '1', true);
+  const b = $('#btnSimple');
+  if (b) b.onclick = () => applySimple(!document.body.classList.contains('simple'));
+}
 /* ---------- 画面の区切りをドラッグして、トラック・キャンバス・下の楽譜の大きさを変える（パソコン・タブレット） ---------- */
 const LAYOUT_KEY = 'otsumiki-layout';
 var layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; } })();
@@ -8107,6 +8163,7 @@ function init() {
   try { ui.keyMove = localStorage.getItem('otsumiki-keymove') !== '0'; } catch (e) { /* 何もしない */ }
   $('#phoneMoreClose').onclick = () => $('#phoneMore').classList.remove('open');
   if (phoneMQ.addEventListener) phoneMQ.addEventListener('change', applyPhone);
+  initSimple();
   applyPhone();
   initSplitters();
   loadZoom();

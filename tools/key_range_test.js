@@ -19,7 +19,7 @@ console.log('undo x4', await first());
 await p.mouse.click(700, 700);
 // 半音・音域
 const rows0 = await p.evaluate(() => rowsFor(track()).length);
-await p.click('#btnChrom');
+await p.evaluate(() => document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'))); await p.click('#btnChrom');
 const rows1 = await p.evaluate(() => rowsFor(track()).length);
 await p.click('details[data-pop="range"] > summary'); await p.waitForTimeout(100);
 await p.screenshot({ path: SP + '/k2.png' });
