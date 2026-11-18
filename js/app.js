@@ -576,10 +576,16 @@ function edit(fn, label = '編集') {
   const snap = snapshot();
   const nTr = song.tracks.length;
   const trId = track() && track().id;
+  const nNotes = noteCount();
   fn();
   autoNameTracks();
   if (song.tracks.length !== nTr || (track() && track().id) !== trId) { nsel.clear(); updateSelBar(); }
-  if (snapshot() !== snap) pushUndo(snap, label);
+  if (snapshot() !== snap) {
+    pushUndo(snap, label);
+    // たくさん消したときは「もどせるよ」と知らせる（まちがえても安心）
+    const lost = nNotes - noteCount();
+    if (song.tracks.length < nTr || lost >= 4) setTimeout(() => toastUndo(`「${label}」をしました${lost > 0 ? `（音 ${lost} こ）` : ''}`), 0);
+  }
   changed();
 }
 function restore(json) {
@@ -1212,8 +1218,19 @@ function startMission() {
   renderMission();
   return true;
 }
+// いまやること の場所を光らせる（どこをおせばいいか、すぐわかるように）
+const MISSION_AT = ['#editorWrap', '#btnPlay', '#btnShare'];
+function missionGlow(done) {
+  $$('.missionGlow').forEach((e) => e.classList.remove('missionGlow'));
+  if (!mission.on || done) return;
+  let sel = MISSION_AT[mission.step];
+  if (mission.step === 0 && ui.view === 'score') sel = '#scoreEditView';
+  const el = sel && document.querySelector(sel);
+  if (el && el.offsetParent !== null) el.classList.add('missionGlow');
+}
 function renderMission(done) {
   let box = $('#mission');
+  missionGlow(done);
   if (!mission.on) { if (box) box.remove(); return; }
   if (!box) { box = document.createElement('div'); box.id = 'mission'; box.className = 'mission'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
   box.innerHTML = `<b>${done ? 'ミッションクリア！ 🎉' : 'はじめてのミッション'}</b><ol>${MISSION.map((m, i) => `<li class="${i < mission.step ? 'ok' : i === mission.step ? 'now' : ''}">${i < mission.step ? '✅' : i === mission.step ? '👉' : '・'} ${m}</li>`).join('')}</ol>${done ? '<p>これで作曲家の仲間入り！ 次は、楽器えらびのいちばん上「じぶんの音」で、声や手びょうしを楽器にしてみよう🎤</p>' : ''}<button class="mini" id="missionClose">${done ? 'とじる' : 'あとでやる'}</button>`;
@@ -2716,7 +2733,7 @@ function onUp() {
 }
 
 /* ============================================================
-   キャンバス（全体の見取り図：トラック × 小節）
+   曲の地図（全体の見取り図：トラック × 小節）
    ============================================================ */
 const ov = $('#ov');
 const og = ov.getContext('2d');
@@ -2724,7 +2741,7 @@ let OV_LW = 110;
 let OV_RH = 20;
 const OV_TOP = 16;
 let ovDrag = null;
-// キャンバスの1小節のはば：全体（つめて曲ぜんぶ）・ふつう・大きく
+// 曲の地図の1小節のはば：全体（つめて曲ぜんぶ）・ふつう・大きく
 function ovBarW() {
   const room = $('#ovWrap').clientWidth - OV_LW - 10;
   const mode = typeof layout === 'object' && layout.ovMode;
@@ -3872,7 +3889,7 @@ function renderEditorTools() {
     <button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>
     <button class="mini adv-only ${ui.chromatic ? 'on' : ''}" id="btnChrom" title="音階にない音（半音・黒鍵）の行もぜんぶ表示します">${I('sharp')}<span>半音</span></button>`;
     tools = `
-      <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。キャンバスで2小節以上えらぶとその範囲だけ）'}</small></div>
+      <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。曲の地図で2小節以上えらぶとその範囲だけ）'}</small></div>
       <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
       <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
       ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}`;
@@ -4657,6 +4674,7 @@ function gridShowCursor() {
   if (c < t0 || c > t1 - 48) { sc.scrollLeft = Math.max(0, barStart(barOf(Math.min(c, totalTicks() - 1))) * ppt() - 40); draw(); if (typeof drawOverview === 'function') drawOverview(); }
 }
 function setView(v) {
+  if (mission.on) setTimeout(() => missionGlow(), 0);
   if (ui.chd && typeof chordPickClose === 'function') chordPickClose();
   if (typeof dynPopClose === 'function') dynPopClose();
   if (v !== ui.view) viewHandoff(v);
@@ -6830,7 +6848,7 @@ function initSimple() {
   const b = $('#btnSimple');
   if (b) b.onclick = () => applySimple(!document.body.classList.contains('simple'));
 }
-/* ---------- 画面の区切りをドラッグして、トラック・キャンバス・下の楽譜の大きさを変える（パソコン・タブレット） ---------- */
+/* ---------- 画面の区切りをドラッグして、トラック・曲の地図・下の楽譜の大きさを変える（パソコン・タブレット） ---------- */
 const LAYOUT_KEY = 'otsumiki-layout';
 var layout = (() => { try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; } })();
 function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* 保存できなくても動く */ } }
@@ -6849,10 +6867,10 @@ function applyLayout() {
   if (sp && !floatOn('score')) { sp.style.maxHeight = !phone && layout.sph ? layout.sph + 'px' : ''; sp.style.height = !phone && layout.sph ? layout.sph + 'px' : ''; }
   applyFloats();
 }
-/* ---------- 窓をポップアップ（うかせる）・もとの場所にもどす：トラック・キャンバス・下の楽譜 ---------- */
+/* ---------- 窓をポップアップ（うかせる）・もとの場所にもどす：トラック・曲の地図・下の楽譜 ---------- */
 const FLOATS = {
   tracks: { sel: '.main > .tracks', head: '.tracks-head', name: 'トラック', w: 270, h: 460 },
-  canvas: { sel: '.canvas-area', head: '.ovtools', name: 'キャンバス', w: 760, h: 220 },
+  canvas: { sel: '.canvas-area', head: '.ovtools', name: '曲の地図', w: 760, h: 220 },
   score: { sel: '#scorePanel', head: '.sphead', name: '楽譜', w: 720, h: 320 },
 };
 let floatZ = 40;
@@ -6991,7 +7009,7 @@ function initSplitters() {
   }, () => { delete layout.tw; });
   splitterDrag($('#splitOv'), (m) => {
     if (!m) return layout.ovHide ? 4 : OV_RH;
-    // キャンバスの高さ＝行の高さ（トラックの数で割る）。上までよせると、たたむ
+    // 曲の地図の高さ＝行の高さ（トラックの数で割る）。上までよせると、たたむ
     const v = m.st + m.dy / Math.max(1, ovRows().length);
     layout.ovHide = v < 9;
     if (!layout.ovHide) { layout.ovrh = Math.round(clamp(v, 12, 56)); OV_RH = layout.ovrh; }
@@ -7003,7 +7021,7 @@ function initSplitters() {
     layout.ovMode = b.dataset.m === 'normal' ? undefined : b.dataset.m;
     if (layout.ovHide) layout.ovHide = false;
     applyLayout(); saveLayout(); relayoutAll();
-    toast(b.dataset.m === 'fit' ? 'キャンバス：曲ぜんぶを、つめて表示' : b.dataset.m === 'big' ? 'キャンバス：大きく表示（横にスクロール）' : 'キャンバス：ふつうの大きさ');
+    toast(b.dataset.m === 'fit' ? '曲の地図：曲ぜんぶを、つめて表示' : b.dataset.m === 'big' ? '曲の地図：大きく表示（横にスクロール）' : '曲の地図：ふつうの大きさ');
   }));
   splitterDrag($('#splitScore'), (m) => {
     const sp = $('#scorePanel');
@@ -8006,10 +8024,26 @@ function warnSaveFailed() {
 }
 function toast(msg, ms = 2600) {
   const t = $('#toast');
+  t.classList.remove('withbtn');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+// 「もどす」ボタンつきのお知らせ（たくさん消したとき）
+function toastUndo(msg) {
+  const t = $('#toast');
+  t.textContent = msg + ' ';
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'toastbtn';
+  b.textContent = '↶ もどす';
+  b.onclick = () => { t.classList.remove('show', 'withbtn'); undo(); };
+  t.appendChild(b);
+  t.classList.add('show', 'withbtn');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show', 'withbtn'), 6000);
 }
 
 /* ============================================================
@@ -8203,7 +8237,7 @@ function init() {
     const r = sc.getBoundingClientRect();
     if (e.clientY - r.top < RH && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); stopFling(); sc.scrollLeft += e.deltaY; }
   }, { passive: false });
-  // キャンバスの上では、ホイールで横に動く
+  // 曲の地図の上では、ホイールで横に動く
   $('#ovScroller').addEventListener('wheel', (e) => {
     if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.ctrlKey) return;
     const o = $('#ovScroller');
@@ -8384,7 +8418,7 @@ function applyTheme() {
   if (t === 'lavender') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
   const NEON = t === 'neon';
   applyMode(NEON ? 'dark' : lsGet('otsumiki-mode', 'auto'));
-  // マス目（キャンバス）で使う色は、ふつうの色の書き方で入れる
+  // マス目（曲の地図）で使う色は、ふつうの色の書き方で入れる
   const th = THEMES.find((x) => x[0] === t) || THEMES[0];
   const n = parseInt(th[2].slice(1), 16);
   const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
@@ -8419,7 +8453,7 @@ applyTheme();
 const TOUR_PC = [
   ['#editorWrap', 'オトグラフ', 'マス目をクリックすると音が置けます。もう一度クリックで消えます。右へドラッグすると長い音になります。'],
   ['#trackList', 'トラック', 'パート（メロディ・コード伴奏・リズム）の一覧です。楽器の絵をおすと音色を変えられます。'],
-  ['#ovWrap', 'キャンバス', '曲全体の地図です。小節をドラッグしてコピー、ゴミ箱で消去。「R」の行をおすと、その小節からテンポ・拍子・調を変えられます。'],
+  ['#ovWrap', '曲の地図', '曲全体を見わたす地図です。小節をドラッグしてコピー、ゴミ箱で消去。「R」の行をおすと、その小節からテンポ・拍子・調を変えられます。'],
   ['#viewSeg', 'マス目 ⇔ 楽譜', '楽譜に切りかえると、五線の上で音符を入力・編集できます（キーボードの A〜G と 1〜6 でも入力できます）。'],
   ['#btnPlay', '再生', '曲を鳴らします。スペースキーでも再生・停止できます。'],
   ['#keySum', '調', 'ハ長調・ト長調などをえらぶと、曲全体をかんたんに移調できます。'],
