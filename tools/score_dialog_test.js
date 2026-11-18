@@ -6,7 +6,7 @@ const OUT = process.argv[2] || '.';
   for (const [name, opt] of [['pc', { viewport: { width: 1366, height: 768 } }], ['ipad', devices['iPad (gen 7)']]]) {
     const ctx = await b.newContext(opt); const p = await ctx.newPage(); p.on('pageerror', (e) => errs.push(name + ': ' + e.message));
     await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(900);
-    await p.click('.tpl >> nth=5'); await p.waitForTimeout(300);
+    await p.click('.tpl[data-t="empty"]'); await p.waitForTimeout(300);
     await p.evaluate(() => openScore()); await p.waitForTimeout(400);
     await p.evaluate(() => document.querySelector('#dlgScore').close());
     await p.evaluate(() => { edit(() => { for (let i = 0; i < 5; i++) track().notes.push({ s: i * 48, p: 60 + i * 2, l: 48 }); }, 't'); });

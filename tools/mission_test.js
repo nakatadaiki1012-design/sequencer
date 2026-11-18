@@ -6,7 +6,7 @@ const OUT = process.argv[2] || '.';
   const ctx = await b.newContext(devices['iPhone 13']);
   const p = await ctx.newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   await p.goto('http://localhost:8765/'); await p.waitForTimeout(1000);
-  await p.tap('.tpl >> nth=5'); await p.waitForTimeout(500);
+  await p.tap('.tpl[data-t="empty"]'); await p.waitForTimeout(500);
   const r = {};
   r['ミッションが出る'] = await p.isVisible('#mission');
   r['読むツアーは出ない'] = !(await p.evaluate(() => !!document.querySelector('.tour')));

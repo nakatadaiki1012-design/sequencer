@@ -9,7 +9,7 @@ const OUT = process.argv[2] || '.';
   await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(1000);
   const r = {};
   // からっぽの曲
-  await p.click('.tpl >> nth=5'); await p.waitForTimeout(600);
+  await p.click('.tpl[data-t="empty"]'); await p.waitForTimeout(600);
   await p.screenshot({ path: `${OUT}/imp_empty.png` });
   r['新しい曲の音の数'] = await p.evaluate(() => track().notes.length);
   // マス目をクリック → きらっ

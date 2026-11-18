@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
   const p = await ctx.newPage(); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
   const r = {};
   await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(900);
-  await p.click('.tpl >> nth=5'); await p.waitForTimeout(400);
+  await p.click('.tpl[data-t="empty"]'); await p.waitForTimeout(400);
   r['はじめ（サンプルはしまわない）'] = await p.evaluate(() => Object.keys(savedList()).length);
   await p.evaluate(() => { song.title = 'ぼくの曲'; edit(() => { for (let i = 0; i < 10; i++) track().notes.push({ s: i * 48, p: 60 + i, l: 48 }); }, 'テスト'); });
   // 友だちの曲のURL
