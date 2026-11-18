@@ -1514,7 +1514,20 @@ function audioCtx() {
   return actx;
 }
 const loadingNow = new Set();
+// 開いただけでは読みこまない（重くしない）。画面に最初にさわったときに読みはじめる
+let userActed = false;
+let preloadWaiting = false;
+const firstTouch = () => {
+  if (userActed) return;
+  userActed = true;
+  removeEventListener('pointerdown', firstTouch, true);
+  removeEventListener('keydown', firstTouch, true);
+  if (preloadWaiting) setTimeout(preloadSamples, 0);
+};
+addEventListener('pointerdown', firstTouch, true);
+addEventListener('keydown', firstTouch, true);
 function preloadSamples() {
+  if (!userActed) { preloadWaiting = true; return; }
   const ctx = audioCtx();
   const jobs = [];
   for (const tr of song.tracks) {
