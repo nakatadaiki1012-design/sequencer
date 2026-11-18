@@ -216,6 +216,12 @@ function sanitizeSong(s) {
     out.repeats = { start: ints(R.start), end: ints(R.end), volta: obj(R.volta) };
   }
   out.pickup = Math.max(0, Math.round(num(s.pickup, 0, 0, 192 * 4)));
+  // 穴あき課題：{ tr: トラックの番号, bars: 空けた小節, ans: 答え（音のリスト） }
+  if (s.task != null) {
+    const T = s.task;
+    const ok = T && typeof T === 'object' && Number.isInteger(T.tr) && T.tr >= 0 && Array.isArray(T.bars) && T.bars.length && T.bars.length <= 128 && T.bars.every((b) => Number.isInteger(b) && b >= 0 && b < 128) && typeof T.ans === 'string' && T.ans.length < 400000;
+    if (ok) out.task = { tr: T.tr, bars: [...new Set(T.bars)].sort((a, z) => a - z), ans: T.ans }; else delete out.task;
+  }
   out.rehearsal = {};
   for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < 128 && v) out.rehearsal[b] = v; }
   if (!Object.keys(out.rehearsal).length) delete out.rehearsal;
@@ -639,7 +645,7 @@ function changed(full = false) {
   if (mission.on) setTimeout(missionCheck, 0);
   if (refSong) setTimeout(updateCompare, 0);
   setTimeout(updateCp, 0);
-  if (full) { renderSettings(); renderTracks(); }
+  if (full) { renderSettings(); renderTracks(); updateTaskBar(); }
   renderEditorTools();
   resizeEditor();
   draw();
@@ -1854,6 +1860,7 @@ function draw(playPos) {
     }
     drawChordNotes(tr, X, k, y + rh, H, t0, t1, playPos);
   }
+  if (song.task && song.tracks[song.task.tr] === tr) taskMarks(g2, X, rh, sy, rowIndex.size);
   if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
   if (cpOn() && tr.id === song.cp.cpId) cpMarks(g2, X, rowIndex, rh, sy, k);
   if (rubber && tr.type !== 'chord') {
@@ -4256,6 +4263,13 @@ async function openTeacher() {
     <label class="chk"><input type="checkbox" id="lkCompose" ${L.compose ? 'checked' : ''}> 「おまかせ作曲」をかくす</label>
     <h4>トラックのロック（ロックしたトラックは見る・聴くだけ）</h4>
     ${song.tracks.map((t, i) => `<label class="chk"><input type="checkbox" class="lkTr" data-i="${i}" ${t.locked ? 'checked' : ''}> ${i + 1}. ${escapeHtml(t.name)}</label>`).join('')}
+    <h4>穴あき課題（答えの小節を空けて配る）</h4>
+    <div class="taskmk">
+      <label>トラック <select id="tkTrack">${song.tracks.map((t, i) => (t.type === 'melody' ? `<option value="${i}" ${i === cur ? 'selected' : ''}>${i + 1}. ${escapeHtml(t.name)}</option>` : '')).join('')}</select></label>
+      <label>空ける小節 <input id="tkBars" placeholder="例：3-4, 7" value="${ui.sel && ui.sel.b1 > ui.sel.b0 ? `${ui.sel.b0 + 1}-${ui.sel.b1 + 1}` : ''}" size="12"></label>
+      <button class="mini" id="tkMake" type="button">課題ファイルを書き出す</button>
+    </div>
+    <p class="muted small">えらんだ小節の音を消したファイルを書き出します（いまの曲はそのまま）。生徒がそのファイルを開くと、空いた小節にわくが出て、「答え合わせ」でその小節だけ採点できます。</p>
     <h4>暗証番号</h4>
     <label>この画面を開くための暗証番号（空欄のまま＝${L.pin ? '変えない' : 'なし'}） <input id="lkPin" type="password" autocomplete="new-password"></label>
     ${L.pin ? '<label class="chk"><input type="checkbox" id="lkPinClear"> 暗証番号を消す</label>' : ''}`;
@@ -4272,7 +4286,82 @@ async function openTeacher() {
     $('#dlgTeach').close();
     toast('先生用設定を保存しました。「ファイル」→「曲ファイルを書き出す」で配れます');
   };
+  const mk = $('#tkMake');
+  if (mk) mk.onclick = () => {
+    const ti = +$('#tkTrack').value;
+    const bars = parseBars($('#tkBars').value).filter((b) => b < song.bars);
+    if (!song.tracks[ti] || song.tracks[ti].type !== 'melody') return toast('メロディのトラックをえらんでください');
+    if (!bars.length) return toast('空ける小節を入れてください（例：3-4, 7）');
+    makeTaskFile(ti, bars);
+  };
   $('#dlgTeach').showModal();
+}
+/* ---------- 穴あき課題 ---------- */
+const inBars = (bars, t) => bars.some((b) => t >= barStart(b) && t < barStart(b + 1));
+function makeTaskFile(ti, bars) {
+  const copy = JSON.parse(JSON.stringify(song));
+  const tr = copy.tracks[ti];
+  const ans = tr.notes.filter((n) => inBars(bars, n.s));
+  if (!ans.length) return toast('その小節には音がありません。答えの音を入れてから書き出してください');
+  tr.notes = tr.notes.filter((n) => !inBars(bars, n.s));
+  copy.task = { tr: ti, bars, ans: btoa(unescape(encodeURIComponent(JSON.stringify(ans)))) };
+  copy.title = song.title + '（課題）';
+  download(new Blob([JSON.stringify(copy)], { type: 'application/json' }), safeName() + '_課題.soranote.json');
+  toast(`課題ファイルを書き出しました（${bars.map((b) => b + 1).join('・')}小節目を空けました）`, 4000);
+}
+function taskAnswer() {
+  try { return JSON.parse(decodeURIComponent(escape(atob(song.task.ans)))); } catch (e) { return []; }
+}
+function taskLabel() {
+  const T = song.task;
+  const tr = song.tracks[T.tr];
+  // 3,4,5,7 → 3〜5・7
+  const out = [];
+  for (const b of T.bars) { const last = out[out.length - 1]; if (last && last[1] === b - 1) last[1] = b; else out.push([b, b]); }
+  return `「${tr ? tr.name : ''}」の ${out.map(([a, z]) => (a === z ? a + 1 : `${a + 1}〜${z + 1}`)).join('・')}小節目`;
+}
+function updateTaskBar() {
+  let bar = $('#taskBar');
+  const T = song.task;
+  if (!T || !song.tracks[T.tr]) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'taskBar';
+    bar.className = 'cmpbar taskbar';
+    bar.setAttribute('role', 'status');
+    $('#cmpBar').before(bar);
+  }
+  bar.innerHTML = `<span>📝 課題：${escapeHtml(taskLabel())}を作ろう（点線のわくの中）</span><button class="mini primary" id="taskCheck">答え合わせ</button>`;
+  $('#taskCheck').onclick = () => {
+    // お手本＝いまの曲に答えを入れたもの（空けた小節だけでくらべる）
+    const ref = JSON.parse(JSON.stringify(song));
+    const rt = ref.tracks[T.tr];
+    rt.notes = rt.notes.filter((n) => !inBars(T.bars, n.s)).concat(taskAnswer());
+    ref._taskBars = T.bars;
+    refSong = ref;
+    if (cur !== T.tr) { cur = T.tr; renderTracks(); }
+    updateCompare();
+    draw();
+    const c = compareTrack(T.tr);
+    if (c && c.total && c.ok === c.total && !c.wrong.size) { toast('ぜんぶ正解！ 🎉', 3500); cheer(true); }
+  };
+}
+function taskMarks(g2, X, rh, sy, rows) {
+  const T = song.task;
+  g2.save();
+  g2.setLineDash([6, 4]);
+  g2.lineWidth = 2;
+  g2.strokeStyle = C('--accent');
+  g2.fillStyle = C('--accent');
+  g2.font = 'bold 12px sans-serif';
+  for (const b of T.bars) {
+    const x0 = X(barStart(b));
+    const x1 = X(barStart(b + 1));
+    roundRect(g2, x0 + 3, RH + 3, x1 - x0 - 6, Math.max(20, rows * rh - sy) - 6, 8);
+    g2.stroke();
+    g2.fillText('ここを作ろう', x0 + 10, RH + 18);
+  }
+  g2.restore();
 }
 
 /* ============================================================
@@ -7184,6 +7273,8 @@ function loadSong(s, opts = {}) {
   ui.sc.cursor = 0;
   ui.sc.sel = new Set();
   cur = 0;
+  if (song.task && song.tracks[song.task.tr]) cur = song.task.tr; // 課題のトラックをはじめから
+  if (refSong && refSong._taskBars) refSong = null;
   ui.startTick = 0;
   ui.inputTick = 0;
   ui.loopRange = null;
@@ -7482,8 +7573,9 @@ function compareTrack(i) {
   const tr = song.tracks[i];
   const rt = refTrackFor(i);
   if (!rt) return null;
-  const mine = new Map(tr.notes.map((n) => [n.s + ':' + n.p, n]));
-  const theirs = new Map(rt.notes.map((n) => [n.s + ':' + n.p, n]));
+  const only = refSong._taskBars ? (n) => inBars(refSong._taskBars, n.s) : () => true; // 穴あき課題は、空けた小節だけ
+  const mine = new Map(tr.notes.filter(only).map((n) => [n.s + ':' + n.p, n]));
+  const theirs = new Map(rt.notes.filter(only).map((n) => [n.s + ':' + n.p, n]));
   let ok = 0;
   let len = 0;
   const missing = [];

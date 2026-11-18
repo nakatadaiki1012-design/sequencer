@@ -1515,9 +1515,11 @@ body:not(.phone) .topbar { padding-bottom: 15px; }
 body:not(.phone) .topbar [data-cap] { position: relative; }
 body:not(.phone) .topbar [data-cap]::after { content: attr(data-cap); position: absolute; left: 50%; bottom: -13px; transform: translateX(-50%); font-size: 9.5px; line-height: 1; color: var(--muted); white-space: nowrap; pointer-events: none; font-weight: 500; letter-spacing: 0; }
 /* 文字が見えているボタン（広い画面）は、下の小さな文字をださない */
-@media (min-width: 1151px) {
-  body:not(.phone) .topbar summary[data-cap="ルール"]::after, body:not(.phone) .topbar summary[data-cap="練習"]::after, body:not(.phone) .topbar summary[data-cap="メニュー"]::after, body:not(.phone) .topbar #btnShare::after { display: none; }
+@media (min-width: 1251px) {
+  body:not(.phone) .topbar summary[data-cap="ルール"]::after, body:not(.phone) .topbar summary[data-cap="メニュー"]::after { display: none; }
 }
+@media (min-width: 1401px) { body:not(.phone) .topbar #btnShare::after { display: none; } }
+@media (min-width: 1601px) { body:not(.phone) .topbar summary[data-cap="練習"]::after { display: none; } }
 @media (min-width: 1401px) { body:not(.phone) .topbar #btnScore::after, body:not(.phone) .topbar #btnPal::after { display: none; } }
 /* 長おしで出る説明 */
 .lpTip { position: fixed; z-index: 90; max-width: min(320px, calc(100vw - 16px)); padding: 7px 11px; border-radius: 10px; background: rgba(20,22,35,.92); color: #fff; font-size: 13px; line-height: 1.45; pointer-events: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
@@ -1548,3 +1550,15 @@ body:not(.phone) .main > .tracks:not(.narrow):not(.floating) { width: 290px; }
 #editorWrap.missionGlow, #scoreEditView.missionGlow { outline: none !important; animation: none; position: relative; }
 #editorWrap.missionGlow::after, #scoreEditView.missionGlow::after { content: ""; position: absolute; inset: 2px; border: 3px solid var(--accent); border-radius: 10px; pointer-events: none; z-index: 6; animation: missionPulseB 1.6s ease-in-out infinite; }
 @keyframes missionPulseB { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* 穴あき課題 */
+.taskmk { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.taskbar { gap: 10px; }
+#taskBar ~ #cmpBar:not([hidden]) { bottom: 62px; }
+body.phone #taskBar ~ #cmpBar:not([hidden]) { top: 80px; bottom: auto; }
+
+/* 上のバーが2段に折れないように：ボタンの列はつめずに、左の曲名の箱を小さくする。せまい画面では「練習」「送る」の文字を下の小さな名前だけに */
+body:not(.phone) .topbar .transport, body:not(.phone) .topbar .menu { flex-wrap: nowrap; flex-shrink: 0; }
+@media (max-width: 1600px) { body:not(.phone) #popPractice > summary > span { display: none; } }
+@media (max-width: 1400px) { body:not(.phone) #btnShare > span { display: none; } body:not(.phone) .simplebtn { padding-left: 8px; padding-right: 8px; } }
+@media (max-width: 1250px) { body:not(.phone) .topbar summary[data-cap="ルール"] > span, body:not(.phone) .topbar summary[data-cap="メニュー"] > span { display: none; } }
