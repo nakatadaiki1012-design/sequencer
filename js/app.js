@@ -4546,7 +4546,7 @@ function printScore() {
   const w = window.open('', '_blank');
   if (!w) return alert('ポップアップがブロックされました。ブラウザの設定で許可してください');
   // 1ページに1枚ずつ。段のとちゅうで切れないように、ページを分けてあります
-  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><style>@page{size:A4;margin:12mm}body{margin:0}.pg{break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}svg{display:block;width:100%;height:auto}.pg svg.page{width:auto;height:268mm;margin:0 auto}</style>${pages.map((pg) => `<div class="pg">${pg}</div>`).join('')}<script>onload=()=>setTimeout(()=>print(),200)<\/script>`);
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><link rel="stylesheet" href="${new URL('fonts/serif.css', location.href)}"><style>@page{size:A4;margin:12mm}body{margin:0}.pg{break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}svg{display:block;width:100%;height:auto}.pg svg.page{width:auto;height:268mm;margin:0 auto}</style>${pages.map((pg) => `<div class="pg">${pg}</div>`).join('')}<script>onload=()=>{const go=()=>setTimeout(()=>print(),200);(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(go,go)}<\/script>`);
   w.document.close();
 }
 // パート譜：えらんだパートを1つずつ、べつのページにして印刷（MuseScore の「パート」）
@@ -4568,11 +4568,29 @@ function printParts() {
   printScore();
   scorePages = keep;
 }
-function exportPng() {
+// 画像にするときは、楽譜の明朝体（使う字のぶんだけ）を絵の中に入れる（画像の中からは字体のファイルを読めないため）
+async function embedSerifFont(svgEl) {
+  try {
+    const css = await (await fetch('fonts/serif.css')).text();
+    const cps = new Set();
+    for (const t of svgEl.querySelectorAll('text')) for (const ch of t.textContent) cps.add(ch.codePointAt(0));
+    const rules = [];
+    for (const m of css.matchAll(/font-weight:(\d+);src:url\(([^)]+)\)[^;]*;unicode-range:([^}]+)\}/g)) {
+      const ranges = m[3].split(',').map((r) => r.trim().replace(/^U\+/i, '').split('-').map((h) => parseInt(h, 16)));
+      if (![...cps].some((c) => ranges.some(([a, z]) => c >= a && c <= (z ?? a)))) continue;
+      const blob = await (await fetch('fonts/' + m[2])).blob();
+      const url = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+      rules.push(`@font-face{font-family:'Sora Serif';font-weight:${m[1]};src:url(${url}) format('woff2');unicode-range:${m[3]}}`);
+    }
+    if (rules.length) { const st = document.createElementNS('http://www.w3.org/2000/svg', 'style'); st.textContent = rules.join(''); svgEl.insertBefore(st, svgEl.firstChild); }
+  } catch (e) { /* 字体が読めなければ、そのまま */ }
+}
+async function exportPng() {
   if (!scoreFull) return;
   const holder = document.createElement('div');
   holder.innerHTML = scoreFull;
   const svgEl = holder.querySelector('svg');
+  await embedSerifFont(svgEl);
   const xml = new XMLSerializer().serializeToString(svgEl);
   const img = new Image();
   img.onload = () => {

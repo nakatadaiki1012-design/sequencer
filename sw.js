@@ -2,10 +2,10 @@
    - アプリ本体（HTML・CSS・JS）: まずネットから新しいものを取り、だめならキャッシュ（ネットが遅いときは 4 秒で見切る）
    - 楽器の録音 samples/mp3/**.mp3: 中身が変わらない（?v=… 付き）のでキャッシュを先に使う
    キャッシュの中身を変えたいときは VERSION を上げてください。 */
-const VERSION = 'v30';
+const VERSION = 'v31';
 const SHELL = 'shell-' + VERSION;
 const SAMPLES = 'samples-' + VERSION;
-const SHELL_FILES = ['./', 'index.html', 'css/style.css', 'js/sound.js', 'js/glyphs.js', 'js/notation.js', 'js/musicxml.js', 'js/mscz.js', 'js/counterpoint.js', 'js/insticons.js', 'js/mp3.js', 'js/vendor/lame.min.js', 'js/app.js', 'samples/mp3/index.json'];
+const SHELL_FILES = ['./', 'index.html', 'css/style.css', 'fonts/serif.css', 'js/sound.js', 'js/glyphs.js', 'js/notation.js', 'js/musicxml.js', 'js/mscz.js', 'js/counterpoint.js', 'js/insticons.js', 'js/mp3.js', 'js/vendor/lame.min.js', 'js/app.js', 'samples/mp3/index.json'];
 const NET_TIMEOUT = 4000;
 
 self.addEventListener('install', (e) => {
@@ -25,7 +25,7 @@ self.addEventListener('activate', (e) => {
   })());
 });
 
-const isSample = (url) => /\/samples\/mp3\/.+\.mp3$/.test(url.pathname);
+const isSample = (url) => /\/samples\/mp3\/.+\.mp3$/.test(url.pathname) || /\/fonts\/serif\/.+\.woff2$/.test(url.pathname); // 中身が変わらないもの
 
 async function cacheFirst(req) {
   const c = await caches.open(SAMPLES);

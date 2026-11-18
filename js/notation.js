@@ -313,7 +313,7 @@ const Notation = (() => {
     // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
     const FING = opts.finger ? FINGERING[opts.finger] : null;
     const scale = opts.scale || 1;
-    const SERIF = "'Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Noto Serif CJK JP','Times New Roman',serif";
+    const SERIF = "'Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Noto Serif CJK JP','Times New Roman',serif";
     let OUTW = opts.width || 780;
     let width = OUTW / scale;
     const SPC = Math.max(0.4, Math.min(2.5, +opts.spacing || 1)); // 小節の詰まり具合（小さい＝つめる）
@@ -1799,7 +1799,7 @@ const Notation = (() => {
       i = j;
     }
     if (pages.length === 1) return [svg];
-    const SERIF = "'Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
+    const SERIF = "'Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
     const esc2 = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
     return pages.map((pg, k) => {
       const n = pg.z - pg.a;
