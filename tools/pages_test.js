@@ -12,10 +12,11 @@ const { chromium } = require('playwright');
     return Notation.paginate(svg, Notation.lastLayout);
   });
   const r = { ページ数: pages.length };
+  const v = await b.newPage({ viewport: { width: 900, height: 1300 }, deviceScaleFactor: 1 }); // ページを見るのは別のタブで（アプリの画面を消さない）
   for (let k = 0; k < Math.min(3, pages.length); k++) {
-    await p.setContent(`<html><body style="margin:0;background:#888">${pages[k]}</body></html>`);
-    const el = await p.$('svg');
-    const info = await p.evaluate(() => { const s = document.querySelector('svg'); const R = s.getBoundingClientRect(); const gs = [...s.querySelectorAll(':scope > g')].map((g) => g.getBoundingClientRect()); return { 段: gs.length, 上: Math.round(gs[0].top - R.top), 下のあき: Math.round(R.bottom - gs[gs.length - 1].bottom), 見出し: [...s.querySelectorAll(':scope > text')].map((t) => t.textContent).join(' | ') }; });
+    await v.setContent(`<html><body style="margin:0;background:#888">${pages[k]}</body></html>`);
+    const el = await v.$('svg');
+    const info = await v.evaluate(() => { const s = document.querySelector('svg'); const R = s.getBoundingClientRect(); const gs = [...s.querySelectorAll(':scope > g')].map((g) => g.getBoundingClientRect()); return { 段: gs.length, 上: Math.round(gs[0].top - R.top), 下のあき: Math.round(R.bottom - gs[gs.length - 1].bottom), 見出し: [...s.querySelectorAll(':scope > text')].map((t) => t.textContent).join(' | ') }; });
     r['p' + (k + 1)] = info;
     await el.screenshot({ path: `${out}/page${k + 1}.png` });
   }
