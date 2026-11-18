@@ -36,7 +36,9 @@ const { chromium } = require('playwright');
       if (!m) continue;
       const [, x1, y1, x2, y2, y3, y4] = m.map(Number);
       if (Math.abs(y3 - y2) < 3.5 || Math.abs(y3 - y2) > 4.5) continue;
-      const st0 = sysOf(y1) || sysOf(y2) || sysOf(y3);
+      // いちばん近い五線（五線の外にある連桁も、その五線のものとしてまとめる）
+      const allSt = L.systems.flatMap((s2) => s2.staves);
+      const st0 = allSt.reduce((best, st) => { const dd = Math.abs((y1 + y3) / 2 - (st.top + 16)); return !best || dd < best.dd ? { st, dd } : best; }, null)?.st;
       segs.push({ x1, x2, top: st0 ? st0.top : Math.round(y1 / 100) * 1e4, ends: [[x1, y1], [x1, y4], [x2, y2], [x2, y3]] });
     }
     segs.sort((a, z) => a.top - z.top || a.x1 - z.x1);
