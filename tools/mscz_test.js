@@ -42,7 +42,7 @@ const SONGS = require('./engrave_songs.js');
       const drB = back.tracks.find((t) => t.type === 'drum');
       if (drA && JSON.stringify(Object.keys(drA.grid).sort().map((k) => k + Object.keys(drA.grid[k]).join())) !== JSON.stringify(Object.keys(drB.grid).sort().map((k) => k + Object.keys(drB.grid[k]).join()))) diff.push('ドラム ' + JSON.stringify(drB && drB.grid));
       const ch = before.tracks.find((t) => t.type === 'chord');
-      if (ch) { const cb = back.tracks.find((t) => t.type === 'chord'); const n1 = (c) => (c ? 1 + (c.h ? 1 : 0) : 0); const lost = ch.chords.slice(0, before.bars).reduce((a, c, k) => a + n1(c) - n1(cb && cb.chords[k]), 0); if (!cb || ch.chords.slice(0, before.bars).some((c, k) => c && (!cb.chords[k] || cb.chords[k].r !== c.r || cb.chords[k].q !== c.q)) || lost > 1) diff.push('コード ' + JSON.stringify(cb && cb.chords)); } // 全音符のとちゅうのコードは書けない（1つまで）
+      if (ch) { const cb = back.tracks.find((t) => t.type === 'chord'); const n1 = (c) => (c ? 1 + (c.h ? 1 : 0) + (c.x ? c.x.length : 0) : 0); const lost = ch.chords.slice(0, before.bars).reduce((a, c, k) => a + n1(c) - n1(cb && cb.chords[k]), 0); if (!cb || ch.chords.slice(0, before.bars).some((c, k) => c && (!cb.chords[k] || cb.chords[k].r !== c.r || cb.chords[k].q !== c.q)) || lost > 0) diff.push('コード ' + JSON.stringify(cb && cb.chords)); } // 全音符のとちゅうのコードも、見えない休符の声部に書くので、なくならない
       for (const k of ['bpm', 'key', 'scale', 'pickup', 'bars']) if (before[k] !== back[k]) diff.push(`${k}: ${before[k]} ≠ ${back[k]}`);
       if (JSON.stringify(before.meter) !== JSON.stringify(back.meter)) diff.push('拍子');
       if (JSON.stringify(before.tempos || {}) !== JSON.stringify(back.tempos || {})) diff.push('テンポ ' + JSON.stringify(back.tempos));

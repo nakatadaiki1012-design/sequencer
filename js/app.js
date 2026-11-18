@@ -3137,6 +3137,19 @@ function shiftBarMarks(fromBar, n) {
   song.repeats = { start: mvArr(R.start || []), end: mvArr(R.end || []), volta: mv(R.volta || {}) };
   const J = song.jumps || {};
   for (const k in J) if (J[k] != null) { if (J[k] >= fromBar) J[k] += n; else if (n < 0 && J[k] >= fromBar + n) J[k] = null; }
+  // 楽譜の改行の位置も、いっしょにずらす（小節を入れたり消したりしても、同じ小節の前で改行）
+  const S = song.score;
+  if (S && Array.isArray(S.breaks) && S.breaks.length) {
+    const out = new Set();
+    for (const b of S.breaks) {
+      if (n > 0) out.add(b > fromBar ? b + n : b); // ちょうど入れた所の改行は、入れた小節の前にのこす
+      else if (b >= fromBar) out.add(b + n);
+      else if (b >= fromBar + n) out.add(fromBar + n); // 消した小節の前の改行は、次の小節にひきつぐ
+      else out.add(b);
+    }
+    S.breaks = [...out].filter((b) => b > 0).sort((x, y) => x - y);
+    if (!S.breaks.length) delete S.breaks;
+  }
 }
 // fromBar の前に n 小節入れる（n<0 のときは fromBar-|n|〜fromBar-1 を取りのぞく）
 function shiftAll(fromBar, n) {

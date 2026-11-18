@@ -64,10 +64,23 @@ const MuseScoreExport = (() => {
         for (const [cc, t] of want) {
           let pi = evCache.findIndex((ev) => ev[b].some((e) => e.abs === t));
           let at = t;
+          // その時にどのパートも音が始まらない：見えない休符の声部を足して、そこにコードを書く
+          if (pi < 0 && !(b === 0 && pickup)) { if (!harm.some((h) => h.part === 0 && h.at === t)) harm.push({ part: 0, at: t, c: cc, b, own: true }); continue; }
           if (pi < 0) { pi = 0; const st = evCache[0][b].map((e) => e.abs).filter((a) => a >= bS(b) + (b === 0 && pickup ? bL(0) - pickup : 0)); at = st.find((a) => a >= t) ?? st[st.length - 1]; }
           if (at != null && !harm.some((h) => h.part === pi && h.at === at)) harm.push({ part: pi, at, c: cc, b });
         }
       }
+    }
+    // 見えない休符の声部（コードを書くためだけ）：コードの位置で区切った休符
+    const ownBars = new Set(harm.filter((h) => h.own).map((h) => h.b));
+    let ownEv = null;
+    if (ownBars.size) {
+      const fake = [];
+      for (const b of ownBars) {
+        const pts = [...new Set([bS(b), ...harm.filter((h) => h.b === b && (h.own || h.part === 0)).map((h) => h.at)])].sort((p1, p2) => p1 - p2);
+        pts.forEach((a, i) => fake.push({ s: a, p: 60, l: (pts[i + 1] ?? bS(b + 1)) - a }));
+      }
+      ownEv = N.buildEvents(fake, bars, G, null, opts.meter);
     }
     const harmXml = (c, b) => `<Harmony><root>${tpcOf(N.spellPref(c.r + 60, kcOf(b), [1, 3, 6, 8, 10].includes(c.r) ? (kcOf(b) >= 0 ? 1 : -1) : 0))}</root>${HNAME[c.q] ? `<name>${HNAME[c.q]}</name>` : ''}</Harmony>`;
     // ---- 段（音） ----
@@ -184,6 +197,15 @@ const MuseScoreExport = (() => {
           if (vi === 0 && b === bars - 1) for (const sp of spans) if (sp.st != null && !sp.done) { sp.done = true; x.push(`<Spanner type="${sp.type}"><prev>${loc(bS(bars), sp.st)}</prev></Spanner>`); }
           x.push('</voice>');
         });
+        if (pi === 0 && ownEv && ownBars.has(b)) {
+          x.push('<voice>');
+          for (const ev of ownEv[b]) {
+            if (ev.first) for (const h of harm) if (h.own && h.at === ev.abs) x.push(harmXml(h.c, h.b));
+            const dur = ev.whole ? '<durationType>measure</durationType>' + `<duration>${frac(ev.len)}</duration>` : `${ev.dot ? '<dots>1</dots>' : ''}<durationType>${TYPE[ev.base] || 'quarter'}</durationType>`;
+            x.push(`<Rest><visible>0</visible>${dur}</Rest>`);
+          }
+          x.push('</voice>');
+        }
         x.push('</Measure>');
       }
       x.push('</Staff>');
