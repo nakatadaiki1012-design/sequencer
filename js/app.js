@@ -4,6 +4,17 @@
    時間の単位：4分音符 = 48 ティック（3連符や32分音符も表せます）
    ============================================================ */
 const $ = (s) => document.querySelector(s);
+// 楽譜の明朝体は、楽譜を出すときにはじめて読みこむ（はじめの画面を軽くする）
+let serifLinked = false;
+function loadSerif() {
+  if (serifLinked) return;
+  serifLinked = true;
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = 'fonts/serif.css';
+  document.head.appendChild(l);
+}
+if (typeof Notation !== 'undefined') { const render0 = Notation.render; Notation.render = (o) => { loadSerif(); return render0(o); }; }
 const $$ = (s) => [...document.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => Math.random().toString(36).slice(2, 9);
