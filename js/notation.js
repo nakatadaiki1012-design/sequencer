@@ -307,7 +307,8 @@ const Notation = (() => {
   }
   function render(opts) {
     MINOR = !!opts.minor;
-    const { parts, bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
+    const { bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
+    let parts = opts.parts;
     const meta = opts.meta || {};
     const BLANK = new Set(opts.blankBars || []); // 穴うめ：音符を書かない小節
     // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
@@ -328,6 +329,28 @@ const Notation = (() => {
     const J = opts.jumps || {};
     const hasJ = (k) => J[k] != null && J[k] >= 0 && J[k] < bars;
     const anyJump = ['segno', 'coda', 'tocoda', 'fine', 'dc', 'ds'].some(hasJ);
+    // 大きな曲：opts.window＝[はじめの小節, おわりの小節) だけを書く。その外の音は、はじめから使わない（軽くする）
+    let WIN = null;
+    if (Array.isArray(opts.window) && !opts.continuous) {
+      const w0 = Math.max(0, Math.min(bars - 1, Math.floor(opts.window[0])));
+      const w1 = Math.max(w0 + 1, Math.min(bars, Math.floor(opts.window[1])));
+      if (w0 > 0 || w1 < bars) WIN = [w0, w1];
+    }
+    if (WIN) {
+      const a = bS(WIN[0]);
+      const z = bS(WIN[1]);
+      const ov = (s0, e0) => s0 < z && e0 > a;
+      parts = parts.map((p) => ({
+        ...p,
+        notes: (p.notes || []).filter((n) => ov(n.s, n.s + n.l)),
+        ...(p.slurs ? { slurs: p.slurs.filter((x) => ov(x.s, x.e + 1)) } : {}),
+        ...(p.hairpins ? { hairpins: p.hairpins.filter((x) => ov(x.s, x.e + 1)) } : {}),
+        ...(p.pedals ? { pedals: p.pedals.filter((x) => ov(x.s, x.e + 1)) } : {}),
+        ...(p.ottava ? { ottava: p.ottava.filter((x) => ov(x.s, x.e)) } : {}),
+        ...(p.dyn ? { dyn: p.dyn.filter((x) => x.t >= a && x.t < z) } : {}),
+        ...(p.texts ? { texts: p.texts.filter((x) => x.t >= a && x.t < z) } : {}),
+      }));
+    }
     const edit = opts.edit || null;
     const SELC = (edit && edit.color) || '#1971c2';
 
@@ -588,8 +611,16 @@ const Notation = (() => {
       width = left + headW(true) + 10 + barInfo.reduce((q, x) => q + x.nat, 0) + 12;
       OUTW = width * scale;
     } else {
-      const cuts = [0, ...forced, bars];
-      for (let c = 0; c < cuts.length - 1; c++) chunk(cuts[c], cuts[c + 1]);
+      if (WIN) {
+        // 窓の前と後ろは「書かない段」として1つずつ置く（段の番号の意味をかえないため）
+        if (WIN[0] > 0) lines.push([0, WIN[0]]);
+        const cuts = [WIN[0], ...forced.filter((x) => x > WIN[0] && x < WIN[1]), WIN[1]];
+        for (let c = 0; c < cuts.length - 1; c++) chunk(cuts[c], cuts[c + 1]);
+        if (WIN[1] < bars) lines.push([WIN[1], bars]);
+      } else {
+        const cuts = [0, ...forced, bars];
+        for (let c = 0; c < cuts.length - 1; c++) chunk(cuts[c], cuts[c + 1]);
+      }
     }
 
 
@@ -622,12 +653,15 @@ const Notation = (() => {
       }
     };
     const sysHOf = (line) => { fitLine(line); return topRow + vis[line].reduce((a, s) => a + staffH(s), 0) + 16; };
+    // 大きな曲：opts.window＝[はじめの小節, おわりの小節) にかかる段だけを書く（画面を軽くする）
+    const W = WIN;
+    const inWin = (line) => !W || (lines[line][0] >= W[0] && lines[line][1] <= W[1]);
     const lineTop = [];
-    { let y = 0; lines.forEach((_, i) => { lineTop.push(y); y += sysHOf(i); }); }
+    { let y = 0; lines.forEach((_, i) => { lineTop.push(y); if (inWin(i)) y += sysHOf(i); }); }
     const systemH = sysHOf(0);
     const NL = meta.nameLine ? 24 : 0; // 名前のらんのぶん、下げる
     const top = 70 + NL + (meta.subtitle ? 18 : 0);
-    const height = top + lines.reduce((a, _, i) => a + sysHOf(i), 0) + 24;
+    const height = top + lines.reduce((a, _, i) => a + (inWin(i) ? sysHOf(i) : 0), 0) + 24;
     const o = [];
     const layout = { systems: [], width, height, scale, barTicks, starts: GEO.starts };
     o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">`);
@@ -656,7 +690,9 @@ const Notation = (() => {
     // 臨時記号は段ごと・小節ごとに覚える
     layout.title = title;
     layout.barNat = barInfo.map((x) => Math.round(x.nat));
+    layout.window = W ? [lines.find((_, i) => inWin(i))[0], lines.filter((_, i) => inWin(i)).pop()[1]] : null;
     lines.forEach(([b0, b1], line) => {
+      if (!inWin(line)) return;
       if (line === 0) layout.headSvg = o.slice(2).join(''); // 曲名・作曲者・テンポなど（1ページ目の上）
       const oStart = o.length;
       const sysTop = top + lineTop[line] + topRow;

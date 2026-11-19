@@ -68,7 +68,8 @@ function trackRange(tr) {
 }
 const GRIDS = [[192, '全音符', '𝅝'], [96, '2分音符', '𝅗𝅥'], [48, '4分音符', '♩'], [24, '8分音符', '♪'], [12, '16分音符', '𝅘𝅥𝅯'], [6, '32分音符', '𝅘𝅥𝅰'], [16, '8分3連符', '♪³'], [8, '16分3連符', '𝅘𝅥𝅯³']];
 const TRACK_COLORS = ['#e5484d', '#3e63dd', '#30a46c', '#f5a524', '#8e4ec6', '#f76b15', '#12a594', '#d6409f'];
-const MAX_TRACKS = 24; // オーケストラのフルスコアも書けるように
+const MAX_TRACKS = 48; // オーケストラのフルスコアも書けるように
+const MAX_BARS = 1000; // 長い交響曲も入るように
 /* ---------- オーケストラ・吹奏楽の楽譜のきまり ----------
    仲間（ww 木管・br 金管・perc 打楽器・kb 鍵盤とハープ・vo 声・str 弦）、ならぶ順、短い名前、移調、音部記号 */
 const ORCH = {
@@ -203,7 +204,7 @@ function sanitizeSong(s) {
   const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? clamp(n, lo, hi) : d; };
   const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
   const out = { ...s };
-  out.bars = Math.round(num(s.bars, 8, 1, 128));
+  out.bars = Math.round(num(s.bars, 8, 1, MAX_BARS));
   out.bpm = num(s.bpm, 100, 20, 300);
   out.key = Math.round(num(s.key, 0, -12, 12));
   out.meter = Array.isArray(s.meter) && s.meter.length === 2 && s.meter.every((x) => Number.isInteger(x) && x > 0 && x <= 32) ? s.meter : [4, 4];
@@ -223,18 +224,18 @@ function sanitizeSong(s) {
   for (const b in out.keys) { const k = out.keys[b]; if (!(k && Number.isInteger(k.key) && k.key >= 0 && k.key < 12)) delete out.keys[b]; else out.keys[b] = { key: k.key, minor: !!k.minor }; }
   {
     const R = obj(s.repeats);
-    const ints = (a) => (Array.isArray(a) ? a.filter((x) => Number.isInteger(x) && x >= 0 && x < 128) : []);
+    const ints = (a) => (Array.isArray(a) ? a.filter((x) => Number.isInteger(x) && x >= 0 && x < MAX_BARS) : []);
     out.repeats = { start: ints(R.start), end: ints(R.end), volta: obj(R.volta) };
   }
   out.pickup = Math.max(0, Math.round(num(s.pickup, 0, 0, 192 * 4)));
   // 穴あき課題：{ tr: トラックの番号, bars: 空けた小節, ans: 答え（音のリスト） }
   if (s.task != null) {
     const T = s.task;
-    const ok = T && typeof T === 'object' && Number.isInteger(T.tr) && T.tr >= 0 && Array.isArray(T.bars) && T.bars.length && T.bars.length <= 128 && T.bars.every((b) => Number.isInteger(b) && b >= 0 && b < 128) && typeof T.ans === 'string' && T.ans.length < 400000;
+    const ok = T && typeof T === 'object' && Number.isInteger(T.tr) && T.tr >= 0 && Array.isArray(T.bars) && T.bars.length && T.bars.length <= MAX_BARS && T.bars.every((b) => Number.isInteger(b) && b >= 0 && b < MAX_BARS) && typeof T.ans === 'string' && T.ans.length < 400000;
     if (ok) out.task = { tr: T.tr, bars: [...new Set(T.bars)].sort((a, z) => a - z), ans: T.ans }; else delete out.task;
   }
   out.rehearsal = {};
-  for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < 128 && v) out.rehearsal[b] = v; }
+  for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < MAX_BARS && v) out.rehearsal[b] = v; }
   if (!Object.keys(out.rehearsal).length) delete out.rehearsal;
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
@@ -257,8 +258,10 @@ function sanitizeSong(s) {
       if (!tr.pedals.length) delete tr.pedals;
       tr.ottava = (Array.isArray(t.ottava) ? t.ottava : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s && [1, -1, 2, -2].includes(x.k)).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), k: x.k }));
       if (!tr.ottava.length) delete tr.ottava;
-      if (t.mrep && typeof t.mrep === 'object') { tr.mrep = {}; for (const b in t.mrep) if (Number.isInteger(+b) && +b > 0 && +b < 128 && t.mrep[b]) tr.mrep[b] = 1; if (!Object.keys(tr.mrep).length) delete tr.mrep; }
-      if (t.clefChg && typeof t.clefChg === 'object') { tr.clefChg = {}; for (const b in t.clefChg) if (Number.isInteger(+b) && +b > 0 && +b < 128 && ['treble', 'bass', 'alto', 'treble8'].includes(t.clefChg[b])) tr.clefChg[b] = t.clefChg[b]; if (!Object.keys(tr.clefChg).length) delete tr.clefChg; }
+      if (t.mrep && typeof t.mrep === 'object') { tr.mrep = {}; for (const b in t.mrep) if (Number.isInteger(+b) && +b > 0 && +b < MAX_BARS && t.mrep[b]) tr.mrep[b] = 1; if (!Object.keys(tr.mrep).length) delete tr.mrep; }
+      if (!['treble', 'bass', 'alto', 'treble8'].includes(tr.clef)) delete tr.clef;
+      if (!(Number.isInteger(tr.trans) && Math.abs(tr.trans) <= 36)) delete tr.trans;
+      if (t.clefChg && typeof t.clefChg === 'object') { tr.clefChg = {}; for (const b in t.clefChg) if (Number.isInteger(+b) && +b > 0 && +b < MAX_BARS && ['treble', 'bass', 'alto', 'treble8'].includes(t.clefChg[b])) tr.clefChg[b] = t.clefChg[b]; if (!Object.keys(tr.clefChg).length) delete tr.clefChg; }
     } else if (t.type === 'drum') {
       const g = {};
       for (const id in obj(t.grid)) {
@@ -2783,6 +2786,8 @@ function ovBarW() {
 function ovRows() { return [...song.tracks.map((t, i) => ({ kind: 'track', i })), { kind: 'rule' }]; }
 function resizeOverview() {
   const wrap = $('#ovWrap');
+  // トラックが多い曲（オーケストラなど）は、行を細くして地図が高くなりすぎないようにする（自分で高さを決めたときはそのまま）
+  if (!isPhone && typeof layout === 'object' && !layout.ovrh) OV_RH = Math.max(7, Math.min(20, Math.floor(250 / ovRows().length)));
   const h = OV_TOP + ovRows().length * OV_RH + 2;
   wrap.style.height = h + 14 + 'px';
   $('#ovSpacer').style.width = OV_LW + song.bars * ovBarW() + 20 + 'px';
@@ -2927,7 +2932,7 @@ function ovLabels(og, W, H, rows) {
     og.textBaseline = 'middle';
     if (r.kind === 'rule') {
       og.fillStyle = C('--muted');
-      og.font = '11px sans-serif';
+      og.font = `${OV_RH < 12 ? Math.max(7, OV_RH - 1) : 11}px sans-serif`;
       og.fillText('R  テンポ変化', 6, y + OV_RH / 2);
       return;
     }
@@ -2935,7 +2940,7 @@ function ovLabels(og, W, H, rows) {
     og.fillStyle = TRACK_COLORS[r.i % TRACK_COLORS.length];
     og.fillRect(0, y + 2, 5, OV_RH - 4);
     og.fillStyle = r.i === cur ? C('--accent2') : C('--text');
-    og.font = `${r.i === cur ? 'bold ' : ''}11px sans-serif`;
+    og.font = `${r.i === cur ? 'bold ' : ''}${OV_RH < 12 ? Math.max(7, OV_RH - 1) : 11}px sans-serif`;
     og.fillText(`${r.i + 1}  ${tr.name}${tr.locked ? '（ロック）' : ''}`, 9, y + OV_RH / 2, OV_LW - 12);
   });
   og.fillStyle = C('--muted');
@@ -3221,7 +3226,7 @@ function insertBars() {
   if (song.locks.rules) return toast('小節数の変更はロックされています');
   const at = ui.sel.b0;
   const n = ui.sel.b1 - ui.sel.b0 + 1;
-  edit(() => { shiftAll(at, n); song.bars = Math.min(128, song.bars + n); }, `${at + 1}小節目の前に${n}小節入れる`);
+  edit(() => { shiftAll(at, n); song.bars = Math.min(MAX_BARS, song.bars + n); }, `${at + 1}小節目の前に${n}小節入れる`);
   renderSettings();
   toast(`${at + 1}小節目の前に${n}小節入れました`);
 }
@@ -4403,7 +4408,7 @@ function parseBars(txt) {
     if (!m) continue;
     const a = +m[1];
     const z = m[2] ? +m[2] : a;
-    for (let b = Math.min(a, z); b <= Math.min(Math.max(a, z), 128); b++) out.add(b - 1 + (song.pickup ? 1 : 0));
+    for (let b = Math.min(a, z); b <= Math.min(Math.max(a, z), MAX_BARS); b++) out.add(b - 1 + (song.pickup ? 1 : 0));
   }
   return [...out];
 }
@@ -4413,6 +4418,7 @@ function partClefTrans(t) {
   const S = scoreSettings();
   const oi = ORCH[t.inst];
   let clef = (S.clefs || {})[t.id] || 'auto';
+  if (clef === 'auto' && t.clef) clef = t.clef; // 読みこんだ楽譜の音部記号
   let trans = +(S.trans || {})[t.id] || 0;
   // ギターは「ト音記号の8つ下」がふつう
   if (clef === 'auto' && TAB_INST[t.inst] === 'guitar') clef = 'treble8';
@@ -4426,6 +4432,8 @@ function partClefTrans(t) {
     if (clef === 'auto' && oi[3]) clef = oi[3];
     if ((S.trans || {})[t.id] == null && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
   }
+  // 読みこんだ楽譜の移調（in A のクラリネットなど）は、楽器の決まりより先
+  if (S.orch && (S.trans || {})[t.id] == null && Number.isInteger(t.trans)) trans = S.concert && Math.abs(t.trans) % 12 ? 0 : t.trans;
   return { clef, trans };
 }
 function scoreOpts(trackIds, withDrums) {
@@ -4556,7 +4564,7 @@ function scoreSvg(trackIds) {
   const sys = L && L.systems[0];
   const PH = L ? L.width * (273 / 186) : 0;
   if (sys && sys.y1 - sys.y0 > PH * 0.88) {
-    const f = Math.min(2.4, (sys.y1 - sys.y0) / (PH * 0.88));
+    const f = Math.min(4, (sys.y1 - sys.y0) / (PH * 0.88)); // 30段をこえる大きなオーケストラも1ページに入るように
     o.scale = (+o.scale || 1) / f; // 中のはばを広げる＝印刷すると五線が小さくなる
     svg = Notation.render(o);
   }
@@ -4618,10 +4626,20 @@ function openScore() {
   const upd = () => {
     const ids = [...scoreSel];
     if (!ids.length) { scoreFull = ''; scorePages = []; $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">パートを選んでください</p>'; return; }
-    scoreFull = scoreSvg(ids);
-    // 印刷するときと同じ、A4 のページに分けて見せる
-    scorePages = Notation.paginate(scoreFull, Notation.lastLayout);
-    $('#scoreView').innerHTML = scorePages.length > 1 ? scorePages.map((pg) => `<div class="pagebox">${pg}</div>`).join('') : scoreFull;
+    const big = song.bars * ids.length > 2400;
+    const build = () => {
+      scoreFull = scoreSvg(ids);
+      // 印刷するときと同じ、A4 のページに分けて見せる（とても長い曲は、はじめの数ページだけ見せる。印刷には全部出る）
+      scorePages = Notation.paginate(scoreFull, Notation.lastLayout);
+      const SHOW = 4;
+      const more = scorePages.length > SHOW ? `<p class="muted scmore">全${scorePages.length}ページ。ここでは、はじめの${SHOW}ページだけを見せています（印刷・PDF・画像には全部出ます）</p>` : '';
+      $('#scoreView').innerHTML = scorePages.length > 1 ? scorePages.slice(0, SHOW).map((pg) => `<div class="pagebox">${pg}</div>`).join('') + more : scoreFull;
+    };
+    if (!big) return build();
+    // 大きな曲は時間がかかるので、先に「作っています」を出してから作る
+    $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">楽譜を作っています…（大きな曲なので、少し時間がかかります）</p>';
+    clearTimeout(upd.timer);
+    upd.timer = setTimeout(build, 30);
   };
   side.querySelectorAll('[data-s]').forEach((el) => {
     el.oninput = () => { S[el.dataset.s] = el.value; upd(); };
@@ -4859,10 +4877,23 @@ function renderScoreEditNow() {
   o.scale = (+scoreSettings().scale || 1) * ui.sc.zoom;
   o.perLine = +scoreSettings().perLine || 0;
   if (cpOn()) Object.assign(o, cpScoreMarks());
+  // 大きな曲（オーケストラの長い曲など）は、いまの場所の前後だけを書く（全部書くと重い）
+  const win = scoreWindow(o.parts.length);
+  let pageChanged = false;
+  if (win) {
+    const cb = barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1));
+    if (ui.sc.win == null || cb < ui.sc.win || cb >= ui.sc.win + win) { const w0 = Math.floor(cb / win) * win; pageChanged = w0 !== ui.sc.win; ui.sc.win = w0; }
+    ui.sc.win = clamp(ui.sc.win, 0, Math.max(0, song.bars - 1));
+    o.window = [ui.sc.win, Math.min(song.bars, ui.sc.win + win)];
+  } else ui.sc.win = null;
   const keepTop = box.scrollTop;
-  box.innerHTML = Notation.render(o);
-  box.scrollTop = keepTop;
-  box._layout = Notation.lastLayout;
+  const svgHtml = Notation.render(o);
+  const LW0 = Notation.lastLayout;
+  const nav = win && LW0 && LW0.window ? `<div class="scwin" role="navigation" aria-label="楽譜のページ"><button class="mini" data-w="-1" ${LW0.window[0] <= 0 ? 'disabled' : ''}>◀ 前</button><span>${LW0.window[0] + (song.pickup ? 0 : 1)}〜${LW0.window[1] - (song.pickup ? 1 : 0)}小節（全${song.bars - (song.pickup ? 1 : 0)}小節）</span><button class="mini" data-w="1" ${LW0.window[1] >= song.bars ? 'disabled' : ''}>次 ▶</button></div>` : '';
+  box.innerHTML = nav + svgHtml;
+  box.scrollTop = pageChanged ? 0 : keepTop;
+  box._layout = LW0;
+  if (nav) box.querySelectorAll('.scwin button').forEach((bt) => (bt.onclick = (e) => { e.stopPropagation(); scoreWinMove(+bt.dataset.w); }));
   // カーソルが動いたら（入力・←→）、その段が見えるようにスクロールする（自分でスクロールしたときはそのまま）
   if (ui.sc.cursor !== ui.sc.lastShown) { ui.sc.lastShown = ui.sc.cursor; if (pi >= 0 && !player.on) ui.sc.scrollTo = true; }
   if (ui.sc.scrollTo) {
@@ -4899,6 +4930,24 @@ function renderScoreEditNow() {
     st.textContent = `${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${beatPos(ui.sc.cursor).text}${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
   }
 }
+// 楽譜の画面で、一度に書く小節の数（大きな曲だけ。小さな曲は全部書く）
+function scoreWindow(nParts) {
+  const n = Math.max(1, nParts);
+  if (song.bars * n <= 2400) return 0;
+  return Math.max(4, Math.round(1200 / n));
+}
+function scoreWinMove(dir) {
+  const L = $('#scoreEditView')._layout;
+  if (!L || !L.window) return;
+  const to = dir > 0 ? L.window[1] : Math.max(0, L.window[0] - scoreWindow(scoreParts.length || 1));
+  if (to >= song.bars) return;
+  ui.sc.win = to;
+  ui.sc.cursor = barStart(to);
+  ui.sc.sel = new Set();
+  const box = $('#scoreEditView');
+  renderScoreEditNow();
+  box.scrollTop = 0;
+}
 function highlightScore(pos) {
   for (const it of scoreElems) {
     const on = pos != null && it.s <= pos && pos < it.e;
@@ -4908,10 +4957,24 @@ function highlightScore(pos) {
   const box = $('#scoreEditView');
   let cur = $('#playCur');
   if (pos == null) { if (cur) cur.hidden = true; return; }
-  const L = box._layout;
-  const svg = box.querySelector('svg');
-  if (!L || !svg) return;
+  let L = box._layout;
+  if (!L || !box.querySelector('svg')) return;
   const b = barOf(Math.min(pos, totalTicks() - 1));
+  // 大きな曲：再生がいま書いている小節の外に出たら、そこを書きなおす
+  if (L.window && (b < L.window[0] || b >= L.window[1])) {
+    const win = scoreWindow(scoreParts.length || 1);
+    ui.sc.win = Math.floor(b / win) * win;
+    const keep = ui.sc.cursor;
+    ui.sc.cursor = barStart(ui.sc.win);
+    renderScoreEditNow();
+    ui.sc.cursor = keep;
+    ui.sc.lastShown = keep;
+    box.scrollTop = 0;
+    L = box._layout;
+    for (const it of scoreElems) it.on = false;
+    cur = $('#playCur');
+  }
+  const svg = box.querySelector('svg');
   const sys = L.systems.find((x) => x.bars.some((B) => B.b === b));
   if (!sys) return;
   const B = sys.bars.find((x) => x.b === b);
@@ -4946,7 +5009,7 @@ function clearRange(tr, a, z, v = scVoice()) {
 }
 function ensureLength(t) {
   // 曲の最後をこえたら小節をふやす（Flat と同じ）
-  while (t > totalTicks() && song.bars < 128 && !song.locks.rules) song.bars++;
+  while (t > totalTicks() && song.bars < MAX_BARS && !song.locks.rules) song.bars++;
 }
 function scInsert(pitches, chordAdd) {
   const tr = scEditable();
@@ -6383,7 +6446,7 @@ function scoreKey(e) {
     // 小節ごとに動く・曲の頭／おわりへ
     if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); const b = barOf(Math.min(ui.sc.cursor, totalTicks() - 1)); const nb = clamp(b + (k === 'ArrowRight' ? 1 : (ui.sc.cursor > barStart(b) ? 0 : -1)), 0, song.bars); ui.sc.cursor = barStart(nb); ui.sc.sel = new Set(); ui.sc.lastIns = null; renderScoreEdit(); return true; }
     if (k === 'Home' || k === 'End') { e.preventDefault(); ui.sc.cursor = k === 'Home' ? 0 : Math.max(0, totalTicks() - barLen(song.bars - 1)); ui.sc.sel = new Set(); ui.sc.lastIns = null; renderScoreEdit(); return true; }
-    if (kl === 'b' && !e.shiftKey) { e.preventDefault(); if (song.locks.rules) return toast('ルールの変更はロックされています'), true; edit(() => { song.bars = Math.min(128, song.bars + 1); }, '小節を足す'); toast('おわりに1小節足しました'); renderScoreEdit(); return true; }
+    if (kl === 'b' && !e.shiftKey) { e.preventDefault(); if (song.locks.rules) return toast('ルールの変更はロックされています'), true; edit(() => { song.bars = Math.min(MAX_BARS, song.bars + 1); }, '小節を足す'); toast('おわりに1小節足しました'); renderScoreEdit(); return true; }
     // 音の高さだけ入れなおす（MuseScore の Re-pitch）
     if (e.shiftKey && kl === 'i') { e.preventDefault(); ui.sc.repitch = !ui.sc.repitch; toast(ui.sc.repitch ? '高さだけ入れなおす：音名・鍵盤をおすと、カーソルの音の高さだけ変えて、次の音へ（リズムはそのまま）' : '高さだけ入れなおすのをやめました', 3500); renderScoreEdit(); return true; }
     return false;
@@ -7735,6 +7798,7 @@ function batchCompare() {
 function importFile(file) {
   const r = new FileReader();
   if (/\.(musicxml|xml|mxl|mscz|mscx)$/i.test(file.name)) {
+    if (file.size > 200000) toast('楽譜を読みこんでいます…（大きなファイルなので、少し時間がかかります）', 8000);
     r.onload = () => {
       MusicXMLImport.readFile(r.result, file.name)
         .then((sg) => { loadSong(sg, { own: true }); toast(/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイルを読み込みました' : 'MusicXMLを読み込みました'); })
@@ -8152,7 +8216,7 @@ function importMidi(buf, fname) {
     s.tracks.push(tr);
   }
   if (!s.tracks.length) s.tracks.push(newTrack('melody'));
-  s.bars = clamp(barOfTick(Math.max(0, maxT - 1)) + 1, 1, 128); // とちゅうで拍子が変わっても、さいごの音まで
+  s.bars = clamp(barOfTick(Math.max(0, maxT - 1)) + 1, 1, MAX_BARS); // とちゅうで拍子が変わっても、さいごの音まで
   return s;
 }
 
@@ -8218,7 +8282,7 @@ function init() {
   $('#meterN').onchange = guardRules(setMeter);
   $('#meterD').onchange = guardRules(setMeter);
   $('#bars').onchange = guardRules((e) => edit(() => {
-    song.bars = clamp(Math.round(+e.target.value || 8), 1, 128);
+    song.bars = clamp(Math.round(+e.target.value || 8), 1, MAX_BARS);
     e.target.value = song.bars;
     const b = Math.min(ui.sel.b0, song.bars - 1);
     selectBars(cur, b, b);
@@ -8332,7 +8396,7 @@ function init() {
   $('#addDrum').onclick = () => addTrack('drum');
   $('#btnIns').onclick = insertBars;
   $('#btnDelBars').onclick = deleteBars;
-  $('#btnAddFour').onclick = guardRules(() => { edit(() => { song.bars = Math.min(128, song.bars + 4); }, '4小節ふやす'); renderSettings(); });
+  $('#btnAddFour').onclick = guardRules(() => { edit(() => { song.bars = Math.min(MAX_BARS, song.bars + 4); }, '4小節ふやす'); renderSettings(); });
 
   const sc = $('#scroller');
   sc.addEventListener('pointerdown', panDown);

@@ -1562,3 +1562,6 @@ body:not(.phone) .topbar .transport, body:not(.phone) .topbar .menu { flex-wrap:
 @media (max-width: 1600px) { body:not(.phone) #popPractice > summary > span { display: none; } }
 @media (max-width: 1400px) { body:not(.phone) #btnShare > span { display: none; } body:not(.phone) .simplebtn { padding-left: 8px; padding-right: 8px; } }
 @media (max-width: 1250px) { body:not(.phone) .topbar summary[data-cap="ルール"] > span, body:not(.phone) .topbar summary[data-cap="メニュー"] > span { display: none; } }
+
+/* 大きな曲の楽譜：前・次のページ */
+.scwin { position: sticky; top: 0; left: 0; z-index: 3; display: flex; gap: 10px; align-items: center; justify-content: center; padding: 4px 8px; background: var(--panel, #fff); border-bottom: 1px solid var(--line, #ddd); font-size: 13px; }
