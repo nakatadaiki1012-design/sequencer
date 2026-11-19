@@ -15,8 +15,16 @@ const Notation = (() => {
   const G = (name, x, y, attrs = '', sp = SP) => Glyphs.svg(name, +x.toFixed(2), +y.toFixed(2), sp, attrs || 'fill="#111"');
   const GW = (name, sp = SP) => (Glyphs.g[name] ? Glyphs.g[name].w : 1) * sp;
   // 五線の上に書く記号（装飾記号・弓）。'ferm' はべつに書く
-  const ABOVE_ART = new Set(['tr', 'prall', 'mord', 'turn', 'upb', 'dnb', 'ferm']);
-  const ORN_G = { tr: 'ornamentTrill', prall: 'ornamentShortTrill', mord: 'ornamentMordent', turn: 'ornamentTurn', upb: 'stringsUpBow', dnb: 'stringsDownBow' };
+  const ABOVE_ART = new Set(['tr', 'prall', 'mord', 'turn', 'iturn', 'upb', 'dnb', 'ferm', 'harm', 'open', 'stop', 'snap']);
+  const ORN_G = { tr: 'ornamentTrill', prall: 'ornamentShortTrill', mord: 'ornamentMordent', turn: 'ornamentTurn', iturn: 'ornamentTurnInverted', upb: 'stringsUpBow', dnb: 'stringsDownBow' };
+  // 字体にない記号は、図形で描く（ハーモニクスの○・ホルンのオープン○・ストップ＋・スナップピチカート）
+  const SHAPE_ART = {
+    harm: (x, y) => `<circle cx="${x}" cy="${y - 3}" r="2.6" fill="none" stroke="#111" stroke-width="1"/>`,
+    open: (x, y) => `<circle cx="${x}" cy="${y - 3.5}" r="3.2" fill="none" stroke="#111" stroke-width="1.1"/>`,
+    stop: (x, y) => `<path d="M${x - 3.6} ${y - 3.5}H${x + 3.6}M${x} ${y - 7.1}V${y + 0.1}" stroke="#111" stroke-width="1.3"/>`,
+    snap: (x, y) => `<circle cx="${x}" cy="${y - 3.5}" r="3.2" fill="none" stroke="#111" stroke-width="1"/><path d="M${x} ${y - 3.5}V${y - 9}" stroke="#111" stroke-width="1"/>`,
+  };
+  const grOf = (g) => (g == null ? [] : Array.isArray(g) ? g : [g]);
   // 弦の開放の音（低い弦から）
   const TUNING = { guitar: [40, 45, 50, 55, 59, 64], ukulele: [67, 60, 64, 69], bass: [28, 33, 38, 43] };
   // 和音のそれぞれの音を、どの弦の何フレットで弾くか（手の位置 pos の近くを、えらぶ）
@@ -228,9 +236,14 @@ const Notation = (() => {
       const art = [...new Set(g.flatMap((n) => n.art || []))];
       const ly = (g.find((n) => n.ly) || {}).ly || '';
       const fg = g.filter((n) => n.fg).sort((a, b) => b.p - a.p).map((n) => n.fg).join('');
-      const gr = (g.find((n) => n.gr != null) || {}).gr;
+      const gn = g.find((n) => n.gr != null) || {};
+      const gr = gn.gr;
       const enh = (g.find((n) => n.enh) || {}).enh || 0; // J で入れかえた ♯・♭ の書き方
-      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
+      const tra = (g.find((n) => n.tra != null) || {}).tra;
+      const trs = (g.find((n) => n.trs) || {}).trs;
+      let nhs = null;
+      for (const n of g) if (n.nh) (nhs || (nhs = {}))[n.p] = n.nh;
+      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, grl: !!gn.grl, tra, trs, nhs, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
       t = Math.max(t, end);
     });
     if (t < total) segs.push({ s: t, e: total, pitches: null });
@@ -250,8 +263,8 @@ const Notation = (() => {
           perBar[b].push({ pos: 0, len: bl, rest: true, whole: true, base: 192, abs: s });
         } else {
           decompose(s - a0, be - s, beatOf(m), bl, m, isRest).forEach((p) => {
-            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh };
-            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.fg = sg.fg; ev.gr = sg.gr; first = false; }
+            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh, nhs: sg.nhs };
+            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.fg = sg.fg; ev.gr = sg.gr; ev.grl = sg.grl; ev.tra = sg.tra; ev.trs = sg.trs; first = false; }
             perBar[b].push(ev);
           });
         }
@@ -347,6 +360,7 @@ const Notation = (() => {
         ...(p.hairpins ? { hairpins: p.hairpins.filter((x) => ov(x.s, x.e + 1)) } : {}),
         ...(p.pedals ? { pedals: p.pedals.filter((x) => ov(x.s, x.e + 1)) } : {}),
         ...(p.ottava ? { ottava: p.ottava.filter((x) => ov(x.s, x.e)) } : {}),
+        ...(p.trills ? { trills: p.trills.filter((x) => ov(x.s, x.e)) } : {}),
         ...(p.dyn ? { dyn: p.dyn.filter((x) => x.t >= a && x.t < z) } : {}),
         ...(p.texts ? { texts: p.texts.filter((x) => x.t >= a && x.t < z) } : {}),
       }));
@@ -457,6 +471,8 @@ const Notation = (() => {
       st.ottUp = st.ott && st.ott.some((q) => q.k > 0) && st.sub === 0;
       st.ottDn = st.ott && st.ott.some((q) => q.k < 0) && (st.grand ? st.sub === 1 : true);
       if (st.ottUp) { st.above += 18; st.aboveX += 18; }
+      st.trl = st.clef !== 'perc' && st.sub === 0 && (st.part.trills || []).length > 0; // トリルの波線
+      if (st.trl) { const r = (st.part.trills || []).some((q) => q.a != null) ? 30 : 20; st.above += r; st.aboveX += r; }
       if (st.ottDn) { st.below += 18; st.belowX += 18; }
       if (st.clef === 'tab') { st.above = 0; st.below = 0; st.hasPed = false; st.ottUp = st.ottDn = false; st.textRoom = 0; st.orn = 0; st.hasLyr = false; st.hasDyn = false; st.dynAbove = false; st.mrepSame = () => false; }
     }
@@ -495,7 +511,7 @@ const Notation = (() => {
             n.acc = Math.max(+n.acc || 0, mx + 1 + (second ? 1 : 0));
           }
           // 装飾音符・アルペジオは、音の前に場所をとる
-          if (ev.first && ev.pitches) n.pre = Math.max(n.pre || 0, (ev.gr != null ? 15 : 0) + ((ev.art || []).includes('arp') ? 9 : 0));
+          if (ev.first && ev.pitches) n.pre = Math.max(n.pre || 0, (ev.gr != null ? 6 + 9 * grOf(ev.gr).length : 0) + ((ev.art || []).includes('arp') ? 9 : 0));
           if (ev.first && st.sub === 0) {
             const ly = ev.ly || (st.notes.some((x) => x.ly) ? '' : st.lyrics[ev.syll]);
             n.w = Math.max(n.w, textW(ly), nameOf && st.clef !== 'perc' && ev.pitches ? ev.pitches.length * 11 : 0);
@@ -940,30 +956,46 @@ const Notation = (() => {
             const ysAll = [];
             // 装飾音符（小さな8分音符・斜線つき）
             if (!perc && ev.first && ev.gr != null) {
-              const gs = spellPref(ev.gr + st.tr - 12 * st.ottAt(ev.abs), kcB, 0);
-              const gpos = gs.dn - st.baseDn;
-              const gy = yOf(gpos);
+              // 装飾音符：1つなら8分音符（短前打音は斜線つき・長前打音は斜線なし）、2つ以上は16分音符を連桁でつなぐ
+              const gl = grOf(ev.gr);
               const SPg = SP * 0.62;
-              const anyAcc = heads.some((h) => h.accTxt);
-              const gx = x - GW('noteheadBlack') / 2 - (anyAcc ? 11 : 0) - ((ev.art || []).includes('arp') ? 9 : 0) - 11;
               const gw = GW('noteheadBlack', SPg);
-              for (let lp = -2; lp >= gpos; lp -= 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
-              for (let lp = 10; lp <= gpos; lp += 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
-              o.push(G('noteheadBlack', gx - gw / 2, gy, 'class="grace" fill="#111"', SPg));
-              const sx2 = gx + gw / 2 - 0.4;
-              const sy2 = gy - 2.6 * SP;
-              o.push(`<line x1="${sx2}" x2="${sx2}" y1="${gy - 1}" y2="${sy2}" stroke="#111" stroke-width="0.8"/>`);
-              o.push(G('flag8thUp', sx2 - 0.4, sy2, 'fill="#111"', SPg));
-              o.push(`<line x1="${sx2 - 4}" x2="${sx2 + 5}" y1="${sy2 + 11}" y2="${sy2 + 4}" stroke="#111" stroke-width="0.9"/>`);
-              const gcur = gs.dn in barAcc ? barAcc[gs.dn] : keyAcc[gs.letter];
-              if (gcur !== gs.acc) { const an = ACC_G[gs.acc] || 'accidentalNatural'; o.push(G(an, gx - gw / 2 - GW(an, SPg) - 1.5, gy, 'fill="#111"', SPg)); barAcc[gs.dn] = gs.acc; }
+              const anyAcc = heads.some((h) => h.accTxt);
+              const gEnd = x - GW('noteheadBlack') / 2 - (anyAcc ? 11 : 0) - ((ev.art || []).includes('arp') ? 9 : 0) - 11;
+              const gap = gw + 4.5;
+              const gxs = gl.map((_, i) => gEnd - (gl.length - 1 - i) * gap);
+              const gys = [];
+              gl.forEach((gp, i) => {
+                const gs = spellPref(gp + st.tr - 12 * st.ottAt(ev.abs), kcB, 0);
+                const gpos = gs.dn - st.baseDn;
+                const gy = yOf(gpos);
+                const gx = gxs[i];
+                gys.push(gy);
+                for (let lp = -2; lp >= gpos; lp -= 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
+                for (let lp = 10; lp <= gpos; lp += 2) o.push(`<line x1="${gx - gw / 2 - 2}" x2="${gx + gw / 2 + 2}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1"/>`);
+                o.push(G('noteheadBlack', gx - gw / 2, gy, 'class="grace" fill="#111"', SPg));
+                const gcur = gs.dn in barAcc ? barAcc[gs.dn] : keyAcc[gs.letter];
+                if (gcur !== gs.acc) { const an = ACC_G[gs.acc] || 'accidentalNatural'; o.push(G(an, gx - gw / 2 - GW(an, SPg) - 1.5, gy, 'fill="#111"', SPg)); barAcc[gs.dn] = gs.acc; }
+              });
+              const top = Math.min(...gys) - 2.6 * SP;
+              const sxs = gxs.map((gx) => gx + gw / 2 - 0.4);
+              gl.forEach((_, i) => o.push(`<line x1="${sxs[i]}" x2="${sxs[i]}" y1="${gys[i] - 1}" y2="${gl.length > 1 ? top : gys[i] - 2.6 * SP}" stroke="#111" stroke-width="0.8"/>`));
+              if (gl.length === 1) {
+                const sy2 = gys[0] - 2.6 * SP;
+                o.push(G('flag8thUp', sxs[0] - 0.4, sy2, 'fill="#111"', SPg));
+                if (!ev.grl) o.push(`<line x1="${sxs[0] - 4}" x2="${sxs[0] + 5}" y1="${sy2 + 11}" y2="${sy2 + 4}" stroke="#111" stroke-width="0.9"/>`);
+              } else {
+                // 16分音符の連桁（2本）
+                o.push(`<rect x="${sxs[0]}" y="${top}" width="${sxs[sxs.length - 1] - sxs[0] + 0.8}" height="2.4" fill="#111"/><rect x="${sxs[0]}" y="${top + 4}" width="${sxs[sxs.length - 1] - sxs[0] + 0.8}" height="2.4" fill="#111"/>`);
+              }
             }
             for (let i = heads.length - 1; i >= 0; i--) {
               const h = heads[i];
               const hx2 = x + disp[i];
               const y = yOf(h.pos);
               ysAll.push(y);
-              const hn = headName(ev.base, perc ? h.shape : 0);
+              const nhk = !perc && ev.nhs ? ev.nhs[h.p] : null; // ひし形（ハーモニクス）・×の符頭
+              const hn = nhk === 'x' ? (ev.base >= 96 ? 'noteheadXHalf' : 'noteheadXBlack') : headName(ev.base, perc ? h.shape : 0);
               const hw = GW(hn) / 2;
               const le = hw + 0.4 * SP;
               if (h.pos < -1) for (let lp = -2; lp >= h.pos; lp -= 2) o.push(`<line x1="${x - le + Math.min(0, disp[i])}" x2="${x + le + Math.max(0, disp[i])}" y1="${yOf(lp)}" y2="${yOf(lp)}" stroke="#111" stroke-width="1.3"/>`);
@@ -978,7 +1010,11 @@ const Notation = (() => {
               // 符頭のまわりに、クリックしやすい透明な当たりを入れる
               o.push(`<rect ${data.replace('class="nh"', 'class="nhhit"')} x="${hx2 - hw - 2}" y="${y - 5}" width="${hw * 2 + 4}" height="10" fill="transparent"/>`);
               if (st.part.slash) o.push(`<path ${data} d="M${hx2 - 6} ${y + 6} L${hx2 + 2} ${y - 6} L${hx2 + 6} ${y - 6} L${hx2 - 2} ${y + 6} Z" fill="${col}"/>`); // スラッシュ（コードのリズム）
-              else o.push(G(hn, hx2 - hw, y, `${data} fill="${col}"`));
+              else if (nhk === 'diamond') {
+                const dw = hw + 0.6;
+                const dh = SP / 2 + 0.6;
+                o.push(`<path ${data} d="M${hx2 - dw} ${y} L${hx2} ${y - dh} L${hx2 + dw} ${y} L${hx2} ${y + dh} Z" fill="${ev.base >= 96 ? 'none' : col}" stroke="${col}" stroke-width="${ev.base >= 96 ? 1.3 : 0.6}"/>`);
+              } else o.push(G(hn, hx2 - hw, y, `${data} fill="${col}"`));
               if (h.accTxt && !st.part.slash) {
                 if (lastAccPos - h.pos < 6) accCol++; else accCol = 0;
                 lastAccPos = h.pos;
@@ -1066,20 +1102,36 @@ const Notation = (() => {
             }
             // 装飾記号・弓の記号（その上へ、積み重ねる）
             for (const a of arts) {
+              if (SHAPE_ART[a]) { o.push(SHAPE_ART[a](d.x, yy)); yy -= 11; continue; }
               const nm = ORN_G[a];
               if (!nm || !Glyphs.g[nm]) continue;
+              if (a === 'tr' && (st.part.trills || []).some((q) => q.s === d.ev.src)) continue; // 波線つきのトリルは、線のほうで書く
               const bb2 = Glyphs.g[nm].bbox;
               const bot = bb2 ? bb2[3] * SP : 0;
               o.push(G(nm, d.x - GW(nm) / 2, yy - bot));
               yy -= (bb2 ? (bb2[3] - bb2[1]) * SP : 12) + 3;
+              // トリルの上の音の ♯・♭・♮（小さく、トリルの上に）
+              if (a === 'tr' && d.ev.tra != null) {
+                const an = ACC_G[d.ev.tra] || 'accidentalNatural';
+                o.push(G(an, d.x - GW(an, SP * 0.6) / 2, yy - 5, 'fill="#111"', SP * 0.6));
+                yy -= 13;
+              }
             }
             // トレモロ（ぼうの上に斜線3本）
             if (arts.includes('trem')) {
+              const tg = 'tremolo' + ([1, 2, 3].includes(d.ev.trs) ? d.ev.trs : 3); // 斜線の数（1本＝8分・2本＝16分・3本＝32分）
               if (d.hasStem) {
                 const sx3 = stemX(d);
                 const ym = d.up ? d.yOf(d.hi) - 2 * SP : d.yOf(d.lo) + 2 * SP;
-                o.push(G('tremolo3', sx3, ym));
-              } else o.push(G('tremolo3', d.x, d.yOf(d.hi) - 2 * SP));
+                o.push(G(tg, sx3, ym));
+              } else o.push(G(tg, d.x, d.yOf(d.hi) - 2 * SP));
+            }
+            // 2つの音のトレモロ：つぎの音とのあいだに、太い斜線
+            if (arts.includes('trem2')) {
+              const n2 = [1, 2, 3].includes(d.ev.trs) ? d.ev.trs : 3;
+              const ym = (d.yOf(d.hi) + d.yOf(d.lo)) / 2 + (d.up ? -2 * SP : 2 * SP);
+              const xa = d.x + 8;
+              for (let k2 = 0; k2 < n2; k2++) { const yk = ym + (k2 - (n2 - 1) / 2) * 5.5; o.push(`<path class="trem2" d="M${xa} ${yk + 2} L${xa + 16} ${yk - 2} L${xa + 16} ${yk + 0.6} L${xa} ${yk + 4.6} Z" fill="#111"/>`); }
             }
             // アルペジオ（和音の左に波線）
             if (arts.includes('arp')) {
@@ -1247,6 +1299,27 @@ const Notation = (() => {
             if (xz > lx + 4) {
               o.push(`<line x1="${lx}" x2="${xz}" y1="${y - 4}" y2="${y - 4}" stroke="#111" stroke-width="0.8" stroke-dasharray="3 4" stroke-linecap="butt"/>`);
               if (q.e <= bS(b1)) o.push(`<line x1="${xz}" x2="${xz}" y1="${y - 4}" y2="${up ? y + 1 : y - 9}" stroke="#111" stroke-width="0.8"/>`);
+            }
+          }
+        }
+        // トリルの波線：「tr～～～～」
+        if (st.trl) {
+          const tx = (t) => { if (t >= bS(b1) || t >= bS(bars)) return xEnd - 6; const bb = barOfT(t); if (bb < b0) return sys.bars[0].xs[0]; return xAt(bb, t - bS(bb)); }; // 段の外（切れ目）は、段のはし
+          const y = stTop - st.above + st.textRoom + (st.ottUp ? 18 : 0) + ((st.part.trills || []).some((q) => q.a != null) ? 23 : 13);
+          for (const q of st.part.trills) {
+            if (q.e <= bS(b0) || q.s >= bS(b1)) continue;
+            const xa = q.s >= bS(b0) ? tx(q.s) - 5 : sys.bars[0].xs[0] - 8;
+            const xz = q.e <= bS(b1) ? tx(q.e) - 4 : xEnd - 4;
+            let lx = xa;
+            if (q.s >= bS(b0)) {
+              o.push(G('ornamentTrill', xa, y, 'class="trl" fill="#111"'));
+              lx = xa + GW('ornamentTrill') + 2;
+              if (q.a != null) { const an = ACC_G[q.a] || 'accidentalNatural'; o.push(G(an, xa + 3, y - 20, 'fill="#111"', SP * 0.6)); }
+            }
+            if (xz > lx + 6) {
+              let pth = `M${lx} ${y - 3}`;
+              for (let xv = lx, k2 = 0; xv < xz - 3; xv += 3, k2++) pth += ` Q${xv + 1.5} ${y - 3 + (k2 % 2 ? 2.4 : -2.4)} ${xv + 3} ${y - 3}`;
+              o.push(`<path d="${pth}" fill="none" stroke="#111" stroke-width="1.1"/>`);
             }
           }
         }
@@ -1686,6 +1759,15 @@ const Notation = (() => {
       let hyOpen = false; // まえの音節がハイフンでつづいている
       const slurStarts = new Map((p.slurs || []).map((s, i) => [s.s, i + 1]));
       const glissOpen = [false, false]; // グリッサンドの始まりが出ている（声部ごと）
+      const trem2Open = [0, 0]; // 2つの音のトレモロ：つぎの音で stop を書く（声部ごと）
+      // トリルの波線：はじまりの音と、さいごの音
+      const trlAt = new Map();
+      const trlEnd = new Set();
+      for (const q of p.trills || []) {
+        trlAt.set(q.s, q);
+        const inQ = notes.filter((n) => n.s >= q.s && n.s < q.e).map((n) => n.s);
+        trlEnd.add(inQ.length ? Math.max(...inQ) : q.s);
+      }
       const slurEnds = new Map((p.slurs || []).map((s, i) => [s.e, i + 1]));
       x.push(`<part id="P${pi + 1}">`);
       for (let b = 0; b < bars; b++) {
@@ -1764,9 +1846,17 @@ const Notation = (() => {
               const A = ev.art || [];
               const arts = A.map((a) => ({ stac: '<staccato/>', acc: '<accent/>', ten: '<tenuto/>', marc: '<strong-accent type="up"/>', stacc2: '<staccatissimo/>', breath: '<breath-mark/>', caes: '<caesura/>' }[a] || '')).join('');
               if (arts) nots += `<articulations>${arts}</articulations>`;
-              const orn = A.map((a) => ({ tr: '<trill-mark/>', prall: '<inverted-mordent/>', mord: '<mordent/>', turn: '<turn/>', trem: '<tremolo type="single">3</tremolo>' }[a] || '')).join('');
+              const ACCM = { 1: 'sharp', '-1': 'flat', 0: 'natural' };
+              const tq2 = trlAt.get(ev.abs);
+              let orn = A.map((a) => ({ tr: '<trill-mark/>' + (ev.tra != null ? `<accidental-mark>${ACCM[ev.tra]}</accidental-mark>` : ''), prall: '<inverted-mordent/>', mord: '<mordent/>', turn: '<turn/>', iturn: '<inverted-turn/>', trem: `<tremolo type="single">${ev.trs || 3}</tremolo>`, trem2: `<tremolo type="start">${ev.trs || 3}</tremolo>` }[a] || '')).join('');
+              // トリルの波線
+              if (tq2 && !A.includes('tr')) orn += '<trill-mark/>' + (tq2.a != null ? `<accidental-mark>${ACCM[tq2.a]}</accidental-mark>` : '');
+              if (tq2) orn += '<wavy-line type="start" number="1"/>';
+              if (trlEnd.has(ev.abs)) orn += '<wavy-line type="stop" number="1"/>';
+              if (trem2Open[vi]) { orn += `<tremolo type="stop">${trem2Open[vi]}</tremolo>`; trem2Open[vi] = 0; }
+              if (A.includes('trem2')) trem2Open[vi] = ev.trs || 3;
               if (orn) nots += `<ornaments>${orn}</ornaments>`;
-              const tech = A.map((a) => ({ upb: '<up-bow/>', dnb: '<down-bow/>' }[a] || '')).join('');
+              const tech = A.map((a) => ({ upb: '<up-bow/>', dnb: '<down-bow/>', harm: '<harmonic/>', open: '<open-string/>', stop: '<stopped/>', snap: '<snap-pizzicato/>' }[a] || '')).join('');
               if (tech) nots += `<technical>${tech}</technical>`;
               if (A.includes('ferm')) nots += '<fermata type="upright"/>';
             }
@@ -1778,11 +1868,18 @@ const Notation = (() => {
               if (fc) nots += `<technical><fingering>${esc(fc)}</fingering></technical>`;
             }
             // 装飾音符（前打音）は、主音符の前に
-            if (k === 0 && ev.first && ev.gr != null && !p.perc) { const gs = spell(ev.gr, kc); x.push(`<note><grace slash="yes"/><pitch><step>${gs.step}</step>${gs.acc ? `<alter>${gs.acc}</alter>` : ''}<octave>${gs.oct}</octave></pitch>${vx}<type>eighth</type><stem>up</stem></note>`); }
+            if (k === 0 && ev.first && ev.gr != null && !p.perc) {
+              const gl = grOf(ev.gr);
+              gl.forEach((gp, gi) => {
+                const gs = spell(gp, kc);
+                const bm = gl.length > 1 ? `<beam number="1">${gi === 0 ? 'begin' : gi === gl.length - 1 ? 'end' : 'continue'}</beam><beam number="2">${gi === 0 ? 'begin' : gi === gl.length - 1 ? 'end' : 'continue'}</beam>` : '';
+                x.push(`<note><grace slash="${ev.grl && gl.length === 1 ? 'no' : 'yes'}"/><pitch><step>${gs.step}</step>${gs.acc ? `<alter>${gs.acc}</alter>` : ''}<octave>${gs.oct}</octave></pitch>${vx}<type>${gl.length > 1 ? '16th' : 'eighth'}</type><stem>up</stem>${bm}</note>`);
+              });
+            }
             const ly = k === 0 && ev.first && vi === 0 ? (useNoteLy ? ev.ly : lyr[ev.syll]) : '';
             let lyric = '';
             if (ly) { const [lt, sy] = sylOf(ly, hyOpen); hyOpen = /.-$/.test(ly); lyric = `<lyric number="1"><syllabic>${sy}</syllabic><text>${esc(lt)}</text></lyric>`; }
-            x.push(`<note${!p.perc && ev.vel && ev.vel !== 1 ? ` dynamics="${Math.round(ev.vel * 100)}"` : ''}>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${p.perc ? `<instrument id="P${pi + 1}-I${m - 2000 + 1}"/>` : ''}${vx}${typeXml(ev)}${p.perc && dpos[1] !== 'n' ? `<notehead>${dpos[1] === 'o' ? 'circle-x' : 'x'}</notehead>` : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);
+            x.push(`<note${!p.perc && ev.vel && ev.vel !== 1 ? ` dynamics="${Math.round(ev.vel * 100)}"` : ''}>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${p.perc ? `<instrument id="P${pi + 1}-I${m - 2000 + 1}"/>` : ''}${vx}${typeXml(ev)}${p.perc && dpos[1] !== 'n' ? `<notehead>${dpos[1] === 'o' ? 'circle-x' : 'x'}</notehead>` : !p.perc && ev.nhs && ev.nhs[m] ? `<notehead>${ev.nhs[m]}</notehead>` : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);
           });
         }
         });

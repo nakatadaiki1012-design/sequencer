@@ -160,7 +160,8 @@ const MusicXMLImport = (() => {
     if (!x.some((y) => y.o === o) && x.length < 16) { x.push({ o, r: n.r, q: n.q }); x.sort((a, z) => a.o - z.o); }
   };
   const ART = { staccato: 'stac', staccatissimo: 'stacc2', spiccato: 'stacc2', accent: 'acc', tenuto: 'ten', 'strong-accent': 'marc', 'breath-mark': 'breath', caesura: 'caes' };
-  const ORN = { 'trill-mark': 'tr', 'inverted-mordent': 'prall', mordent: 'mord', turn: 'turn', 'delayed-turn': 'turn' };
+  const ORN = { 'trill-mark': 'tr', 'inverted-mordent': 'prall', mordent: 'mord', turn: 'turn', 'delayed-turn': 'turn', 'inverted-turn': 'iturn', 'delayed-inverted-turn': 'iturn' };
+  const ACC_MARK = { sharp: 1, flat: -1, natural: 0 };
   const DYN = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp'];
   const HARM = { major: 'M', minor: 'm', dominant: '7', 'major-seventh': 'M7', 'minor-seventh': 'm7', 'suspended-fourth': 'sus4', diminished: 'dim', augmented: 'aug' };
   const TEMPO_WORD = /grave|largo|larghetto|lento|adagio|andante|andantino|moderato|allegretto|allegro|vivace|vivo|presto|prestissimo|maestoso|tempo|ゆっくり|ゆったり|おだやか|はやく|速く|速さ|元気|軽やか|かろやか|歩く|おちついて|落ち着いて/i;
@@ -228,7 +229,13 @@ const MusicXMLImport = (() => {
           if (grace && kid(el, 'pitch') && !isChord) {
             const gp = kid(el, 'pitch');
             const gs = STEP[txt(gp, 'step').toUpperCase()];
-            if (gs != null) pendingGrace = (Math.round(num(txt(gp, 'octave'), 4)) + 1) * 12 + gs + Math.round(num(txt(gp, 'alter'), 0));
+            // いくつも続く装飾音符は、まとめて次の音に。斜線のないもの（1つだけ）は長前打音
+            if (gs != null) {
+              const gpch = (Math.round(num(txt(gp, 'octave'), 4)) + 1) * 12 + gs + Math.round(num(txt(gp, 'alter'), 0));
+              if (!pendingGrace) pendingGrace = { ps: [], long: kid(el, 'grace').getAttribute('slash') !== 'yes' };
+              pendingGrace.ps.push(gpch);
+              if (kid(el, 'grace').getAttribute('slash') === 'yes') pendingGrace.long = false;
+            }
             continue;
           }
           if (grace || cue || kid(el, 'rest')) continue;
@@ -249,6 +256,8 @@ const MusicXMLImport = (() => {
           }
           const ins = kid(el, 'instrument');
           if (ins) n.inst = ins.getAttribute('id');
+          // 符頭の形（ひし形＝ハーモニクス・×）
+          if (pitchEl) { const nhd = txt(el, 'notehead'); if (/diamond/.test(nhd)) n.nh = 'diamond'; else if (/^(x|cross)$/.test(nhd)) n.nh = 'x'; }
           n.dynAttr = num(el.getAttribute('dynamics'), 0);
           // タイ
           for (const tie of kids(el, 'tie')) {
@@ -273,13 +282,27 @@ const MusicXMLImport = (() => {
             if (kid(nt, 'fermata') && !art.includes('ferm')) art.push('ferm');
             for (const o of kids(nt, 'ornaments')) {
               for (const c of o.children) {
-                const v = ORN[c.localName] || (c.localName === 'tremolo' && (c.getAttribute('type') || 'single') === 'single' ? 'trem' : null);
+                if (c.localName === 'tremolo') {
+                  // トレモロ：single＝1つの音・start＝2つの音（つぎの音と交互に）。中の数字＝斜線の数
+                  const ty = c.getAttribute('type') || 'single';
+                  const k = Math.max(1, Math.min(3, Math.round(num(c.textContent, 3))));
+                  if (ty === 'single' && !art.includes('trem')) { art.push('trem'); if (k !== 3) n.trs = k; }
+                  if (ty === 'start' && !art.includes('trem2')) { art.push('trem2'); if (k !== 3) n.trs = k; }
+                  continue;
+                }
+                if (c.localName === 'wavy-line') { M.items.push({ kind: 'wavy', t: start, type: c.getAttribute('type'), no: c.getAttribute('number') || '1' }); continue; }
+                if (c.localName === 'accidental-mark' && art.includes('tr')) { const v2 = ACC_MARK[c.textContent.trim()]; if (v2 != null) n.tra = v2; continue; }
+                const v = ORN[c.localName];
                 if (v && !art.includes(v)) art.push(v);
               }
             }
             for (const tq of kids(nt, 'technical')) {
               for (const c of tq.children) {
                 if (c.localName === 'up-bow' && !art.includes('upb')) art.push('upb');
+                if (c.localName === 'harmonic' && !art.includes('harm')) art.push('harm');
+                if (c.localName === 'open-string' && !art.includes('open')) art.push('open');
+                if (c.localName === 'stopped' && !art.includes('stop')) art.push('stop');
+                if (c.localName === 'snap-pizzicato' && !art.includes('snap')) art.push('snap');
                 if (c.localName === 'down-bow' && !art.includes('dnb')) art.push('dnb');
                 if (c.localName === 'fingering') { const f = c.textContent.replace(/[^0-5]/g, '').slice(0, 1); if (f) n.fg = f; }
               }
@@ -297,7 +320,7 @@ const MusicXMLImport = (() => {
             }
           }
           if (art.length) n.art = art;
-          if (pendingGrace != null) { n.gr = pendingGrace; pendingGrace = null; }
+          if (pendingGrace != null) { n.gr = pendingGrace.ps.length === 1 ? pendingGrace.ps[0] : pendingGrace.ps.slice(0, 8); if (pendingGrace.long && pendingGrace.ps.length === 1) n.grl = true; pendingGrace = null; }
           // 歌詞（1番、なければ最初のもの）
           const lys = kids(el, 'lyric');
           const ly = lys.find((l) => (l.getAttribute('number') || '1') === '1') || lys[0];
@@ -597,6 +620,8 @@ const MusicXMLImport = (() => {
     let pedOpen = null;
     const ottava = [];
     const openOct = {};
+    const trills = [];
+    const openWavy = {};
     const clefChg = {};
     let lastClef = null;
     const openTie = {}; // 音の高さ → つながっている音
@@ -628,6 +653,7 @@ const MusicXMLImport = (() => {
             if (it.ly) n.ly = it.ly;
             if (it.fg) n.fg = it.fg;
             if (it.gr != null) n.gr = it.gr;
+            for (const k of ['grl', 'tra', 'trs', 'nh']) if (it[k] != null) n[k] = it[k];
             if (it.dynAttr > 0 && Math.abs(it.dynAttr - 100) > 5) n.vel = Math.min(1.25, Math.max(0.25, Math.round((it.dynAttr / 100) * 4) / 4)); // 音ごとの強さ
             notes.push(n);
           }
@@ -646,6 +672,15 @@ const MusicXMLImport = (() => {
           const t = Math.max(0, absT(i, it.t));
           if (it.type === 'start') pedOpen = t;
           else if ((it.type === 'stop' || it.type === 'change') && pedOpen != null) { if (t > pedOpen) pedals.push({ s: pedOpen, e: t }); pedOpen = it.type === 'change' ? t : null; }
+        } else if (it.kind === 'wavy') {
+          // トリルの波線
+          const t = Math.max(0, absT(i, it.t));
+          if (it.type === 'start') openWavy[it.no] = t;
+          else if (it.type === 'stop' && openWavy[it.no] != null) {
+            // おわりの音の長さは、あとで（音がそろってから）決める
+            trills.push({ s: openWavy[it.no], stopAt: t });
+            delete openWavy[it.no];
+          }
         } else if (it.kind === 'oct') {
           const t = Math.max(0, absT(i, it.t));
           if (it.type === 'down' || it.type === 'up') openOct[it.no] = { s: t, k: (it.type === 'down' ? 1 : -1) * (it.size >= 15 ? 2 : 1) };
@@ -663,6 +698,16 @@ const MusicXMLImport = (() => {
         }
       }
     });
+    // トリルの波線：さいごの音の終わりまで。はじめの音の tr と ♯・♭ は、線のほうへ
+    for (const q of trills) {
+      const last = notes.filter((m) => m.s <= q.stopAt && m.s >= q.s).sort((a, z) => z.s - a.s)[0];
+      q.e = Math.max(q.stopAt, last ? last.s + last.l : q.stopAt);
+      delete q.stopAt;
+      for (const m of notes.filter((m2) => m2.s === q.s)) {
+        if (m.tra != null) { q.a = m.tra; delete m.tra; }
+        if (m.art) { m.art = m.art.filter((a) => a !== 'tr'); if (!m.art.length) delete m.art; }
+      }
+    }
     // 曲の長さの外に出た音はけずる
     const kept = notes.filter((n) => n.s >= 0 && n.s < limit);
     kept.forEach((n) => { if (n.s + n.l > limit) n.l = limit - n.s; });
@@ -691,6 +736,7 @@ const MusicXMLImport = (() => {
       ...(texts.some((x) => x.t < limit) ? { texts: texts.filter((x) => x.t < limit) } : {}),
       ...(pedals.length ? { pedals: pedals.filter((x) => x.s < limit) } : {}),
       ...(ottava.length ? { ottava: ottava.filter((x) => x.s < limit) } : {}),
+      ...(trills.some((x) => x.e > x.s) ? { trills: trills.filter((x) => x.s < limit && x.e > x.s) } : {}),
       ...(p.measures[0] && p.measures[0].clef && !(p.info.staves > 1) ? { clef: p.measures[0].clef } : {}),
       ...(p.info.trans ? { trans: p.info.trans } : {}),
       ...(Object.keys(clefChg).length ? { clefChg } : {}),
@@ -815,8 +861,18 @@ const MusicXMLImport = (() => {
   const ARTMAP = [
     [/staccatissimo/i, 'stacc2'], [/staccato/i, 'stac'], [/tenuto/i, 'ten'], [/marcato/i, 'marc'], [/accent|sforzato/i, 'acc'],
     [/fermata/i, 'ferm'], [/shorttrill|prall|tremblement/i, 'prall'], [/trill/i, 'tr'], [/mordent/i, 'mord'], [/turn/i, 'turn'],
-    [/upbow/i, 'upb'], [/downbow/i, 'dnb'],
+    [/upbow/i, 'upb'], [/downbow/i, 'dnb'], [/harmonic/i, 'harm'], [/brassMuteOpen|^open/i, 'open'], [/brassMuteClosed|stopped|^plus/i, 'stop'], [/snapPizzicato/i, 'snap'],
   ];
+  // MuseScore の記号の名前（ターンの逆はターンより先にしらべる）
+  const artsOf = (sub) => {
+    const x = String(sub || '');
+    if (/TurnInverted|reverseturn/i.test(x)) return ['iturn'];
+    if (/AccentStaccato/i.test(x)) return ['acc', 'stac'];
+    if (/MarcatoStaccato/i.test(x)) return ['marc', 'stac'];
+    if (/StaccatissimoWedge|StaccatissimoStroke/i.test(x)) return ['stacc2'];
+    const a = artOf(x);
+    return a ? [a] : [];
+  };
   const artOf = (sub) => { for (const [re, a] of ARTMAP) if (re.test(sub || '')) return a; return null; };
   const HQ = (name) => {
     const n = String(name || '').replace(/[()\s]/g, '');
@@ -947,6 +1003,7 @@ const MusicXMLImport = (() => {
       const texts = [];
       const pedals = [];
       const ottava = [];
+      const trills = [];
       const clefChg = {};
       let curClef = null; // いまの音部記号（同じ記号の書き直しは、変化にしない）
       let clef0 = null; // はじめの音部記号
@@ -969,6 +1026,7 @@ const MusicXMLImport = (() => {
           const tup2 = {}; // MuseScore 2 の 3連符 id → 比
           let pendingArt = [];
           let pendingGrace = null;
+          let pendingTrem2 = false; // 2つの音のトレモロ：あいての音（2つ目）には記号をつけない
           let lastChord = null;
           for (const el of vEl.children) {
             const tag = el.localName;
@@ -1036,6 +1094,15 @@ const MusicXMLImport = (() => {
               if (end == null) continue; // 終わりの印
               if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end) });
               else if (type === 'Pedal') pedals.push({ s: absT(pos), e: absT(end) });
+              else if (type === 'Trill') {
+                // トリルの波線（♯・♭がついていれば、その上の音）
+                const te = kid(el, 'Trill');
+                const ac = te && kid(te, 'Accidental');
+                const sub = ac ? txt(ac, 'subtype') : '';
+                const q = { s: absT(pos), e: absT(end) };
+                if (sub) q.a = /Sharp/i.test(sub) ? 1 : /Flat/i.test(sub) ? -1 : 0;
+                trills.push(q);
+              }
               else if (type === 'Ottava') { const sub = txt(kid(el, 'Ottava'), 'subtype'); const k = /15m?b|15vb/i.test(sub) ? -2 : /15/.test(sub) ? 2 : /b/i.test(sub) ? -1 : 1; ottava.push({ s: absT(pos), e: absT(end), k }); }
               else if (type === 'HairPin') { const hp = kid(el, 'HairPin'); const sub = txt(hp, 'subtype'); hairpins.push({ s: absT(pos), e: absT(end), type: sub === '1' || /decresc|dim/i.test(sub) ? 'dim' : 'cresc' }); }
               else if (type === 'Volta' && isFirstStaff) { const vo = kid(el, 'Volta'); const no = clamp(Math.round(num((txt(vo, 'endings') || '1').split(/[ ,]/)[0], 1)), 1, 2); for (let b = mi; b < nBars && startDiv[b] < end - 1; b++) volta[b] = no; }
@@ -1063,14 +1130,36 @@ const MusicXMLImport = (() => {
             const tref = txt(el, 'Tuplet');
             dur *= ratio() * (tref && tup2[tref] ? tup2[tref] : 1);
             const isGrace = ['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after', 'grace16after', 'grace32after'].some((g) => kid(el, g));
+            const isAppo = !!(kid(el, 'appoggiatura') || kid(el, 'grace4'));
             if (tag === 'Rest') { pos += dur; pendingArt = []; continue; }
             const ns = kids(el, 'Note').filter((n) => txt(n, 'pitch') !== '');
-            if (isGrace) { if (ns.length && !/after/.test(['grace8after', 'grace16after', 'grace32after'].find((g) => kid(el, g)) || '')) pendingGrace = Math.round(num(txt(ns[ns.length - 1], 'pitch'), 60)); continue; }
+            if (isGrace) {
+              // いくつも続く装飾音符は、まとめて次の音に（後打音はとばす）
+              if (ns.length && !/after/.test(['grace8after', 'grace16after', 'grace32after'].find((g) => kid(el, g)) || '')) {
+                if (!pendingGrace) pendingGrace = { ps: [], long: isAppo };
+                pendingGrace.ps.push(Math.round(num(txt(ns[ns.length - 1], 'pitch'), 60)));
+                if (!isAppo) pendingGrace.long = false;
+              }
+              continue;
+            }
             const arts = pendingArt.slice();
             pendingArt = [];
-            for (const a of kids(el, 'Articulation')) { const x = artOf(txt(a, 'subtype')); if (x && !arts.includes(x)) arts.push(x); }
-            for (const o of kids(el, 'Ornament')) { const x = artOf(txt(o, 'subtype')); if (x && !arts.includes(x)) arts.push(x); }
-            if (kid(el, 'Tremolo') || kid(el, 'TremoloSingleChord')) arts.push('trem');
+            let trillAcc = null;
+            for (const a of [...kids(el, 'Articulation'), ...kids(el, 'Ornament')]) {
+              for (const x of artsOf(txt(a, 'subtype'))) if (!arts.includes(x)) arts.push(x);
+              // トリルの上の ♯・♭・♮
+              const ac = kid(a, 'Accidental') || kid(a, 'accidentalAbove');
+              if (ac) { const sub = txt(ac, 'subtype') || ac.textContent; trillAcc = /Sharp/i.test(sub) ? 1 : /Flat/i.test(sub) ? -1 : /Natural/i.test(sub) ? 0 : null; }
+            }
+            // トレモロ：r8/r16/r32/r64＝1つの音（斜線1〜3本）、c8〜c64＝2つの音（つぎの音と交互に）
+            let tremK = null;
+            const trEl = kid(el, 'Tremolo') || kid(el, 'TremoloSingleChord') || kid(el, 'TremoloTwoChord');
+            if (trEl) {
+              const sub = txt(trEl, 'subtype') || 'r32';
+              tremK = /8/.test(sub) ? 1 : /16/.test(sub) ? 2 : 3;
+              const two = /^c/i.test(sub) || trEl.localName === 'TremoloTwoChord';
+              if (two) { if (!pendingTrem2) arts.push('trem2'); pendingTrem2 = !pendingTrem2; } else arts.push('trem');
+            } else pendingTrem2 = false;
             if (kid(el, 'Arpeggio')) arts.push('arp');
             const lys = kids(el, 'Lyrics').filter((l) => !kid(l, 'no') || txt(l, 'no') === '0');
             const sy0 = lys.length ? txt(lys[0], 'syllabic') : '';
@@ -1104,7 +1193,11 @@ const MusicXMLImport = (() => {
                   if (voice > 0) note.v = 2;
                   if (arts.length) note.art = arts.slice();
                   if (ly && k === ns.length - 1) note.ly = ly.slice(0, 20);
-                  if (pendingGrace != null && k === ns.length - 1) note.gr = pendingGrace;
+                  if (pendingGrace != null && k === ns.length - 1) { note.gr = pendingGrace.ps.length === 1 ? pendingGrace.ps[0] : pendingGrace.ps.slice(0, 8); if (pendingGrace.long && pendingGrace.ps.length === 1) note.grl = true; }
+                  if (tremK && tremK !== 3) note.trs = tremK;
+                  if (trillAcc != null && arts.includes('tr')) note.tra = trillAcc;
+                  const hd = txt(n, 'head');
+                  if (/diamond/i.test(hd)) note.nh = 'diamond'; else if (/^(cross|x)$/i.test(hd)) note.nh = 'x';
                   const fg = kids(n, 'Fingering').map((f) => plain(kid(f, 'text')) || plain(f)).join('').replace(/[^0-5]/g, '').slice(0, 1);
                   if (fg) note.fg = fg;
                   notes.push(note);
@@ -1138,7 +1231,7 @@ const MusicXMLImport = (() => {
       const firstClef = clef0 || ic[String(info.idx + 1)] || (!Object.keys(ic).length && part.staves.length === 1 ? 'treble' : null); // 書いていなければト音記号（MuseScore のきまり）
       tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
         ...(firstClef ? { clef: firstClef } : {}), ...(part.trans ? { trans: part.trans } : {}),
-        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(trills.length ? { trills } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
     }
     let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
     if (!out.length) out = tracks.slice(0, 1);

@@ -9,7 +9,8 @@ const MuseScoreExport = (() => {
   // tick（4分＝48）→ 全音符を1とした分数「1/4」
   const frac = (t) => { const n = Math.round(t); const d = 192; const g = gcd(n, d); return `${n / g}/${d / g}`; };
   const TYPE = { 192: 'whole', 96: 'half', 48: 'quarter', 24: 'eighth', 12: '16th', 6: '32nd', 3: '64th' };
-  const ART = { stac: 'articStaccatoAbove', stacc2: 'articStaccatissimoAbove', ten: 'articTenutoAbove', acc: 'articAccentAbove', marc: 'articMarcatoAbove', tr: 'ornamentTrill', prall: 'ornamentShortTrill', mord: 'ornamentMordent', turn: 'ornamentTurn', upb: 'stringsUpBow', dnb: 'stringsDownBow' };
+  const ART = { stac: 'articStaccatoAbove', stacc2: 'articStaccatissimoAbove', ten: 'articTenutoAbove', acc: 'articAccentAbove', marc: 'articMarcatoAbove', tr: 'ornamentTrill', prall: 'ornamentShortTrill', mord: 'ornamentMordent', turn: 'ornamentTurn', iturn: 'ornamentTurnInverted', upb: 'stringsUpBow', dnb: 'stringsDownBow', harm: 'stringsHarmonic', open: 'brassMuteOpen', stop: 'brassMuteClosed', snap: 'pluckedSnapPizzicatoAbove' };
+  const ACCSUB = { 1: 'accidentalSharp', '-1': 'accidentalFlat', 0: 'accidentalNatural' };
   const CLEF = { treble: 'G', bass: 'F', alto: 'C3', treble8: 'G8vb', perc: 'PERC' };
   const LETTER_FIFTHS = [0, 2, 4, -1, 1, 3, 5]; // C D E F G A B（C=0 を基準にした5度の数）
   const HNAME = { M: '', m: 'm', 7: '7', M7: 'Maj7', m7: 'm7', dim: 'dim', aug: 'aug', sus4: 'sus4' };
@@ -108,6 +109,7 @@ const MuseScoreExport = (() => {
       for (const sl of p.slurs || []) if (sl.e > sl.s) spans.push({ type: 'Slur', s: sl.s, e: sl.e });
       for (const hp of p.hairpins || []) if (hp.e > hp.s) spans.push({ type: 'HairPin', s: hp.s, e: hp.e, sub: hp.type === 'dim' ? 1 : 0 });
       for (const pd of p.pedals || []) if (pd.e > pd.s) spans.push({ type: 'Pedal', s: pd.s, e: pd.e });
+      for (const q of p.trills || []) if (q.e > q.s) spans.push({ type: 'Trill', s: q.s, e: q.e, a: q.a });
       for (const q of p.ottava || []) if (q.e > q.s) spans.push({ type: 'Ottava', s: q.s, e: q.e, sub: { 1: '8va', '-1': '8vb', 2: '15ma', '-2': '15mb' }[q.k] || '8va' });
       // おわりの位置は、その時に始まる音（なければ曲のおわり）
       const starts1 = new Set(ev1.flat().map((e) => e.abs));
@@ -157,7 +159,7 @@ const MuseScoreExport = (() => {
               for (const t of p.texts || []) if (!t._w && t.t <= at && t.x) { t._w = 1; x.push(`<StaffText><text>${esc(t.x)}</text></StaffText>`); }
               // スラー・クレッシェンドのおわり（この音の所）と、はじまり
               for (const sp of spans) if (sp.st != null && !sp.done && sp.e <= at) { sp.done = true; x.push(`<Spanner type="${sp.type}"><prev>${loc(at, sp.st)}</prev></Spanner>`); }
-              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Ottava' ? `<Ottava><subtype>${sp.sub}</subtype></Ottava>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
+              for (const sp of spans) if (sp.st == null && sp.s <= at && sp.e > at) { sp.st = at; sp.en = Math.max(at + 1, sp.e); x.push(`<Spanner type="${sp.type}">${sp.type === 'HairPin' ? `<HairPin><subtype>${sp.sub}</subtype></HairPin>` : sp.type === 'Ottava' ? `<Ottava><subtype>${sp.sub}</subtype></Ottava>` : sp.type === 'Pedal' ? '<Pedal><beginText><sym>keyboardPedalPed</sym></beginText><endText><sym>keyboardPedalUp</sym></endText><lineVisible>0</lineVisible></Pedal>' : sp.type === 'Trill' ? `<Trill><subtype>trill</subtype>${sp.a != null ? `<Accidental><subtype>${ACCSUB[sp.a]}</subtype></Accidental>` : ''}</Trill>` : '<Slur></Slur>'}<next>${loc(at, endAt(sp.e))}</next></Spanner>`); }
             }
             // 3連符
             if (ev.trip && !tup) { const g = ev._tg; tup = { g, end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[g ? g.total / 2 : ev.base] || TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }
@@ -167,12 +169,18 @@ const MuseScoreExport = (() => {
               const A = ev.first ? ev.art || [] : [];
               if (A.includes('ferm')) x.push('<Fermata><subtype>fermataAbove</subtype></Fermata>');
               // 装飾音符
-              if (ev.first && ev.gr != null && !p.perc) { const gs = N.spell(ev.gr, kcOf(b)); x.push(`<Chord><acciaccatura/><durationType>eighth</durationType><Note><pitch>${ev.gr}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
+              if (ev.first && ev.gr != null && !p.perc) {
+                const gl = Array.isArray(ev.gr) ? ev.gr : [ev.gr];
+                const kind = gl.length === 1 ? (ev.grl ? 'appoggiatura' : 'acciaccatura') : 'grace16';
+                for (const gp of gl) { const gs = N.spell(gp, kcOf(b)); x.push(`<Chord><${kind}/><durationType>${gl.length > 1 ? '16th' : 'eighth'}</durationType><Note><pitch>${gp}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
+              }
               x.push('<Chord>');
               x.push(dur);
               if (ev.first && ev.ly && vi === 0) { const [lt, sy] = N.sylOf(ev.ly, hyOpen); hyOpen = /.-$/.test(ev.ly); x.push(`<Lyrics>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); }
-              for (const a of A) if (ART[a]) x.push(`<Articulation><subtype>${ART[a]}</subtype></Articulation>`);
-              if (A.includes('trem')) x.push('<Tremolo><subtype>r32</subtype></Tremolo>');
+              for (const a of A) if (ART[a]) x.push(`<Articulation><subtype>${ART[a]}</subtype>${a === 'tr' && ev.tra != null ? `<Accidental><subtype>${ACCSUB[ev.tra]}</subtype></Accidental>` : ''}</Articulation>`);
+              const TRS = { 1: '8', 2: '16', 3: '32' };
+              if (A.includes('trem')) x.push(`<Tremolo><subtype>r${TRS[ev.trs] || '32'}</subtype></Tremolo>`);
+              if (A.includes('trem2')) x.push(`<Tremolo><subtype>c${TRS[ev.trs] || '32'}</subtype></Tremolo>`);
               if (A.includes('arp') && ev.pitches.length > 1) x.push('<Arpeggio><subtype>0</subtype></Arpeggio>');
               ev.pitches.forEach((m, k) => {
                 const pitch = m;
@@ -184,6 +192,7 @@ const MuseScoreExport = (() => {
                 if (ev.first && ev.fg && !p.perc) { const fc = String(ev.fg)[ev.pitches.length - 1 - k]; if (fc) x.push(`<Fingering><text>${esc(fc)}</text></Fingering>`); }
                 const sp = ev.enh ? N.spellPref(pitch, kcOf(b), ev.enh) : N.spell(pitch, kcOf(b));
                 x.push(`<pitch>${pitch}</pitch><tpc>${tpcOf(sp)}</tpc>`);
+                if (ev.nhs && ev.nhs[m]) x.push(`<head>${ev.nhs[m] === 'x' ? 'cross' : 'diamond'}</head>`);
                 if (tr) x.push(`<tpc2>${tpcOf(N.spell(pitch + tr, kcOf(b, tr)))}</tpc2>`);
                 x.push('</Note>');
               });
