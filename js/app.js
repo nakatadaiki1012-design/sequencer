@@ -1333,13 +1333,18 @@ function scheduleEvent(ctx, graph, e, when, withMetro) {
     if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = clamp(+e.tr.pan || 0, -1, 1); out.connect(pn); pn.connect(graph.session); graph.pans[e.tr.id] = pn; } else out.connect(graph.session);
     graph.outs[e.tr.id] = out;
   }
-  const t = when + swingSec(e.t);
+  // 人が弾いたように、ほんの少しだけ時間（0〜6ミリ秒おそく）と強さ（±4%）をばらつかせる。毎回同じばらつき
+  const hz = ((e.t * 73856093) ^ ((e.p != null ? e.p : 7) * 19349663) ^ (String(e.tr.id).length * 83492791)) >>> 0;
+  const jt = HUMANIZE === true ? ((hz % 1000) / 1000) * 0.006 : 0;
+  const jv = HUMANIZE ? 1 + (((hz >>> 10) % 1000) / 1000 - 0.5) * 0.08 : 1;
+  const t = when + swingSec(e.t) + jt;
   const dur = e.kind === 'note' ? (absSec(e.t + e.l) - absSec(e.t)) * (e.lf || 0.96) : 0.5;
   graph.lastEnd = Math.max(graph.lastEnd || 0, t + dur);
-  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, dur, e.v, e.tr.real !== false);
-  else Sound.playDrum(ctx, out, e.id, t, e.v, e.tr.real !== false);
+  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, dur, e.v * jv, e.tr.real !== false, (e.lf || 0) > 1);
+  else Sound.playDrum(ctx, out, e.id, t, e.v * jv, e.tr.real !== false);
 }
 
+let HUMANIZE = 'v'; // 強さだけばらつかせる（時間のばらつきは、音の計算が重くなるので使わない）
 const player = { on: false, timer: null, graph: null, idx: 0, seg: null, segs: [], stopping: false, stopAt: 0, lastT: -1, ver: -1 };
 function loopBounds() {
   if (ui.loopRange) {
@@ -1463,6 +1468,7 @@ function play() {
   player.ver = version;
   player.timer = setInterval(tick, 25);
   tick();
+  document.body.classList.add('playing');
   $('#btnPlay').classList.add('on');
   $('#btnPlay').innerHTML = I('pause');
   requestAnimationFrame(anim);
@@ -1536,6 +1542,7 @@ function stop(silent = false) {
   }
   player.graph = null;
   player.on = false;
+  document.body.classList.remove('playing');
   playSpeed = 1;
   if ($('#karaoke')) { $('#karaoke').hidden = true; karaKey = ''; }
   countHud(0);
@@ -1663,7 +1670,18 @@ function animBody() {
     if (x - sc.scrollLeft > sc.clientWidth - 40 || x - sc.scrollLeft < LW) sc.scrollLeft = Math.max(0, x - LW - 20);
   }
   if (animVis.grid) draw(pos);
-  if (animVis.ov) drawOverview(pos);
+  if (animVis.ov) {
+    // 曲の地図も、いま鳴っている所が見えるように動かす
+    if (pos != null && ui.follow) {
+      const o = $('#ovScroller');
+      if (o.scrollWidth > o.clientWidth + 2) {
+        const b = barOf(pos);
+        const x = OV_LW + (b + (pos - barStart(b)) / barLen(b)) * ovBarW();
+        if (x - o.scrollLeft > o.clientWidth - 30 || x - o.scrollLeft < OV_LW) o.scrollLeft = Math.max(0, x - OV_LW - 40);
+      }
+    }
+    drawOverview(pos);
+  }
   updateMini(pos);
   drawViz();
   if (document.body.classList.contains('present')) karaoke(pos);
@@ -3856,7 +3874,20 @@ function updateMini(pos) {
   const bar = barOf(Math.max(0, t));
   const beat = Math.floor((t - barStart(bar)) / beatAt(bar));
   $('#miniTitle').textContent = song.title;
-  $('#miniPos').textContent = `${bar + 1}小節 ${beat + 1}拍`;
+  const posTxt = `${bar + 1}小節 ${beat + 1}拍`;
+  const mp = $('#miniPos');
+  if (mp.textContent !== posTxt) mp.textContent = posTxt;
+  // 再生中：経過時間／曲の長さ と、すすみぐあいの線（文字は秒がかわったときだけ書きかえる）
+  if (pos != null) {
+    const pt = playheadPlay();
+    const tot = absSec(playTotal());
+    const now = pt == null ? 0 : absSec(pt);
+    const mmss = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+    const tt = isPhone ? `${mmss(now)}/${mmss(tot)}` : `${mmss(now)} / ${mmss(tot)}`;
+    const mt = $('#miniTime');
+    if (mt.textContent !== tt) mt.textContent = tt;
+    $('#miniProg').style.transform = `scaleX(${tot > 0 ? Math.min(1, now / tot).toFixed(4) : 0})`;
+  }
   // 拍のランプ（いまの拍が光る。1拍目は色をかえる）
   {
     const n = Math.max(1, Math.round(barLen(bar) / beatAt(bar)));
@@ -8132,13 +8163,32 @@ function batchCompare() {
   inp.addEventListener('change', () => setTimeout(() => inp.remove(), 0));
   inp.click();
 }
+// オーケストラの楽譜を読みこんだら、本物の舞台のように左右にならべる（左＝ヴァイオリン、右＝チェロ・コントラバスなど）
+// 左右が決めてあるパートがあるときは、なにもしない
+function seatOrchestra(sg) {
+  const mel = (sg.tracks || []).filter((t) => t.type === 'melody');
+  if (mel.length < 6 || (sg.tracks || []).some((t) => +t.pan)) return;
+  const SEAT = [
+    [/vi(o|)l(i|)n.*(2|ii)|2nd vi|vn\.? ?2/i, -0.25], [/vi(o|)l(i|)n|vn\b|vl\b/i, -0.45], [/viol(a|e)\b|va\b|bratsche/i, 0.15], [/cell|vc\b|violoncel/i, 0.32], [/contrabass|double bass|kontrabass|cb\b|bass(?!oon| drum|s? clar)/i, 0.48],
+    [/harp/i, -0.55], [/piano|celesta|celesta/i, -0.4], [/flute|piccolo/i, -0.12], [/oboe|english horn|cor anglais/i, 0.1], [/clarinet/i, -0.08], [/bassoon|fagott/i, 0.14],
+    [/horn/i, -0.3], [/trumpet|cornet/i, 0.18], [/trombone/i, 0.3], [/tuba/i, 0.38], [/timpani/i, 0.05],
+  ];
+  const BY_INST = { violin: -0.45, viola: 0.15, cello: 0.32, contrabass: 0.48, harp: -0.55, flute: -0.12, piccolo: -0.12, oboe: 0.1, clarinet: -0.08, bassoon: 0.14, horn: -0.3, trumpet: 0.18, trombone: 0.3, tuba: 0.38 };
+  for (const t of sg.tracks) {
+    if (t.type === 'chord') continue;
+    const hit = SEAT.find(([re]) => re.test(t.name || ''));
+    const v = hit ? hit[1] : BY_INST[t.inst];
+    if (v != null) t.pan = v;
+    else if (t.type === 'drum') t.pan = 0.1;
+  }
+}
 function importFile(file) {
   const r = new FileReader();
   if (/\.(musicxml|xml|mxl|mscz|mscx)$/i.test(file.name)) {
     if (file.size > 200000) toast('楽譜を読みこんでいます…（大きなファイルなので、少し時間がかかります）', 8000);
     r.onload = () => {
       MusicXMLImport.readFile(r.result, file.name)
-        .then((sg) => { loadSong(sg, { own: true }); toast(/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイルを読み込みました' : 'MusicXMLを読み込みました'); })
+        .then((sg) => { seatOrchestra(sg); loadSong(sg, { own: true }); toast(/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイルを読み込みました' : 'MusicXMLを読み込みました'); })
         .catch((e) => alert((/\.msc[zx]$/i.test(file.name) ? 'MuseScore のファイル' : 'MusicXML') + 'を読み込めませんでした：' + e.message));
     };
     r.readAsArrayBuffer(file);

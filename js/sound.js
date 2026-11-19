@@ -379,7 +379,28 @@ const Sound = (() => {
     }
     L.push(v);
   }
-  function playSample(ctx, out, inst, midi, t, dur, vel) {
+  // 本物らしさ（部品はふやさない）：楽器ごとの音の消え方（rel 秒）・ビブラートの深さ（半音）・音が終わってものこる響き
+  const FEEL = {
+    strings: [0.22, 0.14], violin: [0.2, 0.2], viola: [0.2, 0.18], cello: [0.24, 0.17], contrabass: [0.26, 0.1], choir: [0.24, 0.14],
+    flute: [0.12, 0.12], piccolo: [0.1, 0.1], oboe: [0.1, 0.1], clarinet: [0.1, 0], bassoon: [0.12, 0.05], sax: [0.12, 0.14], recorder: [0.07, 0], ocarina: [0.08, 0.06], shakuhachi: [0.14, 0.12],
+    trumpet: [0.12, 0.04], horn: [0.18, 0], trombone: [0.14, 0.03], tuba: [0.16, 0], brassens: [0.14, 0.02],
+    organ: [0.07, 0], pipeorgan: [0.2, 0], accordion: [0.07, 0.03], kenhamo: [0.06, 0], bagpipe: [0.05, 0],
+  };
+  // たたく・はじく楽器で、音が終わってもしばらく鳴りのこるもの（ハープ・ティンパニ・鉄琴など）
+  const RING = { harp: 0.9, timpani: 1.0, glocken: 0.9, vibraphone: 0.9, tubularbell: 1.1, celesta: 0.7, kalimba: 0.7, steeldrum: 0.6, musicbox: 0.7, marimba: 0.6, xylophone: 0.5, koto: 0.6, guitar: 0.6, steelguitar: 0.6 };
+  // ビブラートのカーブ（音の高さのゆれ）。少しおくれて、だんだん深くなる
+  function vibCurve(rate, depth, len) {
+    const n = Math.min(400, Math.max(8, Math.ceil(len * 40)));
+    const c = new Float32Array(n);
+    const hz = 5.4;
+    for (let i = 0; i < n; i++) {
+      const tt = (i / (n - 1)) * len;
+      const amt = depth * Math.min(1, tt / 0.45);
+      c[i] = rate * Math.pow(2, (amt * Math.sin(2 * Math.PI * hz * tt)) / 12);
+    }
+    return c;
+  }
+  function playSample(ctx, out, inst, midi, t, dur, vel, leg) {
     const f = SAMPLE_FILE[inst] || inst;
     const set = sets[f];
     const best = nearest(set.notes, midi);
@@ -403,15 +424,22 @@ const Sound = (() => {
     }
     const g = ctx.createGain();
     const peak = vel * 0.9 * (GAIN_REAL[inst] || 1);
-    g.gain.setValueAtTime(peak, t);
+    const fl = FEEL[inst];
+    // スラーの中の音（のばす楽器）は、出だしをやわらかく
+    if (leg && sustain) { g.gain.setValueAtTime(peak * 0.35, t); g.gain.linearRampToValueAtTime(peak, t + 0.045); } else g.gain.setValueAtTime(peak, t);
     const end = t + Math.max(dur, 0.04);
-    const rel = sustain ? 0.06 : 0.25;
-    g.gain.setTargetAtTime(0, end, rel);
+    // 消え方：rel 秒くらいで聞こえなくなる（音が鳴っている時間は前とほぼ同じなので、重くならない）
+    const ring = fl ? fl[0] : RING[inst];
+    const tau = ring ? ring / 2.5 : sustain ? 0.06 : 0.25;
+    g.gain.setTargetAtTime(0, end, tau);
+    // 長くのばす音には、少しおくれてビブラート（弦・フルート・歌など）
+    const vd = fl ? fl[1] : 0;
+    if (vd && dur > 0.5 && Samples.vib !== false) { try { const len = Math.min(dur - 0.22, 12); s.playbackRate.setValueCurveAtTime(vibCurve(rate, vd, len), t + 0.22, len); } catch (e) { /* ゆらさない */ } }
     s.connect(g);
     g.connect(out);
     s.start(t);
     // 余韻は rel の4倍（-35dB）まで。それより先は聞こえないので止める
-    const stopAt = s.loop ? end + rel * 5 : Math.min(t + len, end + rel * 4);
+    const stopAt = ring ? (s.loop ? end + ring * 1.6 : Math.min(t + len, end + ring * 1.6)) : s.loop ? end + tau * 5 : Math.min(t + len, end + tau * 4);
     s.stop(stopAt);
     // 鳴り終わったら音量の部品もはずす（つないだままだと、ずっと計算し続けて重くなる）
     s.onended = () => { try { g.disconnect(); } catch (e) { /* もうはずれている */ } };
@@ -423,8 +451,8 @@ const Sound = (() => {
   const INST_CAT = {};
   for (const c of CATS) for (const [id, name, gm] of c.list) { INSTRUMENTS[id] = name; GM[id] = gm; INST_CAT[id] = c.id; }
 
-  function playNote(ctx, out, inst, midi, t, dur, vel = 0.8, real = false) {
-    if (real && sets[SAMPLE_FILE[inst] || inst]) return playSample(ctx, out, inst, midi, t, dur, vel);
+  function playNote(ctx, out, inst, midi, t, dur, vel = 0.8, real = false, leg = false) {
+    if (real && sets[SAMPLE_FILE[inst] || inst]) return playSample(ctx, out, inst, midi, t, dur, vel, leg);
     vel *= GAIN_SYN[inst] || 1;
     inst = SYNTH_FALLBACK[inst] || inst;
     if (KS[inst]) return playPluck(ctx, out, inst, midi, t, dur, vel);
@@ -715,11 +743,32 @@ const Sound = (() => {
     let m = revCache.get(ctx);
     if (!m) { m = {}; revCache.set(ctx, m); }
     if (m[seconds]) { const cv = ctx.createConvolver(); cv.buffer = m[seconds]; return cv; }
-    const len = Math.floor(ctx.sampleRate * seconds);
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    // ホールの響き：はじめに壁からの反射がいくつか、そのあと高い音から先に消えていく残響（左右で少しちがう）
+    // 長さは前と同じなので、計算の重さは変わらない
+    const sr = ctx.sampleRate;
+    const len = Math.floor(sr * seconds);
+    const buf = ctx.createBuffer(2, len, sr);
+    const pre = Math.floor(sr * 0.012);
+    const decay = 6.9 / seconds; // seconds でおよそ -60dB
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x3fffffff - 1; };
+    let target = 0;
+    for (let i = 0; i < len; i++) target += Math.pow(1 - i / len, 6) / 3; // 前の響きと同じくらいの大きさにする
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+      let y = 0;
+      for (let i = pre; i < len; i++) {
+        const tt = (i - pre) / sr;
+        const a = 0.85 - 0.75 * Math.min(1, tt / seconds); // 高い音は早く消える
+        y += a * (rnd() - y);
+        d[i] = y * Math.exp(-decay * tt) * Math.min(1, tt / 0.02 + 0.3);
+      }
+      // 壁からの反射（左右でちがう時間）
+      for (let k = 0; k < 7; k++) { const at = pre + Math.floor(sr * (0.006 + 0.009 * k + 0.004 * ((k * 7 + ch * 3) % 5))); if (at < len) d[at] += (ch ? -1 : 1) * (k % 2 ? -1 : 1) * 0.55 * Math.pow(0.78, k); }
+      let e = 0;
+      for (let i = 0; i < len; i++) e += d[i] * d[i];
+      const k2 = Math.sqrt(target / Math.max(1e-9, e));
+      for (let i = 0; i < len; i++) d[i] *= k2;
     }
     m[seconds] = buf;
     const cv = ctx.createConvolver();

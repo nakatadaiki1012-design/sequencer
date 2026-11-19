@@ -1565,3 +1565,12 @@ body:not(.phone) .topbar .transport, body:not(.phone) .topbar .menu { flex-wrap:
 
 /* 大きな曲の楽譜：前・次のページ */
 .scwin { position: sticky; top: 0; left: 0; z-index: 3; display: flex; gap: 10px; align-items: center; justify-content: center; padding: 4px 8px; background: var(--panel, #fff); border-bottom: 1px solid var(--line, #ddd); font-size: 13px; }
+
+/* 再生中の現在地：経過時間／曲の長さ と、すすみぐあいの線（再生中は調・拍子・テンポのかわりに出す） */
+.minitime { display: none; font-variant-numeric: tabular-nums; }
+body.playing .minitime { display: inline; }
+body.playing #miniKey, body.playing #miniMeter, body.playing #miniBpm { display: none; }
+.miniprog { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--accent2, #ffd43b); transform-origin: left center; transform: scaleX(0); opacity: 0; pointer-events: none; }
+body.playing .miniprog { opacity: .9; }
+body.phone.playing .beatdots { display: none; }
+body.phone .minitime { font-size: 10.5px; }
