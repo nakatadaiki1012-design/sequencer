@@ -315,7 +315,14 @@ const redoStack = [];
 const beatOfMeter = (m) => (m[1] === 8 && m[0] % 3 === 0 && m[0] > 3 ? 72 : 192 / m[1]);
 // 小節の表：小節ごとの「始まり」「拍子」「調」。曲の途中で拍子や調を変えられます
 let geoCache = { key: '' };
+let geoHold = null; // 重い計算のあいだは、小節の表を作りなおさない（曲は変わらないので）
+function holdGeo(fn) {
+  if (geoHold) return fn();
+  geoHold = geo();
+  try { return fn(); } finally { geoHold = null; }
+}
 function geo() {
+  if (geoHold) return geoHold;
   const key = song.bars + '|' + song.meter + '|' + JSON.stringify(song.meters || {}) + '|' + song.key + song.scale + JSON.stringify(song.keys || {});
   if (geoCache.key === key) return geoCache;
   const starts = [0];
@@ -680,6 +687,17 @@ function changed(full = false) {
   autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); saveState('saved'); } catch (e) { saveState('error'); warnSaveFailed(); } }, 500);
   if (ui.showScore) { clearTimeout(scoreTimer); scoreTimer = setTimeout(renderScorePanel, 250); }
   if (ui.view === 'score') renderScoreEdit();
+  warmEvents();
+}
+// 大きな曲：手があいているときに、鳴らす音の表を先に作っておく（▶ をおしてすぐ鳴るように）
+let warmTimer = 0;
+function warmEvents() {
+  clearTimeout(warmTimer);
+  if (song.tracks.reduce((a, t) => a + (t.notes ? t.notes.length : 0), 0) < 3000) return;
+  warmTimer = setTimeout(() => {
+    const go = () => { if (!player.on) eventList(); };
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 3000 }); else go();
+  }, 800);
 }
 
 /* ============================================================
@@ -979,6 +997,9 @@ function eventList() {
   const key = orderCache.key + ':' + version;
   playOrder();
   if (evCache.v === key) return evCache.list;
+  return holdGeo(() => eventListBuild(key));
+}
+function eventListBuild(key) {
   const total = totalTicks();
   const bySrc = Array.from({ length: song.bars }, () => []);
   const put = (t, e) => { if (t < 0 || t >= total) return; const b = barOf(t); bySrc[b].push({ ...e, rt: t - barStart(b) }); };
@@ -1413,7 +1434,8 @@ function play() {
   requestAnimationFrame(anim);
 }
 const timeOf = (t) => player.seg.time + absSec(t) - absSec(player.seg.tick);
-function tick() {
+function tick() { if (player.on) holdGeo(tickBody); }
+function tickBody() {
   const ctx = actx;
   if (!player.on) return;
   if (player.stopping) { if (ctx.currentTime > player.stopAt) stop(); return; }
@@ -1582,6 +1604,10 @@ function playheadTick() {
 }
 function anim() {
   if (!player.on) return;
+  holdGeo(animBody);
+  requestAnimationFrame(anim);
+}
+function animBody() {
   const pos = playheadTick();
   if (pos != null && ui.follow) {
     const sc = $('#scroller');
@@ -1594,7 +1620,6 @@ function anim() {
   drawViz();
   if (document.body.classList.contains('present')) karaoke(pos);
   if (ui.view === 'score') highlightScore(pos);
-  requestAnimationFrame(anim);
 }
 function liveVolume(tr) {
   if (player.graph && player.graph.outs[tr.id]) player.graph.outs[tr.id].gain.setTargetAtTime(tr.vol, actx.currentTime, 0.02);

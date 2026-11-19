@@ -167,12 +167,15 @@ const MuseScoreExport = (() => {
             if (ev.rest) x.push(`<Rest>${dur}</Rest>`);
             else {
               const A = ev.first ? ev.art || [] : [];
+              // MuseScore は 8va の中の音を「書いた高さ」でしまう（鳴らすときに 8va の分を足す）
+              const oq = p.perc ? null : (p.ottava || []).find((o) => ev.abs >= o.s && ev.abs < o.e);
+              const oSh = oq ? 12 * oq.k : 0;
               if (A.includes('ferm')) x.push('<Fermata><subtype>fermataAbove</subtype></Fermata>');
               // 装飾音符
               if (ev.first && ev.gr != null && !p.perc) {
                 const gl = Array.isArray(ev.gr) ? ev.gr : [ev.gr];
                 const kind = gl.length === 1 ? (ev.grl ? 'appoggiatura' : 'acciaccatura') : 'grace16';
-                for (const gp of gl) { const gs = N.spell(gp, kcOf(b)); x.push(`<Chord><${kind}/><durationType>${gl.length > 1 ? '16th' : 'eighth'}</durationType><Note><pitch>${gp}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
+                for (const gp of gl) { const gs = N.spell(gp, kcOf(b)); x.push(`<Chord><${kind}/><durationType>${gl.length > 1 ? '16th' : 'eighth'}</durationType><Note><pitch>${gp - oSh}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
               }
               x.push('<Chord>');
               x.push(dur);
@@ -183,7 +186,7 @@ const MuseScoreExport = (() => {
               if (A.includes('trem2')) x.push(`<Tremolo><subtype>c${TRS[ev.trs] || '32'}</subtype></Tremolo>`);
               if (A.includes('arp') && ev.pitches.length > 1) x.push('<Arpeggio><subtype>0</subtype></Arpeggio>');
               ev.pitches.forEach((m, k) => {
-                const pitch = m;
+                const pitch = m - oSh;
                 x.push('<Note>');
                 if (ev.tieEnd && ev._prevAbs != null) x.push(`<Spanner type="Tie"><prev>${loc(at, ev._prevAbs)}</prev></Spanner>`);
                 if (k === ev.pitches.length - 1 && ev.first && A.includes('gliss') && ev._nextNote != null) x.push(`<Spanner type="Glissando"><Glissando><subtype>0</subtype></Glissando><next>${loc(at, ev._nextNote)}</next></Spanner>`);

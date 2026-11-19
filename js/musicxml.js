@@ -24,6 +24,17 @@ const MusicXMLImport = (() => {
     return Number.isFinite(v) ? v : d;
   };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // 小節の本当の長さ（tick）に合う拍子。カデンツァのような「拍子どおりでない小節」も、あとの小節線がずれないように
+  // 書いてある拍子で合えばそれ。合わなければ、ちょうどの長さの拍子（分母32まで）。それも無理なら少しだけ長くする（うしろに短い休み）
+  function fitMeter(len, ts) {
+    const n0 = Math.round(ts[0]);
+    const d0 = Math.round(ts[1]);
+    if ([2, 4, 8, 16, 32].includes(d0) && n0 >= 1 && n0 <= 32 && Math.abs((n0 * 192) / d0 - len) <= 1) return [n0, d0];
+    const t = Math.max(6, Math.round(len));
+    for (const d of [4, 8, 16, 32]) { const n = (t * d) / 192; if (Number.isInteger(n) && n >= 1 && n <= 32) return [n, d]; }
+    for (const d of [32, 16, 8, 4, 2]) { const n = Math.ceil((t * d) / 192); if (n <= 32) return [Math.max(1, n), d]; }
+    return [32, 2];
+  }
   const fail = (msg) => { throw new Error(msg); };
 
   const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -174,6 +185,7 @@ const MusicXMLImport = (() => {
     let beatType = 4;
     const info = { perc: false, key: null, time: null, hasPitched: false, hasUnpitched: false };
     const measures = [];
+    let tpNow = 0; // いまの移調（書いた音＋tpNow＝鳴る音）
     for (const m of kids(partEl, 'measure')) {
       const M = { items: [], len: 0, implicit: m.getAttribute('implicit') === 'yes', declared: 0, barlines: [] };
       let cur = 0; // 小節の中の位置（tick）
@@ -187,6 +199,13 @@ const MusicXMLImport = (() => {
         if (tag === 'attributes') {
           const dv = num(txt(el, 'divisions'), 0);
           if (dv > 0) divisions = dv;
+          // 移調楽器（MusicXML は「書いた音＋chromatic（＋オクターブ）＝鳴る音」）。調号より先に読む（調号も書いた調なので、鳴る調になおす）
+          const tp = kid(el, 'transpose');
+          if (tp) {
+            tpNow = Math.round(num(txt(tp, 'chromatic'), 0)) + 12 * Math.round(num(txt(tp, 'octave-change'), 0));
+            if (info.trans == null) info.trans = -tpNow;
+          }
+          const kfix = (fx) => { if (!tpNow) return fx; let d = (((tpNow * 7) % 12) + 12) % 12; if (d > 6) d -= 12; let r = fx + d; if (r > 7) r -= 12; if (r < -7) r += 12; return r; };
           const tm = kid(el, 'time');
           if (tm && kid(tm, 'beats')) {
             // 「3+2」のような書き方にも対応
@@ -197,8 +216,8 @@ const MusicXMLImport = (() => {
             M.time = [beats, beatType];
           }
           const ky = kid(el, 'key');
-          if (ky && kid(ky, 'fifths') && !info.key) info.key = { fifths: Math.round(num(txt(ky, 'fifths'), 0)), mode: txt(ky, 'mode') };
-          if (ky && kid(ky, 'fifths')) M.key = { fifths: Math.round(num(txt(ky, 'fifths'), 0)), mode: txt(ky, 'mode') };
+          if (ky && kid(ky, 'fifths') && !info.key) info.key = { fifths: kfix(Math.round(num(txt(ky, 'fifths'), 0))), mode: txt(ky, 'mode') };
+          if (ky && kid(ky, 'fifths')) M.key = { fifths: kfix(Math.round(num(txt(ky, 'fifths'), 0))), mode: txt(ky, 'mode') };
           for (const c of kids(el, 'clef')) {
             if (txt(c, 'sign') === 'percussion') info.perc = true;
             // 1段目の音部記号（とちゅうの変化も読む）
@@ -209,10 +228,7 @@ const MusicXMLImport = (() => {
             const cl = sg === 'G' ? (oc === -1 ? 'treble8' : 'treble') : sg === 'F' && (ln === '' || ln === '4') ? 'bass' : sg === 'C' && (ln === '' || ln === '3') ? 'alto' : null;
             if (cl) M.clef = cl;
           }
-          // 移調楽器（MusicXML は「書いた音＋chromatic（＋オクターブ）＝鳴る音」）
           if (kid(el, 'staves')) info.staves = Math.round(num(txt(el, 'staves'), 1));
-          const tp = kid(el, 'transpose');
-          if (tp && info.trans == null) info.trans = -(Math.round(num(txt(tp, 'chromatic'), 0)) + 12 * Math.round(num(txt(tp, 'octave-change'), 0)));
         } else if (tag === 'backup') {
           cur = Math.max(0, cur - toT(txt(el, 'duration')));
         } else if (tag === 'forward') {
@@ -231,7 +247,7 @@ const MusicXMLImport = (() => {
             const gs = STEP[txt(gp, 'step').toUpperCase()];
             // いくつも続く装飾音符は、まとめて次の音に。斜線のないもの（1つだけ）は長前打音
             if (gs != null) {
-              const gpch = (Math.round(num(txt(gp, 'octave'), 4)) + 1) * 12 + gs + Math.round(num(txt(gp, 'alter'), 0));
+              const gpch = (Math.round(num(txt(gp, 'octave'), 4)) + 1) * 12 + gs + Math.round(num(txt(gp, 'alter'), 0)) + tpNow;
               if (!pendingGrace) pendingGrace = { ps: [], long: kid(el, 'grace').getAttribute('slash') !== 'yes' };
               pendingGrace.ps.push(gpch);
               if (kid(el, 'grace').getAttribute('slash') === 'yes') pendingGrace.long = false;
@@ -247,7 +263,7 @@ const MusicXMLImport = (() => {
             info.hasPitched = true;
             const st = STEP[txt(pitchEl, 'step').toUpperCase()];
             if (st == null) continue;
-            n.p = (Math.round(num(txt(pitchEl, 'octave'), 4)) + 1) * 12 + st + Math.round(num(txt(pitchEl, 'alter'), 0));
+            n.p = (Math.round(num(txt(pitchEl, 'octave'), 4)) + 1) * 12 + st + Math.round(num(txt(pitchEl, 'alter'), 0)) + tpNow;
           } else {
             info.hasUnpitched = true;
             n.dstep = txt(unp, 'display-step').toUpperCase();
@@ -485,29 +501,34 @@ const MusicXMLImport = (() => {
     const starts = [];
     const len0 = Math.round(lenOf(0));
     if (nMeas > 1 && len0 > 0 && len0 < barTicks && (implicitOf(0) || len0 < Math.round(declOf(0)) - 1)) pickup = len0;
+    // 小節ごとの拍子は、その小節の本当の長さから決める（とちゅうの拍子の変化・カデンツァ・くり返しで切れた小節も）
+    const meters = {};
     let pos = 0;
-    for (let i = 0; i < nMeas; i++) {
-      if (i === 0 && pickup) {
-        starts.push(barTicks - pickup);
-        pos = barTicks;
-        continue;
+    {
+      let ts = firstTime;
+      let pm = meter;
+      for (let i = 0; i < nMeas; i++) {
+        const tp = parts.find((p) => p.measures[i] && p.measures[i].time);
+        if (tp) ts = tp.measures[i].time;
+        if (i === 0) {
+          starts.push(pickup ? barTicks - pickup : 0);
+          pos = barTicks;
+          continue;
+        }
+        starts.push(pos);
+        const content = lenOf(i);
+        const m = fitMeter(implicitOf(i) && content > 0 ? content : Math.max(content, declOf(i)), ts);
+        if (String(m) !== String(pm)) { meters[i] = m; pm = m; }
+        pos += (m[0] * 192) / m[1];
       }
-      starts.push(pos);
-      const content = lenOf(i);
-      pos += implicitOf(i) && content > 0 ? content : Math.max(content, declOf(i));
     }
     const songEnd = pos;
-    // 曲のとちゅうの拍子・調の変化
-    const fixMeter = (t) => { let d = Math.round(t[1]); if (![2, 4, 8].includes(d)) d = 4; return [clamp(Math.round(t[0]), 1, 12), d]; };
+    // 曲のとちゅうの調の変化
     const keyOf = (k) => { const mi = /minor|aeolian/i.test(k.mode || ''); const f = clamp(k.fifths, -7, 7); return { key: (((f * 7 + (mi ? 9 : 0)) % 12) + 12) % 12, minor: mi }; };
-    const meters = {};
     const keys = {};
     {
-      let pm = meter;
       let pk = { key, minor };
       for (let i = 1; i < nMeas; i++) {
-        const tp = parts.find((p) => p.measures[i] && p.measures[i].time);
-        if (tp) { const m = fixMeter(tp.measures[i].time); if (String(m) !== String(pm)) { meters[i] = m; pm = m; } }
         const kp = parts.find((p) => !p.isPerc && p.measures[i] && p.measures[i].key);
         if (kp) { const k = keyOf(kp.measures[i].key); if (k.key !== pk.key || k.minor !== pk.minor) { keys[i] = k; pk = k; } }
       }
@@ -637,8 +658,13 @@ const MusicXMLImport = (() => {
           const s = absT(i, it.t);
           const e = Math.max(s + 1, absT(i, it.t + it.d));
           let n = null;
-          if (it.tieStop && openTie[it.p]) {
-            const prev = openTie[it.p];
+          // タイは「段・声部・高さ」ごとに。同じ高さの音がほかの声部にあっても切れないように（声部をまたぐタイも、終わりがぴったりならつなぐ）
+          const tk = it.staff + ':' + (it.voice || '1') + ':' + it.p;
+          let ok = tk;
+          if (it.tieStop && !openTie[ok]) ok = Object.keys(openTie).find((k) => k.startsWith(it.staff + ':') && k.endsWith(':' + it.p) && Math.abs(openTie[k].s + openTie[k].l - s) <= 3);
+          if (it.tieStop && ok && openTie[ok]) {
+            const prev = openTie[ok];
+            if (ok !== tk) delete openTie[ok];
             if (Math.abs(prev.s + prev.l - s) <= 3 || prev.s < s) {
               n = prev;
               n.l = Math.max(n.l, e - n.s);
@@ -657,8 +683,8 @@ const MusicXMLImport = (() => {
             if (it.dynAttr > 0 && Math.abs(it.dynAttr - 100) > 5) n.vel = Math.min(1.25, Math.max(0.25, Math.round((it.dynAttr / 100) * 4) / 4)); // 音ごとの強さ
             notes.push(n);
           }
-          if (it.tieStart) openTie[it.p] = n;
-          else delete openTie[it.p];
+          if (it.tieStart) openTie[tk] = n;
+          else delete openTie[tk];
           for (const no of it.slurStop) {
             if (openSlur[no] != null) {
               if (s >= openSlur[no]) slurs.push({ s: openSlur[no], e: s });
@@ -955,10 +981,23 @@ const MusicXMLImport = (() => {
       if (i === 0) meters[0] = sig.slice();
       const nominal = (sig[0] * 4 * D) / sig[1];
       const len = m.getAttribute('len') ? fracVal(m.getAttribute('len')) * 4 * D : nominal;
-      barLen.push({ len, nominal });
+      barLen.push({ len, nominal, sig: sig.slice() });
     });
+    // 小節ごとの拍子は、その小節の本当の長さ（len）から決める（カデンツァ・くり返しで切れた小節も、あとの小節線がずれないように）
+    for (const b in meters) if (+b > 0) delete meters[b];
     const startDiv = [0];
-    for (let i = 0; i < nBars; i++) startDiv.push(startDiv[i] + barLen[i].len);
+    {
+      let pm = meters[0];
+      for (let i = 0; i < nBars; i++) {
+        let step = barLen[i].len;
+        if (i > 0) {
+          const mt = fitMeter(T(barLen[i].len), barLen[i].sig);
+          if (String(mt) !== String(pm)) { meters[i] = mt; pm = mt; }
+          step = (mt[0] * 4 * D) / mt[1];
+        }
+        startDiv.push(startDiv[i] + step);
+      }
+    }
     // 1小節目が短い＝弱起。ソラノートでは、1小節目を「全部の長さ」として、うしろにつめて書く
     const pickupDiv = barLen[0].len < barLen[0].nominal - 1 ? barLen[0].len : 0;
     const shift = pickupDiv ? barLen[0].nominal - pickupDiv : 0;
@@ -1126,9 +1165,14 @@ const MusicXMLImport = (() => {
             if (dt === 'measure' || !dt) dur = kid(el, 'duration') ? fracVal(txt(el, 'duration')) * 4 * D : barLen[mi].len;
             else dur = (DUR_Q[dt] || 1) * D;
             const dots = Math.round(num(txt(el, 'dots'), 0));
-            if (dots > 0 && dt !== 'measure') dur *= 2 - Math.pow(0.5, dots);
-            const tref = txt(el, 'Tuplet');
-            dur *= ratio() * (tref && tup2[tref] ? tup2[tref] : 1);
+            if (dt && dt !== 'measure' && kid(el, 'duration')) {
+              // 本当の長さが書いてある音（2つの音のトレモロは、見た目の半分の長さ）
+              dur = fracVal(txt(el, 'duration')) * 4 * D;
+            } else {
+              if (dots > 0 && dt !== 'measure') dur *= 2 - Math.pow(0.5, dots);
+              const tref = txt(el, 'Tuplet');
+              dur *= ratio() * (tref && tup2[tref] ? tup2[tref] : 1);
+            }
             const isGrace = ['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after', 'grace16after', 'grace32after'].some((g) => kid(el, g));
             const isAppo = !!(kid(el, 'appoggiatura') || kid(el, 'grace4'));
             if (tag === 'Rest') { pos += dur; pendingArt = []; continue; }
@@ -1188,6 +1232,11 @@ const MusicXMLImport = (() => {
                 let note = null;
                 const tiePrev = kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Tie' && kid(sp, 'prev')) || kids(n, 'endSpanner').length > 0;
                 if (tiePrev && openTie[key] && Math.abs(openTie[key].s + openTie[key].l - s) <= 2) { note = openTie[key]; note.l = e - note.s; }
+                else if (tiePrev) {
+                  // ほかの声部からつながってくるタイ
+                  const k2 = Object.keys(openTie).find((q) => q.endsWith(':' + p) && Math.abs(openTie[q].s + openTie[q].l - s) <= 2);
+                  if (k2) { note = openTie[k2]; note.l = e - note.s; delete openTie[k2]; }
+                }
                 if (!note) {
                   note = { s, p, l: Math.max(1, e - s) };
                   if (voice > 0) note.v = 2;
@@ -1223,6 +1272,8 @@ const MusicXMLImport = (() => {
         continue;
       }
       const nStaves = part.staves.length;
+      // MuseScore は 8va の中の音を「書いた高さ」でしまっている → 鳴る高さになおす
+      if (ottava.length) for (const n of notes) { const q = ottava.find((o) => n.s >= o.s && n.s < o.e); if (!q) continue; n.p = clamp(n.p + 12 * q.k, 0, 127); if (n.gr != null) n.gr = Array.isArray(n.gr) ? n.gr.map((g) => clamp(g + 12 * q.k, 0, 127)) : clamp(n.gr + 12 * q.k, 0, 127); }
       const nm = nStaves === 2 ? part.name + (info.idx === 0 ? '（右手）' : '（左手）') : nStaves > 2 ? `${part.name} ${info.idx + 1}` : part.name;
       const inst = guessInst(part.prg != null ? part.prg + 1 : null, part.name);
       const ps = notes.map((n) => n.p);
