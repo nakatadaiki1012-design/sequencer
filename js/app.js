@@ -4652,12 +4652,16 @@ function partClefTrans(t) {
     const hi = t.notes.filter((n) => n.p >= 64).length;
     if (lo >= Math.max(2, t.notes.length * 0.15) && hi >= Math.max(2, t.notes.length * 0.15)) clef = 'grand';
   }
+  const own = (S.trans || {})[t.id] != null; // 自分で決めた移調
   if (S.orch && oi) {
     if (clef === 'auto' && oi[3]) clef = oi[3];
-    if ((S.trans || {})[t.id] == null && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
+    if (!own && oi[2]) trans = S.concert && Math.abs(oi[2]) % 12 ? 0 : oi[2];
   }
-  // 読みこんだ楽譜の移調（in A のクラリネットなど）は、楽器の決まりより先
-  if (S.orch && (S.trans || {})[t.id] == null && Number.isInteger(t.trans)) trans = S.concert && Math.abs(t.trans) % 12 ? 0 : t.trans;
+  // 移調楽器（クラリネット・サックス・ホルン・トランペット）は、フルスコアの書き方でなくても、その楽器の調で書く
+  // （オクターブだけちがう楽器＝ピッコロ・コントラバスなどは、フルスコアの書き方のときだけ）
+  if (!S.orch && oi && !own && oi[2] && Math.abs(oi[2]) % 12 && !S.concert) trans = oi[2];
+  // 読みこんだ楽譜の移調（in A のクラリネットなど）は、楽器の決まりより先。パートの数にかかわらず
+  if (!own && Number.isInteger(t.trans) && t.trans && (S.orch || Math.abs(t.trans) % 12)) trans = S.concert && Math.abs(t.trans) % 12 ? 0 : t.trans;
   return { clef, trans };
 }
 function scoreOpts(trackIds, withDrums) {
@@ -4829,7 +4833,7 @@ function openScore() {
     <label>コード伴奏の書き方 <select data-s="accompStyle"><option value="grand">ピアノの楽譜（大譜表）</option><option value="slash">スラッシュ（コードネームと拍の ／）</option></select></label>
     <label class="chk" title="木管・金管・打楽器・弦の順にならべて、仲間ごとにかっこでくくります。クラリネット（in B♭）・ホルン（in F）などは移調して、ビオラはハ音記号で書きます"><input type="checkbox" data-c="orch" ${S.orch ? 'checked' : ''}> オーケストラ・吹奏楽の書き方（フルスコア）</label>
     <label class="chk" title="2段目からは、その段でずっと休んでいるパートの五線を書きません（ページがへります）"><input type="checkbox" data-c="hideEmpty" ${S.hideEmpty !== false ? 'checked' : ''} ${S.orch ? '' : 'disabled'}> 休んでいるパートの段をかくす</label>
-    <label class="chk" title="移調楽器も、じっさいに鳴る音の高さで書きます（指揮者・作曲の確認用）"><input type="checkbox" data-c="concert" ${S.concert ? 'checked' : ''} ${S.orch ? '' : 'disabled'}> 実音で書く（コンサートピッチ）</label>
+    <label class="chk" title="移調楽器も、じっさいに鳴る音の高さで書きます（指揮者・作曲の確認用）"><input type="checkbox" data-c="concert" ${S.concert ? 'checked' : ''}> 実音で書く（コンサートピッチ）</label>
     <h4>プリント（学習用）</h4>
     <label class="chk"><input type="checkbox" data-c="nameLine" ${S.nameLine ? 'checked' : ''}> 名前を書くらん（年・組・番・名前）</label>
     <label class="srow">穴うめにする小節 <input type="text" data-k="blank" value="${escapeHtml(S.blank || '')}" placeholder="れい：3,5-6" inputmode="numeric" style="width:9em"></label>
@@ -4870,7 +4874,7 @@ function openScore() {
     el.onchange = () => { autosaveSoon(); if (ui.showScore) renderScorePanel(); if (ui.view === 'score') renderScoreEdit(); };
   });
   side.querySelector('[data-c="hideEmpty"]').onchange = (e) => { S.hideEmpty = e.target.checked; upd(); autosaveSoon(); };
-  side.querySelector('[data-c="orch"]').onchange = (e) => { S.orch = e.target.checked; side.querySelector('[data-c="concert"]').disabled = !S.orch; side.querySelector('[data-c="hideEmpty"]').disabled = !S.orch; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); };
+  side.querySelector('[data-c="orch"]').onchange = (e) => { S.orch = e.target.checked; side.querySelector('[data-c="hideEmpty"]').disabled = !S.orch; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); };
   side.querySelector('[data-c="concert"]').onchange = (e) => { S.concert = e.target.checked; upd(); autosaveSoon(); if (ui.view === 'score') renderScoreEdit(); };
   side.querySelector('[data-c="nameLine"]').onchange = (e) => { S.nameLine = e.target.checked; upd(); autosaveSoon(); };
   side.querySelector('[data-k="blank"]').onchange = (e) => { S.blank = e.target.value.replace(/[^0-9,\-－、 ]/g, '').slice(0, 60); upd(); autosaveSoon(); };
