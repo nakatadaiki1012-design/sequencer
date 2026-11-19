@@ -334,6 +334,7 @@ const Sound = (() => {
       return drumBufs;
     },
     setBase(b) { base = b; indexP = null; },
+    setVoiceLimit(n) { voiceLimit = Math.max(16, n | 0); },
   };
   async function drumScript() {
     await loadScript('drums');
@@ -357,6 +358,27 @@ const Sound = (() => {
     return s.notes[k];
   }
 
+  // 同時に鳴らす録音の数の上限（こえたら、終わりかけの余韻から静かに消す。スマホでも音がとぎれないように）
+  let voiceLimit = 64;
+  function addVoice(ctx, v) {
+    const L = ctx._voices || (ctx._voices = []);
+    let w = 0;
+    for (const x of L) if (x.stopAt > v.t) L[w++] = x;
+    L.length = w;
+    // v.t の時に鳴っている音だけを数える（トリルなどは先の時間の音もまとめて予約するので）
+    let n = 0;
+    for (const x of L) if (x.t <= v.t) n++;
+    while (n >= voiceLimit) {
+      // 余韻だけになっている音（いちばん早く終わったもの）→ なければ、いちばん古い音
+      let bi = -1;
+      for (let i = 0; i < L.length; i++) { const x = L[i]; if (x.t > v.t) continue; if (bi < 0) { bi = i; continue; } const b = L[bi]; const xr = x.end <= v.t, br = b.end <= v.t; if (xr !== br ? xr : xr ? x.end < b.end : x.t < b.t) bi = i; }
+      if (bi < 0) break;
+      const x = L.splice(bi, 1)[0];
+      n--;
+      try { x.g.gain.cancelScheduledValues(v.t); x.g.gain.setTargetAtTime(0, v.t, 0.012); x.s.stop(v.t + 0.07); } catch (e) { /* もう止まっている */ }
+    }
+    L.push(v);
+  }
   function playSample(ctx, out, inst, midi, t, dur, vel) {
     const f = SAMPLE_FILE[inst] || inst;
     const set = sets[f];
@@ -388,7 +410,12 @@ const Sound = (() => {
     s.connect(g);
     g.connect(out);
     s.start(t);
-    s.stop(s.loop ? end + rel * 6 : Math.min(t + len, end + rel * 6));
+    // 余韻は rel の4倍（-35dB）まで。それより先は聞こえないので止める
+    const stopAt = s.loop ? end + rel * 5 : Math.min(t + len, end + rel * 4);
+    s.stop(stopAt);
+    // 鳴り終わったら音量の部品もはずす（つないだままだと、ずっと計算し続けて重くなる）
+    s.onended = () => { try { g.disconnect(); } catch (e) { /* もうはずれている */ } };
+    addVoice(ctx, { s, g, t, end, stopAt });
   }
 
   const INSTRUMENTS = {};

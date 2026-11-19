@@ -705,9 +705,16 @@ function warmEvents() {
    ============================================================ */
 let actx = null;
 let previewOut = null;
+// スマホ・タブレット（力の弱い機械）：同時に鳴らす音を少なめに、音の予約を多めに、音の出口を少し大きく（とぎれないように）
+// 響きの長さ（スマホでは短くして計算を軽く）
+let REV_LEN = 2.2;
+let FXREV_LEN = 3.5;
+const LOW_POWER = (() => { try { return matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)); } catch (e) { return false; } })();
+if (LOW_POWER) { Sound.Samples.setVoiceLimit(32); REV_LEN = 1.4; FXREV_LEN = 2; }
 function ensureAudio() {
   if (!actx) {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    try { actx = LOW_POWER ? new AC({ latencyHint: 'balanced' }) : new AC(); } catch (e) { actx = new AC(); }
     const comp = actx.createDynamicsCompressor();
     const an = actx.createAnalyser();
     an.fftSize = 256;
@@ -719,7 +726,7 @@ function ensureAudio() {
     previewOut.gain.value = 0.8;
     previewOut.connect(comp);
     actx._comp = comp;
-    setTimeout(() => { Sound.makeReverb(actx, 2.2); Sound.makeReverb(actx, 3.5); }, 0);
+    setTimeout(() => { Sound.makeReverb(actx, REV_LEN); Sound.makeReverb(actx, FXREV_LEN); }, 0);
   }
   if (actx.state === 'suspended') actx.resume();
   return actx;
@@ -753,19 +760,19 @@ function buildGraph(ctx, dest, live) {
       const dIn = ctx.createGain(); dIn.gain.value = 0;
       const dl = ctx.createDelay(2); dl.delayTime.value = 0.3;
       const dFb = ctx.createGain(); dFb.gain.value = 0.4;
-      crush.connect(dIn); dIn.connect(dl); dl.connect(dFb); dFb.connect(dl); dl.connect(out);
+      dIn.connect(dl); dl.connect(dFb); dFb.connect(dl); dl.connect(out);
       const stIn = ctx.createGain(); stIn.gain.value = 1;
       const st = ctx.createDelay(2); st.delayTime.value = 0.2;
       const stFb = ctx.createGain(); stFb.gain.value = 0;
       const stOut = ctx.createGain(); stOut.gain.value = 0;
       crush.connect(stIn); stIn.connect(st); st.connect(stFb); stFb.connect(st); st.connect(stOut); stOut.connect(out);
-      const fxRev = Sound.makeReverb(ctx, 3.5);
+      const fxRev = Sound.makeReverb(ctx, FXREV_LEN);
       const fxRevIn = ctx.createGain(); fxRevIn.gain.value = 0;
-      crush.connect(fxRevIn); fxRevIn.connect(fxRev); fxRev.connect(out);
+      fxRevIn.connect(fxRev); fxRev.connect(out); // crush → fxRevIn は、エフェクトを使うときだけつなぐ（使っていないときも計算されて重いので）
       Object.assign(g, { lp, hp, crush, dry, dIn, dl, dFb, stIn, st, stFb, stOut, fxRevIn });
       ctx._live = g;
     } else eqH.connect(out);
-    const rev = Sound.makeReverb(ctx, 2.2);
+    const rev = Sound.makeReverb(ctx, REV_LEN);
     const wet = ctx.createGain();
     rev.connect(wet); wet.connect(pre);
     g.rev = rev;
@@ -778,7 +785,9 @@ function buildGraph(ctx, dest, live) {
   const session = ctx.createGain();
   session.connect(g.pre);
   const send = ctx.createGain();
-  session.connect(send); send.connect(g.rev);
+  session.connect(send);
+  // 響きが0のときは、響きの計算をしない（とちゅうで上げたらつなぐ）
+  if (song.reverb > 0) send.connect(g.rev);
   const outs = {};
   const pans = {};
   for (const tr of song.tracks) {
@@ -797,7 +806,7 @@ function buildGraph(ctx, dest, live) {
   const metro = ctx.createGain();
   metro.gain.value = song.metro.vol;
   metro.connect(g.out);
-  return Object.assign(Object.create(g), { session, send, outs, pans, metro, base: g });
+  return Object.assign(Object.create(g), { session, send, outs, pans, metro, base: g, _revOn: song.reverb > 0 });
 }
 
 function chordEvents(tr) {
@@ -1036,6 +1045,23 @@ function eventListBuild(key) {
       }
     } else if (tr.type === 'chord') for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
     else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) put(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
+  }
+  // ちがうパートが同じ楽器・同じ高さ・同じときに鳴らす音（オーケストラの重ね）は1つにまとめる（スマホでも音がとぎれないように）
+  // まとめた音は少し大きく。どのパートの音かは alt におぼえておき、消音・ソロのときはそのパートだけで鳴らす
+  for (const arr of bySrc) {
+    if (arr.length < 2) continue;
+    const seen = new Map();
+    let w = 0;
+    for (const e of arr) {
+      if (e.kind === 'note' && e.tr.type === 'melody') {
+        const k = e.tr.inst + '|' + (e.tr.real !== false) + '|' + e.p + '|' + e.rt;
+        const f = seen.get(k);
+        if (f) { (f.alt || (f.alt = [])).push({ tr: e.tr, v: e.v }); f.l = Math.max(f.l, e.l); continue; }
+        seen.set(k, e);
+      }
+      arr[w++] = e;
+    }
+    arr.length = w;
   }
   const list = [];
   const order = playOrder();
@@ -1292,6 +1318,13 @@ async function recordVoice(onState) {
 }
 function scheduleEvent(ctx, graph, e, when, withMetro) {
   if (e.kind === 'metro') { if (withMetro) Sound.click(ctx, graph.metro, when, e.acc, song.metro.kind); return; }
+  if (e.alt) {
+    // まとめた音：鳴らすパートだけで（2つなら1.4倍、3つなら1.7倍…）
+    const on = [{ tr: e.tr, v: e.v }, ...e.alt].filter((x) => audible(x.tr) && (!graph.only || x.tr.id === graph.only));
+    if (!on.length) return;
+    const v = Math.min(1.3, Math.max(...on.map((x) => x.v)) * Math.sqrt(on.length));
+    e = { ...e, tr: on[0].tr, v, alt: null };
+  } else if (graph.only && (!e.tr || e.tr.id !== graph.only)) return;
   if (!audible(e.tr)) return;
   let out = graph.outs[e.tr.id];
   if (!out) {
@@ -1421,7 +1454,8 @@ function play() {
     lead = n * sec + 0.03;
     setTimeout(() => countHud(0), (lead + 0.05) * 1000);
   }
-  player.seg = { tick: start, time: ctx.currentTime + 0.05 + lead };
+  eventList(); // 音の表を先に作ってから、はじめる時間を決める（作っている間に、はじめの音の時間が来てしまわないように）
+  player.seg = { tick: start, time: ctx.currentTime + (LOW_POWER ? 0.2 : 0.05) + lead };
   player.segs = [player.seg];
   player.tt = null;
   player.idx = firstIdx(eventList(), start);
@@ -1435,7 +1469,9 @@ function play() {
 }
 const timeOf = (t) => player.seg.time + absSec(t) - absSec(player.seg.tick);
 function tick() { if (player.on) holdGeo(tickBody); }
-function tickBody() {
+// 重い書きなおしの前に、先の音までまとめて予約しておく（書きなおしている間も音がとぎれないように）
+function scheduleAhead(sec) { if (player.on) holdGeo(() => tickBody(sec)); }
+function tickBody(ahead) {
   const ctx = actx;
   if (!player.on) return;
   if (player.stopping) { if (ctx.currentTime > player.stopAt) stop(); return; }
@@ -1454,7 +1490,9 @@ function tickBody() {
     if (player.segs.length > 4) player.segs.shift();
   }
   player.tt = tt; player.psKey = psKey;
-  const horizon = ctx.currentTime + 0.3;
+  // どれだけ先の音まで予約しておくか。スマホは多め（楽譜の画面は書きなおしで止まることがあるので、さらに多め）
+  const horizon = ctx.currentTime + (ahead || (LOW_POWER ? (ui.view === 'score' ? 1.0 : 0.6) : 0.3));
+  let nSched = 0;
   for (let guard = 0; guard < 8; guard++) {
     const [ls, le] = loopBounds();
     while (player.idx < list.length && list[player.idx].t < le) {
@@ -1462,6 +1500,8 @@ function tickBody() {
       if (e.t < player.seg.tick) { player.idx++; continue; }
       const tm = timeOf(e.t);
       if (tm >= horizon) return;
+      // 一度にたくさん予約すると画面が止まるので、すぐ鳴らす音でなければ次の回に（25ミリ秒ごとに呼ばれる）
+      if (!ahead && ++nSched > 48 && tm > ctx.currentTime + (LOW_POWER ? 0.5 : 0.15)) return;
       scheduleEvent(ctx, player.graph, e, tm, ui.metro);
       player.lastT = e.t;
       player.idx++;
@@ -1607,15 +1647,23 @@ function anim() {
   holdGeo(animBody);
   requestAnimationFrame(anim);
 }
+let animLast = 0;
+const animVis = { t: 0, grid: true, ov: true };
 function animBody() {
+  // スマホ・タブレットでは、画面の書きかえは1秒に30回まで（音の計算に力をのこす）
+  const now = performance.now();
+  if (LOW_POWER && now - animLast < 30) return;
+  animLast = now;
+  // 見えていないもの（楽譜の画面のときのマス目など）は書かない。見えているかは0.5秒ごとに調べる
+  if (now - animVis.t > 500) { animVis.t = now; animVis.grid = cv.clientWidth > 0 && cv.offsetParent !== null; animVis.ov = ov.offsetParent !== null; }
   const pos = playheadTick();
   if (pos != null && ui.follow) {
     const sc = $('#scroller');
     const x = LW + pos * ppt();
     if (x - sc.scrollLeft > sc.clientWidth - 40 || x - sc.scrollLeft < LW) sc.scrollLeft = Math.max(0, x - LW - 20);
   }
-  draw(pos);
-  drawOverview(pos);
+  if (animVis.grid) draw(pos);
+  if (animVis.ov) drawOverview(pos);
   updateMini(pos);
   drawViz();
   if (document.body.classList.contains('present')) karaoke(pos);
@@ -1665,10 +1713,20 @@ function preloadSamples() {
   for (const [key, fn] of jobs) {
     if (loadingNow.has(key)) continue;
     loadingNow.add(key);
-    loadQueue = loadQueue.then(fn).then(() => { loadingNow.delete(key); renderTracks(); }).catch(() => { loadingNow.delete(key); toast('録音の読み込みに失敗したので、電子音で鳴らします'); });
+    loadQueue = loadQueue.then(fn).then(() => { loadingNow.delete(key); renderTracksSoon(); }).catch(() => { loadingNow.delete(key); toast('録音の読み込みに失敗したので、電子音で鳴らします'); });
   }
 }
 let loadQueue = Promise.resolve();
+// 録音が読めるたびに一覧を書きなおすと重いので、まとめて1回（再生中は、止まったあとか、2秒おきに）
+let rtTimer = 0;
+function renderTracksSoon() {
+  if (rtTimer) return;
+  rtTimer = setTimeout(() => {
+    rtTimer = 0;
+    const go = () => renderTracks();
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 2000 }); else go();
+  }, player.on ? 2000 : 300);
+}
 
 /* ============================================================
    エディタ（オトグラフ）の描画
@@ -3849,7 +3907,8 @@ function renderSettings() {
   updateMini();
 }
 
-function renderTracks() {
+function renderTracks() { holdGeo(renderTracksNow); }
+function renderTracksNow() {
   const list = $('#trackList');
   list.innerHTML = '';
   song.tracks.forEach((tr, i) => {
@@ -4347,7 +4406,7 @@ function openPalette() {
     if (player.graph) { player.graph.eqL.gain.value = song.eq.low; player.graph.eqM.gain.value = song.eq.mid; player.graph.eqH.gain.value = song.eq.high; }
   }));
   $('#eqReset').onclick = () => { song.eq = { low: 0, mid: 0, high: 0 }; if (player.graph) { player.graph.eqL.gain.value = 0; player.graph.eqM.gain.value = 0; player.graph.eqH.gain.value = 0; } openPalette(); };
-  $('#mRev').oninput = (e) => { song.reverb = +e.target.value; if (player.graph) player.graph.wet.gain.value = song.reverb * 0.6; };
+  $('#mRev').oninput = (e) => { song.reverb = +e.target.value; const pg = player.graph; if (pg) { pg.wet.gain.value = song.reverb * 0.6; if (song.reverb > 0 && !pg._revOn) { pg.send.connect(pg.rev); pg._revOn = true; } } };
   $('#mKind').onchange = (e) => { song.metro.kind = e.target.value; const ctx = ensureAudio(); Sound.click(ctx, previewOut, ctx.currentTime + 0.01, true, song.metro.kind); };
   $('#mVol').oninput = (e) => { song.metro.vol = +e.target.value; if (player.graph) player.graph.metro.gain.value = song.metro.vol; };
   $('#fxPlay').onclick = () => { player.on ? stop() : play(); $('#fxPlay').textContent = player.on ? '止める' : '再生してためす'; };
@@ -4367,9 +4426,24 @@ function openPalette() {
   pad.onpointerup = pad.onpointercancel = () => { if (!active) return; active = false; pad.classList.remove('on'); fxApply(fxKind, 0, 0, false); };
   if (!$('#dlgPal').open) $('#dlgPal').showModal();
 }
+// ディレイ・リバーブのエフェクトは、使うときだけつなぐ（使っていないときはつながず、計算させない）
+function fxLink(B, which, on) {
+  const L = B._fxL || (B._fxL = {});
+  if (!!L[which] === on) return;
+  L[which] = on;
+  const dst = which === 'delay' ? B.dIn : B.fxRevIn;
+  try { if (on) B.crush.connect(dst); else B.crush.disconnect(dst); } catch (e) { /* もうはずれている */ }
+}
 function fxApply(kind, x, y, on, gph) {
   const g = gph || player.graph;
   if (!g) return;
+  const B = g.base || g;
+  if (B.crush) {
+    clearTimeout(B._fxOff);
+    if (on && (kind === 'delay' || kind === 'reverb')) fxLink(B, kind, true);
+    // はなしたら、こだま・響きが消えるのを待ってからはずす
+    if (!on) B._fxOff = setTimeout(() => { fxLink(B, 'delay', false); fxLink(B, 'reverb', false); }, 6000);
+  }
   const now = actx.currentTime;
   const tc = 0.02;
   if (!on) {
@@ -5099,8 +5173,10 @@ function scoreWinMove(dir) {
   box.scrollTop = 0;
 }
 function highlightScore(pos) {
-  for (const it of scoreElems) {
-    const on = pos != null && it.s <= pos && pos < it.e;
+  // 鳴っている音符に色をつける。音符がとても多いとき（スマホでは少し多いとき）は、たての線だけにする（色をかえると楽譜の書きなおしが重い）
+  const paint = pos == null || scoreElems.length <= (LOW_POWER ? 400 : 3000);
+  if (paint || scoreElems.some((it) => it.on)) for (const it of scoreElems) {
+    const on = paint && pos != null && it.s <= pos && pos < it.e;
     if (on !== !!it.on) { it.on = on; it.el.classList.toggle('playing', on); }
   }
   // 再生の位置に、たての線（MuseScore の再生カーソル）。段ごとに見えるようにスクロール
@@ -5116,6 +5192,7 @@ function highlightScore(pos) {
     ui.sc.win = Math.floor(b / win) * win;
     const keep = ui.sc.cursor;
     ui.sc.cursor = barStart(ui.sc.win);
+    scheduleAhead(1.5);
     renderScoreEditNow();
     ui.sc.cursor = keep;
     ui.sc.lastShown = keep;
@@ -5132,21 +5209,24 @@ function highlightScore(pos) {
   let x = B.xs[0];
   for (let i = 0; i < B.ticks.length - 1; i++) if (rel >= B.ticks[i]) x = B.xs[i] + ((Math.min(rel, B.ticks[i + 1]) - B.ticks[i]) / (B.ticks[i + 1] - B.ticks[i] || 1)) * (B.xs[i + 1] - B.xs[i]);
   if (!cur) { box.insertAdjacentHTML('beforeend', '<div id="playCur" aria-hidden="true"></div>'); cur = $('#playCur'); }
-  const sr = svg.getBoundingClientRect();
-  const br = box.getBoundingClientRect();
-  const k = sr.width / L.width;
-  const ox = sr.left - br.left + box.scrollLeft; // 楽譜（svg）の左上の、箱の中での位置
-  const oy = sr.top - br.top + box.scrollTop;
-  const tops = sys.staves.map((st) => st.top);
-  const y0 = Math.min(...tops) - 10;
-  const y1 = Math.max(...tops) + 4 * 8 + 10;
+  // 楽譜（svg）の左上の、箱の中での位置。スクロールしても変わらないので、書きなおしたときと大きさが変わったときだけ測る（毎回測ると重い）
+  let G = L._curGeo;
+  if (!G || G.w !== box.clientWidth || G.svg !== svg) {
+    const sr = svg.getBoundingClientRect();
+    const br = box.getBoundingClientRect();
+    G = L._curGeo = { w: box.clientWidth, svg, k: sr.width / L.width, ox: sr.left - br.left + box.scrollLeft, oy: sr.top - br.top + box.scrollTop };
+  }
+  const { k, ox, oy } = G;
+  if (!sys._y) { const tops = sys.staves.map((st) => st.top); sys._y = [Math.min(...tops) - 10, Math.max(...tops) + 4 * 8 + 10]; }
+  const [y0, y1] = sys._y;
   cur.hidden = false;
-  cur.style.left = ox + x * k - 2 + 'px';
-  cur.style.top = oy + y0 * k + 'px';
-  cur.style.height = (y1 - y0) * k + 'px';
+  // 線は transform で動かす（楽譜を描きなおさずにすむ）
+  const h = Math.round((y1 - y0) * k);
+  if (cur._h !== h) { cur._h = h; cur.style.height = h + 'px'; }
+  cur.style.transform = `translate(${(ox + x * k - 2).toFixed(1)}px,${(oy + y0 * k).toFixed(1)}px)`;
   const top = oy + sys.y0 * k;
   const bot = oy + sys.y1 * k;
-  if (top < box.scrollTop || bot > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, top - 8);
+  if (top < box.scrollTop || bot > box.scrollTop + box.clientHeight) { scheduleAhead(LOW_POWER ? 1.5 : 0.8); box.scrollTop = Math.max(0, top - 8); }
 }
 
 // ---- 入力・編集の操作 ----
@@ -8150,9 +8230,9 @@ async function renderSong(onProg, opts = {}) {
   const comp = ctx.createDynamicsCompressor();
   comp.connect(ctx.destination);
   const graph = buildGraph(ctx, comp, false);
+  if (opts.only) graph.only = opts.only;
   for (const e of eventList()) {
     if (e.t < ra || e.t >= rz) continue;
-    if (opts.only && (!e.tr || e.tr.id !== opts.only)) continue;
     scheduleEvent(ctx, graph, e, 0.05 + absSec(e.t) - off, false);
   }
   return finishRender(ctx, len, sr, onProg);
