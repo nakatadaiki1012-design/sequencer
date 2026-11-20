@@ -273,6 +273,7 @@ const MusicXMLImport = (() => {
           const ins = kid(el, 'instrument');
           if (ins) n.inst = ins.getAttribute('id');
           // 符頭の形（ひし形＝ハーモニクス・×）
+          { const cl = (el.getAttribute('color') || '').toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, '#'); const ck = { '#e03131': 'red', '#1971c2': 'blue', '#2f9e44': 'green', '#e8590c': 'orange', '#7048e8': 'purple' }[cl]; if (ck) n.col = ck; }
           if (pitchEl) { const nhd = txt(el, 'notehead'); if (/diamond/.test(nhd)) n.nh = 'diamond'; else if (/^(x|cross)$/.test(nhd)) n.nh = 'x'; }
           n.dynAttr = num(el.getAttribute('dynamics'), 0);
           // タイ
@@ -686,6 +687,7 @@ const MusicXMLImport = (() => {
             if (it.art) n.art = it.art.slice();
             if (it.ly) n.ly = it.ly;
             if (it.ly2) n.ly2 = it.ly2;
+            if (it.col) n.col = it.col;
             if (it.ly3) n.ly3 = it.ly3;
             if (it.fg) n.fg = it.fg;
             if (it.gr != null) n.gr = it.gr;

@@ -249,6 +249,9 @@ function sanitizeSong(s) {
           if (o.art != null) { o.art = Array.isArray(o.art) ? [...new Set(o.art.filter((a) => ART_IDS.has(a)))] : []; if (!o.art.length) delete o.art; }
           if (o.fg != null) { o.fg = String(o.fg).replace(/[^0-5]/g, '').slice(0, 5); if (!o.fg) delete o.fg; }
           if (o.enh != null && o.enh !== 1 && o.enh !== -1) delete o.enh;
+          if (o.sd != null && o.sd !== 1 && o.sd !== -1) delete o.sd;
+          if (o.col != null && !Notation.NOTE_COLS[o.col]) delete o.col;
+          if (o.sm != null && o.sm !== true) delete o.sm;
           for (const k of ['ly2', 'ly3']) if (o[k] != null) { o[k] = String(o[k]).slice(0, 20); if (!o[k]) delete o[k]; }
           if (o.gr != null) {
             const gs = (Array.isArray(o.gr) ? o.gr : [o.gr]).map((x) => Math.round(+x)).filter((g) => Number.isFinite(g) && g >= 21 && g <= 108).slice(0, 8);
@@ -4590,6 +4593,7 @@ function openHistory() {
   box.innerHTML = items.length ? items.join('') + '<div class="histrow now">いまの状態</div>' : '<p class="muted">まだ操作の記録はありません。</p>';
   box.querySelectorAll('.histrow[data-i]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.i;
+    if (!undoStack[i]) return openHistory(); // 一覧が古くなっていたら、書きなおすだけ
     const label = undoStack[i].label;
     while (undoStack.length > i) undo();
     openHistory();
@@ -5788,7 +5792,7 @@ function scClearMarks() {
     tr.dyn = (tr.dyn || []).filter((d) => d.t < r.s || d.t >= r.end);
     tr.hairpins = (tr.hairpins || []).filter((h) => h.e <= r.s || h.s >= r.end);
     tr.slurs = (tr.slurs || []).filter((x) => x.e < r.s || x.s > r.e);
-    for (const n of selNotes(tr)) { for (const k of ['art', 'fg', 'gr', 'grl', 'tra', 'trs', 'nh']) delete n[k]; }
+    for (const n of selNotes(tr)) { for (const k of ['art', 'fg', 'gr', 'grl', 'tra', 'trs', 'nh', 'sd', 'sm', 'col']) delete n[k]; }
     if (tr.texts) { tr.texts = tr.texts.filter((x) => x.t < r.s || x.t >= r.end); if (!tr.texts.length) delete tr.texts; }
     if (tr.instChg) { tr.instChg = tr.instChg.filter((x) => x.t < r.s || x.t >= r.end); if (!tr.instChg.length) delete tr.instChg; }
     if (tr.pedals) { tr.pedals = tr.pedals.filter((x) => x.e <= r.s || x.s >= r.end); if (!tr.pedals.length) delete tr.pedals; }
@@ -5818,7 +5822,7 @@ function palGlyph(name) {
 const PAL_MORE = [
   ['装飾音符', () => `<button class="palb" data-gr="1" title="装飾音符（上のとなりの音から）">${palGlyph('grace')}<i>↑</i></button><button class="palb" data-gr="-1" title="装飾音符（下のとなりの音から）">${palGlyph('grace')}<i>↓</i></button><button class="palb txt" data-gr="addUp" title="装飾音符をもう1つ前に足す（上へ）：2つ以上は16分音符でつながります">＋↑</button><button class="palb txt" data-gr="addDown" title="装飾音符をもう1つ前に足す（下へ）">＋↓</button><button class="palb txt sm" data-gr="long" title="長前打音（斜線なし）：主音符の半分の長さで、はっきり鳴らす／短前打音にもどす">長い</button><button class="palb" data-gr="0" title="装飾音符を消す">✕</button>`],
   ['トリル・トレモロ', () => `<button class="palb txt" data-tra="1" title="トリル（上の音を ♯ に）"><b>tr</b><i>♯</i></button><button class="palb txt" data-tra="-1" title="トリル（上の音を ♭ に）"><b>tr</b><i>♭</i></button><button class="palb txt" data-tra="0" title="トリル（上の音を ♮ に）"><b>tr</b><i>♮</i></button><button class="palb txt" id="palTrl" title="トリルの波線：えらんだ音のはじめから終わりまで「tr～～～」（もう一度で消す）"><b>tr</b>〰</button><button class="palb txt" data-trs="1" title="トレモロ（斜線1本＝8分音符できざむ）">／</button><button class="palb txt" data-trs="2" title="トレモロ（斜線2本＝16分音符できざむ）">／／</button><button class="palb txt" data-trs="3" title="トレモロ（斜線3本＝できるだけ速く）">///</button><button class="palb txt" data-trs="two" title="2つの音のトレモロ：つぎの音と交互にすばやく（2つの音をえらんでおす）">⇄</button>`],
-  ['符頭・奏法', () => `<button class="palb txt" data-nh="diamond" title="ひし形の符頭（ハーモニクスなど）">◇</button><button class="palb txt" data-nh="x" title="×の符頭（語り・打つ音など）">×</button><button class="palb txt" data-nh="" title="ふつうの符頭にもどす">●</button><button class="palb txt" data-art="harm" title="ハーモニクス（○：弦をそっとふれて、高い音）">○</button><button class="palb txt" data-art="open" title="オープン（o：ミュートをはずす・開放弦）">o</button><button class="palb txt" data-art="stop" title="ストップ（＋：ホルンの手でふさぐ音・左手ピチカート）">＋</button><button class="palb txt" data-art="snap" title="スナップ・ピチカート（弦をはじいて指板に当てる）">φ</button>`],
+  ['符頭・奏法', () => `<button class="palb txt" data-nh="diamond" title="ひし形の符頭（ハーモニクスなど）">◇</button><button class="palb txt" data-nh="x" title="×の符頭（語り・打つ音など）">×</button><button class="palb txt" data-nh="" title="ふつうの符頭にもどす">●</button><button class="palb txt" data-look="up" title="ぼうを上向きに（もう一度おすと自動にもどる）">ぼう↑</button><button class="palb txt" data-look="dn" title="ぼうを下向きに（もう一度おすと自動にもどる）">ぼう↓</button><button class="palb txt" data-look="sm" title="小さい音符（キュー・ほかのパートの手がかり）。もう一度おすと、ふつうの大きさ"><i style="position:static;font-style:normal;font-size:10px">小さく</i></button>${Object.entries(Notation.NOTE_COLS).map(([k, c]) => `<button class="palb txt" data-look="col:${k}" title="音符の色（もう一度おすと黒にもどる）"><i style="position:static;display:inline-block;width:12px;height:12px;border-radius:50%;background:${c}"></i></button>`).join('')}<button class="palb txt" data-art="harm" title="ハーモニクス（○：弦をそっとふれて、高い音）">○</button><button class="palb txt" data-art="open" title="オープン（o：ミュートをはずす・開放弦）">o</button><button class="palb txt" data-art="stop" title="ストップ（＋：ホルンの手でふさぐ音・左手ピチカート）">＋</button><button class="palb txt" data-art="snap" title="スナップ・ピチカート（弦をはじいて指板に当てる）">φ</button>`],
   ['指番号', () => `${[1, 2, 3, 4, 5].map((k) => `<button class="palb num" data-fg="${k}" title="指番号 ${k}">${k}</button>`).join('')}<button class="palb" data-fg="0" title="指番号を消す">✕</button>`],
   ['音を重ねる', () => [[3, '3度上'], [4, '4度上'], [5, '5度上'], [6, '6度上'], [8, '8度上'], [-3, '3度下'], [-8, '8度下']].map(([k, t]) => `<button class="palb txt" data-iv="${k}" title="えらんだ音の${t}に音を足す（Alt＋${Math.abs(k)}）">${Math.abs(k)}${k > 0 ? '↑' : '↓'}</button>`).join('')],
   ['オクターブ記号', () => `<button class="palb txt" data-ott="1" title="8va：1オクターブ上で弾く（高い音の加線をへらす）"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:13px">8va</i></button><button class="palb txt" data-ott="-1" title="8vb：1オクターブ下で弾く"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:13px">8vb</i></button><button class="palb txt" data-ott="2" title="15ma：2オクターブ上"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:12px">15ma</i></button><button class="palb" data-ott="0" title="オクターブ記号を消す">✕</button>`],
@@ -5853,6 +5857,7 @@ function scPalette(gridMode = ui.view !== 'score') {
   d.querySelectorAll('[data-tra]').forEach((b) => (b.onclick = () => ornTrill(+b.dataset.tra)));
   d.querySelectorAll('[data-trs]').forEach((b) => (b.onclick = () => ornTrem(b.dataset.trs === 'two' ? 'two' : +b.dataset.trs)));
   d.querySelectorAll('[data-nh]').forEach((b) => (b.onclick = () => ornHead(b.dataset.nh)));
+  d.querySelectorAll('[data-look]').forEach((b) => (b.onclick = () => noteLook(b.dataset.look)));
   { const t = d.querySelector('#palTrl'); if (t) t.onclick = ornTrillLine; }
   d.querySelectorAll('[data-fg]').forEach((b) => (b.onclick = () => scFinger(+b.dataset.fg)));
   d.querySelectorAll('[data-iv]').forEach((b) => (b.onclick = () => scAddInterval(+b.dataset.iv)));
@@ -5867,7 +5872,7 @@ function scPalette(gridMode = ui.view !== 'score') {
   d.querySelectorAll('[data-ott]').forEach((b) => (b.onclick = () => scOttava(+b.dataset.ott)));
   d.querySelectorAll('[data-clef]').forEach((b) => (b.onclick = () => scClefChange(b.dataset.clef)));
   $('#palClr').onclick = gridMode ? () => ornEdit((ns, tr) => {
-    for (const n of ns) for (const k of ['art', 'fg', 'gr', 'grl', 'tra', 'trs', 'nh']) delete n[k];
+    for (const n of ns) for (const k of ['art', 'fg', 'gr', 'grl', 'tra', 'trs', 'nh', 'sd', 'sm', 'col']) delete n[k];
     const a = Math.min(...ns.map((n) => n.s));
     const z = Math.max(...ns.map((n) => n.s + n.l));
     if (tr.trills) { tr.trills = tr.trills.filter((q) => q.e <= a || q.s >= z); if (!tr.trills.length) delete tr.trills; }
@@ -5988,6 +5993,28 @@ function ornTrem(k) {
       if (!n.art.length) delete n.art;
     }
   }, 'トレモロ');
+}
+// 音符の見た目：ぼうの向き（up・dn）、小さい音符（sm）、色（col:red など）。同じものをもう一度おすと、もとにもどる
+function noteLook(kind) {
+  ornEdit((ns) => {
+    if (kind === 'up' || kind === 'dn') {
+      const v = kind === 'up' ? 1 : -1;
+      const same = ns.every((n) => n.sd === v);
+      // 同じときに鳴る音（和音）は、ぼうが1本なので、いっしょに変える
+      const tr = track();
+      const starts = new Set(ns.map((n) => n.s + ':' + voiceOf(n)));
+      for (const n of tr.notes) if (starts.has(n.s + ':' + voiceOf(n))) { if (same) delete n.sd; else n.sd = v; }
+    } else if (kind === 'sm') {
+      const same = ns.every((n) => n.sm);
+      const tr = track();
+      const starts = new Set(ns.map((n) => n.s + ':' + voiceOf(n)));
+      for (const n of tr.notes) if (starts.has(n.s + ':' + voiceOf(n))) { if (same) delete n.sm; else n.sm = true; }
+    } else if (kind.startsWith('col:')) {
+      const c = kind.slice(4);
+      const same = ns.every((n) => n.col === c);
+      for (const n of ns) { if (same) delete n.col; else n.col = c; }
+    }
+  }, '音符の見た目');
 }
 // 符頭の形：'diamond'（ハーモニクス）・'x'・''（ふつう）
 function ornHead(kind) {
