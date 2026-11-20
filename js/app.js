@@ -1680,7 +1680,7 @@ function animBody() {
     const x = LW + pos * ppt();
     if (x - sc.scrollLeft > sc.clientWidth - 40 || x - sc.scrollLeft < LW) sc.scrollLeft = Math.max(0, x - LW - 20);
   }
-  if (animVis.grid) draw(pos);
+  if (animVis.grid) draw(pos, true);
   if (animVis.ov) {
     // 曲の地図も、いま鳴っている所が見えるように動かす
     if (pos != null && ui.follow) {
@@ -1857,7 +1857,39 @@ function C(n) {
 }
 let highlightRow = null;
 
-function draw(playPos) {
+// 再生中のマス目：毎コマ全部を描きなおすと重いので、描いた絵をとっておき、
+// 変わらないあいだは「とっておいた絵＋動く線」だけにする（鳴っている音が変わったとき・画面が動いたときに描きなおす）
+const drawCache = { cv: null, key: '' };
+let drawSerial = 0;
+function litSig(tr, pos) {
+  if (tr.type !== 'melody') return 'q' + Math.floor(pos / 6);
+  let sg = '';
+  let pop = false;
+  const ns = tr.notes;
+  for (let i = 0; i < ns.length; i++) { const n = ns[i]; if (pos >= n.s && pos < n.s + n.l) { sg += i + ','; if (pos - n.s < 12) pop = true; } }
+  return pop && !REDUCED && !LOW_POWER ? null : sg; // ふくらむ動きの間は、毎コマ描く（絵はとっておかない）
+}
+function drawPlayhead(px, W, H) {
+  g2.save();
+  g2.beginPath(); g2.rect(LW, RH, W - LW, H - RH); g2.clip();
+  const tl = g2.createLinearGradient(px - 90, 0, px, 0);
+  tl.addColorStop(0, 'rgba(0,0,0,0)');
+  tl.addColorStop(1, C('--trail'));
+  g2.fillStyle = tl;
+  g2.fillRect(px - 90, RH, 90, H);
+  g2.strokeStyle = C('--playhead');
+  g2.lineWidth = 2;
+  if (!LOW_POWER) { g2.shadowColor = C('--playhead'); g2.shadowBlur = 10; } // 光のにじみは重いので、スマホではつけない
+  g2.beginPath(); g2.moveTo(px, RH); g2.lineTo(px, H); g2.stroke();
+  g2.shadowBlur = 0;
+  g2.restore();
+  g2.save();
+  g2.beginPath(); g2.rect(LW, 0, W - LW, RH); g2.clip();
+  g2.fillStyle = C('--playhead');
+  g2.fillRect(px - 1, 0, 2, RH);
+  g2.restore();
+}
+function draw(playPos, fromAnim) {
   if (playPos === undefined) playPos = playheadTick();
   const tr = track();
   if (!tr) return;
@@ -1869,6 +1901,16 @@ function draw(playPos) {
   const sy = sc.scrollTop;
   const k = ppt();
   const rh = rowH(tr);
+  if (!fromAnim) drawSerial++;
+  const lit = fromAnim && playPos != null ? litSig(tr, playPos) : null;
+  const cacheKey = lit != null ? [version, cur, sx, sy, cv.width, cv.height, k, rh, drawSerial, lit].join('|') : '';
+  if (cacheKey && drawCache.cv && drawCache.key === cacheKey && drawCache.cv.width > 0 && drawCache.cv.height > 0) {
+    g2.setTransform(1, 0, 0, 1, 0, 0);
+    g2.drawImage(drawCache.cv, 0, 0);
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawPlayhead(LW + playPos * k - sx, W, H);
+    return;
+  }
   const rows = rowsFor(tr);
   const total = totalTicks();
   const bt = barTicks();
@@ -1963,7 +2005,7 @@ function draw(playPos) {
       if (x > W || x + w < LW || y > H || y + rh < RH) continue;
       const on = playing >= n.s && playing < n.s + n.l;
       // 鳴りはじめに少しふくらむ（動きを減らす設定のときはしない）
-      const pop = on && !REDUCED ? Math.max(0, 1 - (playing - n.s) / 12) * 3 : 0;
+      const pop = on && !REDUCED && !LOW_POWER ? Math.max(0, 1 - (playing - n.s) / 12) * 3 : 0;
       if (pop) { g2.save(); g2.translate(x + w / 2, y + rh / 2); g2.scale(1 + pop / Math.max(20, w), 1 + pop / rh); g2.translate(-(x + w / 2), -(y + rh / 2)); }
       {
         const col = PC_COLORS[n.p % 12];
@@ -2146,22 +2188,6 @@ function draw(playPos) {
     g2.lineWidth = 2;
     g2.beginPath(); g2.moveTo(x, RH); g2.lineTo(x, H); g2.stroke();
   }
-  if (playPos != null) {
-    {
-      const px = X(playPos);
-      const tl = g2.createLinearGradient(px - 90, 0, px, 0);
-      tl.addColorStop(0, 'rgba(0,0,0,0)');
-      tl.addColorStop(1, C('--trail'));
-      g2.fillStyle = tl;
-      g2.fillRect(px - 90, RH, 90, H);
-    }
-    g2.strokeStyle = C('--playhead');
-    g2.lineWidth = 2;
-    g2.shadowColor = C('--playhead');
-    g2.shadowBlur = 10;
-    g2.beginPath(); g2.moveTo(X(playPos), RH); g2.lineTo(X(playPos), H); g2.stroke();
-    g2.shadowBlur = 0;
-  }
   g2.restore();
 
   // 上の目盛り（ループバー・小節番号・テンポ）
@@ -2205,7 +2231,6 @@ function draw(playPos) {
   g2.fillStyle = C('--playhead');
   const sxm = X(ui.startTick);
   g2.beginPath(); g2.moveTo(sxm - 6, RH - 9); g2.lineTo(sxm + 6, RH - 9); g2.lineTo(sxm, RH); g2.closePath(); g2.fill();
-  if (playPos != null) g2.fillRect(X(playPos) - 1, 0, 2, RH);
   g2.restore();
 
   // 左の鍵盤・音名
@@ -2260,6 +2285,17 @@ function draw(playPos) {
     g2.fillRect(LW, RH, W - LW, H - RH);
   }
   updateDynLane(tr, X, k, t0, t1);
+  // 動く線（再生の位置）は、さいごに上から書く。再生中は、線を書く前の絵をとっておく
+  if (playPos != null) {
+    if (cacheKey && cv.width > 0 && cv.height > 0) {
+      if (!drawCache.cv) drawCache.cv = document.createElement('canvas');
+      const cc = drawCache.cv;
+      if (cc.width !== cv.width || cc.height !== cv.height) { cc.width = cv.width; cc.height = cv.height; }
+      cc.getContext('2d').drawImage(cv, 0, 0);
+      drawCache.key = cacheKey;
+    }
+    drawPlayhead(X(playPos), W, H);
+  }
 }
 
 /* ---------- 強弱のレーン（マス目の下）：強弱記号とクレッシェンドを見せる・おして入れる・はしをドラッグで長さ ---------- */
@@ -3878,16 +3914,17 @@ function scPosShow(box) {
   el.style.top = y + 'px';
 }
 function posTipHide() { const tip = $('#posTip'); if (tip) tip.hidden = true; }
+// 文字は、変わったときだけ書きかえる（同じ文字でも書くと、画面の計算がやりなおしになって重い）
+function setText(el, v) { if (el && el._txt !== v) { el._txt = v; el.textContent = v; } }
 function updateMini(pos) {
   if (pos === undefined) pos = playheadTick();
   const t = pos != null ? pos : ui.startTick;
   const bt = barTicks();
   const bar = barOf(Math.max(0, t));
   const beat = Math.floor((t - barStart(bar)) / beatAt(bar));
-  $('#miniTitle').textContent = song.title;
+  setText($('#miniTitle'), song.title);
   const posTxt = `${bar + 1}小節 ${beat + 1}拍`;
-  const mp = $('#miniPos');
-  if (mp.textContent !== posTxt) mp.textContent = posTxt;
+  setText($('#miniPos'), posTxt);
   // 再生中：経過時間／曲の長さ と、すすみぐあいの線（文字は秒がかわったときだけ書きかえる）
   if (pos != null) {
     const pt = playheadPlay();
@@ -3895,9 +3932,11 @@ function updateMini(pos) {
     const now = pt == null ? 0 : absSec(pt);
     const mmss = (x) => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
     const tt = isPhone ? `${mmss(now)}/${mmss(tot)}` : `${mmss(now)} / ${mmss(tot)}`;
-    const mt = $('#miniTime');
-    if (mt.textContent !== tt) mt.textContent = tt;
-    $('#miniProg').style.transform = `scaleX(${tot > 0 ? Math.min(1, now / tot).toFixed(4) : 0})`;
+    setText($('#miniTime'), tt);
+    // すすみぐあいの線は、目で分かるだけ動いたときに（細かく動かしすぎない）
+    const mpg = $('#miniProg');
+    const fr = tot > 0 ? Math.min(1, now / tot) : 0;
+    if (mpg._fr == null || Math.abs(fr - mpg._fr) >= 0.004 || fr < mpg._fr) { mpg._fr = fr; mpg.style.transform = `scaleX(${fr.toFixed(3)})`; }
   }
   // 拍のランプ（いまの拍が光る。1拍目は色をかえる）
   {
@@ -3909,9 +3948,9 @@ function updateMini(pos) {
       box.innerHTML = Array.from({ length: Math.min(n, 12) }, (_, i) => `<i class="${pos != null && i === beat ? (i === 0 ? 'on one' : 'on') : ''}"></i>`).join('');
     }
   }
-  { const k = keyAt(bar); $('#miniKey').textContent = keyLabel(k.key, k.minor); }
-  $('#miniMeter').textContent = meterAt(bar).join('/');
-  $('#miniBpm').textContent = '♩=' + bpmAt(bar) + ((ui.speed || 1) !== 1 ? `（練習${Math.round(ui.speed * 100)}%）` : '');
+  { const k = keyAt(bar); setText($('#miniKey'), keyLabel(k.key, k.minor)); }
+  setText($('#miniMeter'), meterAt(bar).join('/'));
+  setText($('#miniBpm'), '♩=' + bpmAt(bar) + ((ui.speed || 1) !== 1 ? `（練習${Math.round(ui.speed * 100)}%）` : ''));
 }
 
 /* ============================================================
@@ -4163,20 +4202,27 @@ function trackStrip(tr, i) {
     const lo = Math.min(...ps) - 1;
     const hi = Math.max(...ps) + 1;
     const span = Math.max(8, hi - lo);
+    // 音は、色（ドレミ…）ごとに1つの図形にまとめて書く（音の数だけ部品を作ると、大きな曲で画面が重くなる）
+    const paths = new Array(12).fill('');
+    const tot = totalTicks();
     for (const n of tr.notes) {
-      if (n.s >= totalTicks()) continue;
+      if (n.s >= tot) continue;
       const x = xOf(n.s);
-      const w = Math.max(2, xOf(Math.min(n.s + n.l, totalTicks())) - x - 1);
+      const w = Math.max(2, xOf(Math.min(n.s + n.l, tot)) - x - 1);
       const y = 13 + ((hi - n.p) / span) * (H - 19);
-      o += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="3.2" rx="1.6" fill="${PC_COLORS[n.p % 12]}"/>`;
+      paths[n.p % 12] += `M${x.toFixed(1)} ${y.toFixed(1)}h${w.toFixed(1)}v3.2h${(-w).toFixed(1)}z`;
     }
+    paths.forEach((d, pc) => { if (d) o += `<path d="${d}" fill="${PC_COLORS[pc]}"/>`; });
   } else if (tr.type === 'chord') {
     tr.chords.forEach((c, b) => { if (c && b < song.bars) o += `<text x="${b * BW + BW / 2}" y="${H / 2 + 7}" text-anchor="middle" class="cn">${escapeHtml(chordLabel(c))}</text>`; });
   } else if (tr.type === 'drum') {
     const ids = Object.keys(tr.grid);
     ids.forEach((id, k) => {
       const y = 15 + (k % 6) * 4.6;
-      for (const s in tr.grid[id]) { if (+s < totalTicks()) o += `<rect x="${xOf(+s).toFixed(1)}" y="${y}" width="2" height="3.4" rx="1" fill="${col}" opacity="${tr.grid[id][s] === 2 ? 1 : 0.65}"/>`; }
+      let d1 = '', d2 = '';
+      for (const s in tr.grid[id]) { if (+s < totalTicks()) { const d = `M${xOf(+s).toFixed(1)} ${y}h2v3.4h-2z`; if (tr.grid[id][s] === 2) d2 += d; else d1 += d; } }
+      if (d1) o += `<path d="${d1}" fill="${col}" opacity="0.65"/>`;
+      if (d2) o += `<path d="${d2}" fill="${col}"/>`;
     });
   }
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${o}</svg>`;
@@ -5446,7 +5492,8 @@ function highlightScore(pos) {
   // 線は transform で動かす（楽譜を描きなおさずにすむ）
   const h = Math.round((y1 - y0) * k);
   if (cur._h !== h) { cur._h = h; cur.style.height = h + 'px'; }
-  cur.style.transform = `translate(${(ox + x * k - 2).toFixed(1)}px,${(oy + y0 * k).toFixed(1)}px)`;
+  const tf = `translate(${Math.round(ox + x * k - 2)}px,${Math.round(oy + y0 * k)}px)`;
+  if (cur._tf !== tf) { cur._tf = tf; cur.style.transform = tf; } // 1ピクセルも動かないときは、さわらない
   const top = oy + sys.y0 * k;
   const bot = oy + sys.y1 * k;
   if (top < box.scrollTop || bot > box.scrollTop + box.clientHeight) { scheduleAhead(LOW_POWER ? 1.5 : 0.8); box.scrollTop = Math.max(0, top - 8); }
@@ -6551,7 +6598,7 @@ function titleEdit(want) {
         const k = inp.dataset.k;
         if (k === 'title') song.title = inp.value.slice(0, 120); else S[k] = inp.value.slice(0, 80);
         renderScoreEdit();
-        $('#miniTitle').textContent = song.title || '';
+        setText($('#miniTitle'), song.title || '');
       };
       inp.onkeydown = (e) => { e.stopPropagation(); if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); titleClose(); } };
     });
@@ -7593,6 +7640,7 @@ function applyPhone() {
   const on = phoneMQ.matches;
   if (on === isPhone) return;
   isPhone = on;
+  document.body.classList.toggle('lowpower', LOW_POWER);
   document.body.classList.toggle('phone', on);
   if (on) {
     // パソコンでは上のバーにある部品を「その他」シートへ移す

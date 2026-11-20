@@ -1587,3 +1587,6 @@ body.phone .minitime { font-size: 10.5px; }
 .tracks-clear { display: flex; gap: 3px; margin-left: auto; margin-right: 4px; }
 .tracks-clear .mini { padding: 1px 6px; min-height: 0; font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--accent) 8%, transparent); white-space: nowrap; }
 .tracks-clear .mini[hidden] { display: none; }
+
+/* スマホ・タブレット：再生ボタンのまわりの波（ずっと動くアニメーション）は止める。画面の書きかえをへらして、音の計算に力をのこす */
+body.lowpower .play.on::after { animation: none; opacity: .55; }
