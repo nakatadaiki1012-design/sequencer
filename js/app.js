@@ -3952,6 +3952,10 @@ function renderSettings() {
 function renderTracks() { holdGeo(renderTracksNow); }
 function renderTracksNow() {
   const list = $('#trackList');
+  // 書きなおしても、一覧のスクロールの位置はそのまま（一番上にもどらないように）
+  const scBox = list.closest('.tracks');
+  const scTop = scBox ? scBox.scrollTop : 0;
+  const listTop = list.scrollTop;
   list.innerHTML = '';
   song.tracks.forEach((tr, i) => {
     const d = document.createElement('div');
@@ -3982,8 +3986,8 @@ function renderTracksNow() {
       if (cur !== i && !ev.target.closest('details') && !ev.target.closest('.tstrip')) selectTrack(i);
     });
     d.addEventListener('focusin', (ev) => { if (cur !== i && !ev.target.closest('details')) { const id = ev.target.className; selectTrack(i); const again = $$('#trackList .track')[i]; const el = again && [...again.querySelectorAll('button, input, summary')].find((x) => x.className === id); if (el) el.focus(); } });
-    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.mute').focus(); };
-    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.solo').focus(); };
+    d.querySelector('.mute').onclick = () => { tr.mute = !tr.mute; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.mute').focus({ preventScroll: true }); };
+    d.querySelector('.solo').onclick = () => { tr.solo = !tr.solo; version++; renderTracks(); autosaveSoon(); const b = $$('#trackList .track')[i]; if (b) b.querySelector('.solo').focus({ preventScroll: true }); };
     d.querySelector('.instbtn').onclick = (ev) => { ev.stopPropagation(); openInstPicker(i); };
     d.querySelectorAll('.tmenu [data-a]').forEach((b) => (b.onclick = (ev) => {
       ev.stopPropagation();
@@ -4034,6 +4038,24 @@ function renderTracksNow() {
   });
   if (isPhone) list.querySelectorAll('.tstrip').forEach((x) => { x.scrollLeft = stripScroll; });
   renderChips();
+  // ソロ・消音をまとめて解除するボタン（どれかがソロ・消音のときだけ出す）
+  const so = $('#btnSoloOff');
+  const mo = $('#btnMuteOff');
+  if (so) so.hidden = !song.tracks.some((t) => t.solo) || !!song.locks.mute;
+  if (mo) mo.hidden = !song.tracks.some((t) => t.mute) || !!song.locks.mute;
+  if (scBox && scBox.scrollTop !== scTop) scBox.scrollTop = scTop;
+  if (list.scrollTop !== listTop) list.scrollTop = listTop;
+}
+// 全部のトラックのソロ（または消音）を、まとめて解除する
+function clearAll(key) {
+  if (song.locks.mute) return toast('ロックされています');
+  const n = song.tracks.filter((t) => t[key]).length;
+  if (!n) return;
+  for (const t of song.tracks) t[key] = false;
+  version++;
+  renderTracks();
+  autosaveSoon();
+  toast(key === 'solo' ? `ソロを解除しました（${n}つ）` : `消音を解除しました（${n}つ）`);
 }
 // トラックの中身の帯（スマホのトラック画面）
 let stripScroll = 0;
@@ -8950,6 +8972,8 @@ function init() {
   $('#dlgPal').addEventListener('close', () => { renderTracks(); changed(); });
   document.querySelectorAll('dialog .close').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
   document.querySelectorAll('.dropdown .dd button, #addRow button').forEach((b) => b.addEventListener('click', () => b.closest('details').removeAttribute('open')));
+  $('#btnSoloOff').onclick = () => clearAll('solo');
+  $('#btnMuteOff').onclick = () => clearAll('mute');
   $('#addMelody').onclick = () => addTrack('melody');
   $('#addChord').onclick = () => addTrack('chord');
   $('#addDrum').onclick = () => addTrack('drum');

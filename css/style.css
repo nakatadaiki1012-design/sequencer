@@ -1581,3 +1581,9 @@ body.playing .miniseek { display: block; }
 body.playing .mini-display:has(.miniseek:hover) .miniprog { height: 5px; bottom: 1px; opacity: 1; }
 body.phone.playing .beatdots { display: none; }
 body.phone .minitime { font-size: 10.5px; }
+
+/* トラックの見出し：ソロ・消音をまとめて解除するボタン */
+.tracks-head h2 { white-space: nowrap; }
+.tracks-clear { display: flex; gap: 3px; margin-left: auto; margin-right: 4px; }
+.tracks-clear .mini { padding: 1px 6px; min-height: 0; font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--accent) 8%, transparent); white-space: nowrap; }
+.tracks-clear .mini[hidden] { display: none; }
