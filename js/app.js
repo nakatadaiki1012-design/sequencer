@@ -8717,6 +8717,17 @@ function init() {
   };
   $$('#countSeg button').forEach((b) => (b.onclick = () => { ui.countIn = +b.dataset.c; lsSet('otsumiki-countin', String(ui.countIn)); practiceUi(); }));
   $('#speedRange').oninput = (e) => { ui.speed = +e.target.value; practiceUi(); };
+  // すすみぐあいの線をクリック → その場所から鳴らす
+  $('#miniSeek').onpointerdown = (e) => {
+    if (!player.on) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = $('#miniProg').parentElement.getBoundingClientRect();
+    const frac = clamp((e.clientX - (r.left + 10)) / Math.max(1, r.width - 20), 0, 1);
+    const tot = absSec(playTotal());
+    const pt = Math.min(playTotal() - 1, tickAtSec(frac * tot));
+    ui.startTick = cellStart(Math.max(0, srcTick(pt)));
+    play();
+  };
   const replayHere = () => { if (!player.on) return; const t = playheadTick(); if (t != null) ui.startTick = cellStart(Math.max(0, t)); play(); };
   $('#speedRange').onchange = replayHere;
   $$('#speedPre button').forEach((b) => (b.onclick = () => { ui.speed = +b.dataset.s; practiceUi(); replayHere(); }));

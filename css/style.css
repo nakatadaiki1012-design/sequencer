@@ -1572,5 +1572,12 @@ body.playing .minitime { display: inline; }
 body.playing #miniKey, body.playing #miniMeter, body.playing #miniBpm { display: none; }
 .miniprog { position: absolute; left: 10px; right: 10px; bottom: 2px; height: 3px; border-radius: 2px; background: var(--accent2, #ffd43b); transform-origin: left center; transform: scaleX(0); opacity: 0; pointer-events: none; }
 body.playing .miniprog { opacity: .9; }
+/* すすみぐあいの線：再生中にクリック（タップ）すると、その場所へ飛ぶ。線は細いので、さわれる所は少し広く */
+.miniseek { left: 4px; right: 4px; bottom: -4px; height: 14px; display: none; cursor: pointer; }
+body.playing .miniseek { display: block; }
+/* 上の「.mini-display > …」の position: relative に負けないよう、id で決める */
+#miniProg, #miniSeek { position: absolute; }
+#miniSeek { z-index: 3; }
+body.playing .mini-display:has(.miniseek:hover) .miniprog { height: 5px; bottom: 1px; opacity: 1; }
 body.phone.playing .beatdots { display: none; }
 body.phone .minitime { font-size: 10.5px; }
