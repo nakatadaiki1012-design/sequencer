@@ -87,6 +87,7 @@ const MuseScoreExport = (() => {
     // ---- 段（音） ----
     parts.forEach((p, pi) => {
       let hyOpen = false; // まえの歌詞がハイフンでつづいている
+      const hyV = {}; // 2番・3番
       const tr = p.perc ? 0 : p.transpose || 0;
       let clef = p.perc ? 'perc' : p.clef || 'auto';
       if (clef === 'auto' || clef === 'grand') clef = N.autoClef(tr ? p.notes.map((n) => ({ ...n, p: n.p + tr })) : p.notes, p.name);
@@ -180,6 +181,7 @@ const MuseScoreExport = (() => {
               x.push('<Chord>');
               x.push(dur);
               if (ev.first && ev.ly && vi === 0) { const [lt, sy] = N.sylOf(ev.ly, hyOpen); hyOpen = /.-$/.test(ev.ly); x.push(`<Lyrics>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); }
+              if (ev.first && vi === 0) for (const [key, no] of [['ly2', 1], ['ly3', 2]]) { const v = ev[key]; if (v) { const [lt, sy] = N.sylOf(v, hyV[no]); hyV[no] = /.-$/.test(v); x.push(`<Lyrics><no>${no}</no>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); } }
               for (const a of A) if (ART[a]) x.push(`<Articulation><subtype>${ART[a]}</subtype>${a === 'tr' && ev.tra != null ? `<Accidental><subtype>${ACCSUB[ev.tra]}</subtype></Accidental>` : ''}</Articulation>`);
               const TRS = { 1: '8', 2: '16', 3: '32' };
               if (A.includes('trem')) x.push(`<Tremolo><subtype>r${TRS[ev.trs] || '32'}</subtype></Tremolo>`);

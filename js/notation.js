@@ -11,6 +11,7 @@
 const Notation = (() => {
   const FONT = `"Noto Music","Bravura","Segoe UI Symbol","Apple Symbols","Noto Sans Symbols 2",serif`;
   const SP = 8; // 五線の間隔
+  const LYR_GAP = 14; // 歌詞の行（1番・2番・3番）の間隔
   // 楽譜フォント Bravura の形（js/glyphs.js）で記号を描く
   const G = (name, x, y, attrs = '', sp = SP) => Glyphs.svg(name, +x.toFixed(2), +y.toFixed(2), sp, attrs || 'fill="#111"');
   const GW = (name, sp = SP) => (Glyphs.g[name] ? Glyphs.g[name].w : 1) * sp;
@@ -235,6 +236,8 @@ const Notation = (() => {
       if (s > t) segs.push({ s: t, e: s, pitches: null });
       const art = [...new Set(g.flatMap((n) => n.art || []))];
       const ly = (g.find((n) => n.ly) || {}).ly || '';
+      const ly2 = (g.find((n) => n.ly2) || {}).ly2 || '';
+      const ly3 = (g.find((n) => n.ly3) || {}).ly3 || '';
       const fg = g.filter((n) => n.fg).sort((a, b) => b.p - a.p).map((n) => n.fg).join('');
       const gn = g.find((n) => n.gr != null) || {};
       const gr = gn.gr;
@@ -243,7 +246,7 @@ const Notation = (() => {
       const trs = (g.find((n) => n.trs) || {}).trs;
       let nhs = null;
       for (const n of g) if (n.nh) (nhs || (nhs = {}))[n.p] = n.nh;
-      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, fg, gr, grl: !!gn.grl, tra, trs, nhs, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
+      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, ly2, ly3, fg, gr, grl: !!gn.grl, tra, trs, nhs, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
       t = Math.max(t, end);
     });
     if (t < total) segs.push({ s: t, e: total, pitches: null });
@@ -264,7 +267,7 @@ const Notation = (() => {
         } else {
           decompose(s - a0, be - s, beatOf(m), bl, m, isRest).forEach((p) => {
             const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh, nhs: sg.nhs };
-            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.fg = sg.fg; ev.gr = sg.gr; ev.grl = sg.grl; ev.tra = sg.tra; ev.trs = sg.trs; first = false; }
+            if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.ly2 = sg.ly2; ev.ly3 = sg.ly3; ev.fg = sg.fg; ev.gr = sg.gr; ev.grl = sg.grl; ev.tra = sg.tra; ev.trs = sg.trs; first = false; }
             perBar[b].push(ev);
           });
         }
@@ -419,7 +422,9 @@ const Notation = (() => {
       st.clefAt = (b) => { let c = st.clef0; for (let i = 1; i <= b; i++) if (chg[i] && CLEF_BASE[chg[i]] != null) c = chg[i]; return c; };
       st.baseAt = (b) => CLEF_BASE[st.clefAt(b)] != null ? CLEF_BASE[st.clefAt(b)] : 30;
       st.baseDn = st.baseAt(0);
-      st.hasLyr = st.sub === 0 && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean) || (opts.ivPart && st.part.id === opts.ivPart) || (opts.lyrPart && st.part.id === opts.lyrPart));
+      // 歌詞の行の数（1番・2番・3番）。入力中の番も数える
+      st.lyrN = st.sub !== 0 ? 0 : Math.max(st.notes.some((n) => n.ly3) ? 3 : st.notes.some((n) => n.ly2) ? 2 : st.notes.some((n) => n.ly) || st.lyrics.some(Boolean) ? 1 : 0, opts.ivPart && st.part.id === opts.ivPart ? 1 : 0, opts.lyrPart && st.part.id === opts.lyrPart ? Math.max(1, +opts.lyrVerse || 1) : 0);
+      st.hasLyr = st.lyrN > 0;
       st.hasDyn = st.sub === (st.grand ? 1 : 0) && ((st.part.dyn || []).length || (st.part.hairpins || []).length);
       st.dynAbove = !!(st.hasDyn && st.sub === 0 && !st.grand && (st.notes.some((n) => n.ly) || st.lyrics.some(Boolean)));
       // 五線の外にはみ出す音（加線）の分だけ、段の上下をあける
@@ -474,7 +479,7 @@ const Notation = (() => {
       st.trl = st.clef !== 'perc' && st.sub === 0 && (st.part.trills || []).length > 0; // トリルの波線
       if (st.trl) { const r = (st.part.trills || []).some((q) => q.a != null) ? 30 : 20; st.above += r; st.aboveX += r; }
       if (st.ottDn) { st.below += 18; st.belowX += 18; }
-      if (st.clef === 'tab') { st.above = 0; st.below = 0; st.hasPed = false; st.ottUp = st.ottDn = false; st.textRoom = 0; st.orn = 0; st.hasLyr = false; st.hasDyn = false; st.dynAbove = false; st.mrepSame = () => false; }
+      if (st.clef === 'tab') { st.above = 0; st.below = 0; st.hasPed = false; st.ottUp = st.ottDn = false; st.textRoom = 0; st.orn = 0; st.hasLyr = false; st.lyrN = 0; st.hasDyn = false; st.dynAbove = false; st.mrepSame = () => false; }
     }
 
     // ---- 小節ごとの「音の始まる位置」と自然な幅 ----
@@ -514,7 +519,7 @@ const Notation = (() => {
           if (ev.first && ev.pitches) n.pre = Math.max(n.pre || 0, (ev.gr != null ? 6 + 9 * grOf(ev.gr).length : 0) + ((ev.art || []).includes('arp') ? 9 : 0));
           if (ev.first && st.sub === 0) {
             const ly = ev.ly || (st.notes.some((x) => x.ly) ? '' : st.lyrics[ev.syll]);
-            n.w = Math.max(n.w, textW(ly), nameOf && st.clef !== 'perc' && ev.pitches ? ev.pitches.length * 11 : 0);
+            n.w = Math.max(n.w, textW(ly), textW(ev.ly2 || ''), textW(ev.ly3 || ''), nameOf && st.clef !== 'perc' && ev.pitches ? ev.pitches.length * 11 : 0);
           }
           need.set(ev.pos, n);
           if (ev.pitches && ev.pos === barStartTick(b) && (n.acc || n.pre)) accRoom = Math.max(accRoom, (+n.acc || 0) * 9 + (n.pre || 0));
@@ -644,7 +649,7 @@ const Notation = (() => {
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
     const anyReh = !!(opts.rehearsal && Object.keys(opts.rehearsal).some((k) => +k < bars));
     const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0) + (anyReh ? 22 : 0);
-    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
+    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 + (st.lyrN - 1) * LYR_GAP : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const dynRoom = (st) => (st.dynAbove ? 18 : 0); // 上に強弱を書くぶん
     // 空の段をかくす（フルスコア）：2段目からは、その段で音のないパートを書かない
     const busy = (st, a, z) => st.notes.concat(st.notes2).some((n) => n.s < z && n.s + n.l > a) || (st.part.dyn || []).some((d) => d.t >= a && d.t < z);
@@ -853,7 +858,7 @@ const Notation = (() => {
         const fOff = FING && !perc ? 42 : 0;
         const fingY = textY + (nameOf && !perc ? 15 : 0) - 4;
         const lyrY = textY + (nameOf && !perc ? 15 : 0) + fOff;
-        const dynY = st.dynAbove ? stTop - st.above - 2 * SP + 2 : (st.hasLyr ? lyrY + 18 : textY + (nameOf && !perc ? 15 : 0) + fOff) + 2;
+        const dynY = st.dynAbove ? stTop - st.above - 2 * SP + 2 : (st.hasLyr ? lyrY + 18 + (st.lyrN - 1) * LYR_GAP : textY + (nameOf && !perc ? 15 : 0) + fOff) + 2;
         const headsAt = new Map(); // abs tick → {x, ys[], up}（スラー用）
         // 1つの音節を何音かでのばすとき（メリスマ）は、歌詞のあとに横線をひく
         const lyOwn = st.sub === 0 && st.notes.some((n) => n.ly);
@@ -1032,7 +1037,9 @@ const Notation = (() => {
             const lyr0 = ev.first ? (ev.ly || (st.notes.some((n) => n.ly) ? '' : st.lyrics[ev.syll])) : '';
             const lyHy = /.-$/.test(lyr0 || ''); // 「Hap-」＝つぎの音節とハイフンでつなぐ
             const lyr = lyHy ? lyr0.slice(0, -1) : lyr0;
-            if (st.sub === 0 && lyr && stream === 'A') lyrBuf.push({ x, t: lyr, hy: lyHy });
+            if (st.sub === 0 && lyr && stream === 'A') lyrBuf.push({ x, t: lyr, hy: lyHy, row: 0 });
+            // 2番・3番の歌詞は、1番の下の行に
+            if (st.sub === 0 && ev.first && stream === 'A') for (const [k, row] of [['ly2', 1], ['ly3', 2]]) { const v = ev[k]; if (v) { const hy = /.-$/.test(v); lyrBuf.push({ x, t: hy ? v.slice(0, -1) : v, hy, row }); } }
             // 対位法：定旋律との音程の数字
             if (opts.ivNums && st.part.id === opts.ivPart && ev.first && stream === 'A' && opts.ivNums[ev.src] != null) o.push(`<text x="${x}" y="${lyrY}" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1e3a8a">${esc(opts.ivNums[ev.src])}</text>`);
             if (lyOwn && stream === 'A') {
@@ -1198,7 +1205,11 @@ const Notation = (() => {
           }
         }
         melFlush();
-        lyrBuf.sort((a, c) => a.x - c.x).forEach((L, i) => {
+        // 2番からあるときは、段のはじめに「1.」「2.」と番号を書く
+        if (st.lyrN > 1) for (let r = 0; r < st.lyrN; r++) { const f = lyrBuf.filter((q) => q.row === r).sort((a, c) => a.x - c.x)[0]; if (f) o.push(`<text x="${(f.x - textW(f.t) / 2 - 4).toFixed(1)}" y="${lyrY + r * LYR_GAP}" font-size="10" text-anchor="end" fill="#444" font-family="${SERIF}" class="lyrno">${r + 1}.</text>`); }
+        for (let row = 0; row < 3; row++) lyrBuf.filter((q) => q.row === row).sort((a, c) => a.x - c.x).forEach((L, i, lyrBuf) => {
+          const lyrY0 = lyrY;
+          const lyrY1 = lyrY0 + row * LYR_GAP;
           const prev = lyrBuf[i - 1];
           const next = lyrBuf[i + 1];
           const room = Math.min(prev ? L.x - prev.x : 1e9, next ? next.x - L.x : 1e9) - 4;
@@ -1209,14 +1220,14 @@ const Notation = (() => {
             fs = Math.max(8.5, (12 * room) / w);
             if ((w * fs) / 12 > room) fit = ` textLength="${Math.max(8, room).toFixed(1)}" lengthAdjust="spacingAndGlyphs"`;
           }
-          o.push(`<text x="${L.x}" y="${lyrY}" font-size="${+fs.toFixed(1)}" text-anchor="middle" fill="#111" font-family="${SERIF}" class="lyr"${fit}>${esc(L.t)}</text>`);
+          o.push(`<text x="${L.x}" y="${lyrY1}" font-size="${+fs.toFixed(1)}" text-anchor="middle" fill="#111" font-family="${SERIF}" class="lyr${row ? ' lyr' + (row + 1) : ''}"${fit}>${esc(L.t)}</text>`);
           if (L.hy) { // ハイフン：となりの音節とのあいだのまん中（段のおわりなら、すぐうしろ）
             const a = L.x + Math.min(w, room) / 2;
             const z = next ? next.x - Math.min(textW(next.t), room) / 2 : a + 12;
-            if (z - a > 5) o.push(`<line x1="${((a + z) / 2 - 3).toFixed(1)}" x2="${((a + z) / 2 + 3).toFixed(1)}" y1="${lyrY - 4}" y2="${lyrY - 4}" stroke="#111" stroke-width="1.1" class="lyhy"/>`);
+            if (z - a > 5) o.push(`<line x1="${((a + z) / 2 - 3).toFixed(1)}" x2="${((a + z) / 2 + 3).toFixed(1)}" y1="${lyrY1 - 4}" y2="${lyrY1 - 4}" stroke="#111" stroke-width="1.1" class="lyhy"/>`);
           }
         });
-        if (st.hasLyr && opts.lyrPart && st.part.id === opts.lyrPart) o.push(`<line class="lyrbase" data-pi="${st.pi}" x1="${L}" x2="${xEnd}" y1="${lyrY}" y2="${lyrY}" stroke="none"/>`);
+        if (st.hasLyr && opts.lyrPart && st.part.id === opts.lyrPart) { const yv = lyrY + (Math.max(1, +opts.lyrVerse || 1) - 1) * LYR_GAP; o.push(`<line class="lyrbase" data-pi="${st.pi}" x1="${L}" x2="${xEnd}" y1="${yv}" y2="${yv}" stroke="none"/>`); }
         // 予告の調号・拍子（段の終わり）
         if (caut) {
           let cx3 = xEnd + 7;
@@ -1757,6 +1768,7 @@ const Notation = (() => {
       const lyr = p.lyrics || [];
       const useNoteLy = p.notes.some((n) => n.ly);
       let hyOpen = false; // まえの音節がハイフンでつづいている
+      const hyOpenV = {}; // 2番・3番
       const slurStarts = new Map((p.slurs || []).map((s, i) => [s.s, i + 1]));
       const glissOpen = [false, false]; // グリッサンドの始まりが出ている（声部ごと）
       const trem2Open = [0, 0]; // 2つの音のトレモロ：つぎの音で stop を書く（声部ごと）
@@ -1879,6 +1891,7 @@ const Notation = (() => {
             const ly = k === 0 && ev.first && vi === 0 ? (useNoteLy ? ev.ly : lyr[ev.syll]) : '';
             let lyric = '';
             if (ly) { const [lt, sy] = sylOf(ly, hyOpen); hyOpen = /.-$/.test(ly); lyric = `<lyric number="1"><syllabic>${sy}</syllabic><text>${esc(lt)}</text></lyric>`; }
+            if (k === 0 && ev.first && vi === 0) for (const [key, no] of [['ly2', 2], ['ly3', 3]]) { const v = ev[key]; if (v) { const [lt, sy] = sylOf(v, hyOpenV[no]); hyOpenV[no] = /.-$/.test(v); lyric += `<lyric number="${no}"><syllabic>${sy}</syllabic><text>${esc(lt)}</text></lyric>`; } }
             x.push(`<note${!p.perc && ev.vel && ev.vel !== 1 ? ` dynamics="${Math.round(ev.vel * 100)}"` : ''}>${k > 0 ? '<chord/>' : ''}${pitch}<duration>${ev.len}</duration>${ties}${p.perc ? `<instrument id="P${pi + 1}-I${m - 2000 + 1}"/>` : ''}${vx}${typeXml(ev)}${p.perc && dpos[1] !== 'n' ? `<notehead>${dpos[1] === 'o' ? 'circle-x' : 'x'}</notehead>` : !p.perc && ev.nhs && ev.nhs[m] ? `<notehead>${ev.nhs[m]}</notehead>` : ''}${nots ? `<notations>${nots}</notations>` : ''}${lyric}</note>`);
           });
         }

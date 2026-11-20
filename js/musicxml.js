@@ -345,6 +345,14 @@ const MusicXMLImport = (() => {
             const sy = txt(ly, 'syllabic');
             if (s) n.ly = s + (sy === 'begin' || sy === 'middle' ? '-' : '');
           }
+          // 2番・3番
+          for (const no of [2, 3]) {
+            const l2 = lys.find((l) => l.getAttribute('number') === String(no));
+            if (!l2 || l2 === ly) continue;
+            const s2 = kids(l2, 'text').map((t) => t.textContent).join('').trim();
+            const sy2 = txt(l2, 'syllabic');
+            if (s2) n['ly' + no] = (s2 + (sy2 === 'begin' || sy2 === 'middle' ? '-' : '')).slice(0, 20);
+          }
           M.items.push(n);
         } else if (tag === 'direction') {
           const t = at() + (kid(el, 'offset') ? toT(txt(el, 'offset')) : 0);
@@ -677,6 +685,8 @@ const MusicXMLImport = (() => {
             if ((+it.voice || 1) !== firstVoice[it.staff]) n.v = 2;
             if (it.art) n.art = it.art.slice();
             if (it.ly) n.ly = it.ly;
+            if (it.ly2) n.ly2 = it.ly2;
+            if (it.ly3) n.ly3 = it.ly3;
             if (it.fg) n.fg = it.fg;
             if (it.gr != null) n.gr = it.gr;
             for (const k of ['grl', 'tra', 'trs', 'nh']) if (it[k] != null) n[k] = it[k];
@@ -1242,6 +1252,10 @@ const MusicXMLImport = (() => {
                   if (voice > 0) note.v = 2;
                   if (arts.length) note.art = arts.slice();
                   if (ly && k === ns.length - 1) note.ly = ly.slice(0, 20);
+                  if (k === ns.length - 1) for (const no of [1, 2]) { // 2番・3番（MuseScore は 0 から数える）
+                    const lv = kids(el, 'Lyrics').find((l) => txt(l, 'no') === String(no));
+                    if (lv) { const syv = txt(lv, 'syllabic'); const tv = plain(kid(lv, 'text')); if (tv) note['ly' + (no + 1)] = (tv + (syv === 'begin' || syv === 'middle' ? '-' : '')).slice(0, 20); }
+                  }
                   if (pendingGrace != null && k === ns.length - 1) { note.gr = pendingGrace.ps.length === 1 ? pendingGrace.ps[0] : pendingGrace.ps.slice(0, 8); if (pendingGrace.long && pendingGrace.ps.length === 1) note.grl = true; }
                   if (tremK && tremK !== 3) note.trs = tremK;
                   if (trillAcc != null && arts.includes('tr')) note.tra = trillAcc;
