@@ -262,6 +262,9 @@ function sanitizeSong(s) {
         });
       tr.texts = (Array.isArray(t.texts) ? t.texts : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.x === 'string' && x.x.trim()).map((x) => ({ t: Math.round(+x.t), x: x.x.slice(0, 80) }));
       if (!tr.texts.length) delete tr.texts;
+      // 楽器の持ちかえ（とちゅうから、ちがう楽器の音で鳴らす）
+      tr.instChg = (Array.isArray(t.instChg) ? t.instChg : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.inst === 'string' && Sound.INSTRUMENTS[x.inst]).map((x) => ({ t: Math.round(+x.t), inst: x.inst })).sort((a, b) => a.t - b.t);
+      if (!tr.instChg.length) delete tr.instChg;
       for (const k of ['dyn', 'hairpins', 'slurs', 'pedals']) tr[k] = (Array.isArray(tr[k]) ? tr[k] : []).filter((x) => x && typeof x === 'object' && (k === 'dyn' ? Number.isFinite(+x.t) && typeof x.v === 'string' : Number.isFinite(+x.s) && Number.isFinite(+x.e)));
       if (!tr.pedals.length) delete tr.pedals;
       tr.trills = (Array.isArray(t.trills) ? t.trills : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), ...([1, -1, 0].includes(x.a) ? { a: x.a } : {}) }));
@@ -1009,6 +1012,9 @@ function eventList() {
   if (evCache.v === key) return evCache.list;
   return holdGeo(() => eventListBuild(key));
 }
+// その時点で鳴らす楽器（持ちかえがあれば、そのあとはその楽器）
+function instAt(tr, t) { let i = tr.inst; for (const c of tr.instChg || []) { if (c.t <= t) i = c.inst; else break; } return i; }
+function trackInsts(tr) { return [...new Set([tr.inst, ...(tr.instChg || []).map((c) => c.inst)])]; }
 function eventListBuild(key) {
   const total = totalTicks();
   const bySrc = Array.from({ length: song.bars }, () => []);
@@ -1020,6 +1026,7 @@ function eventListBuild(key) {
       for (const n of tr.notes) if ((n.art || []).includes('arp')) { const g = tr.notes.filter((m) => m.s === n.s && voiceOf(m) === voiceOf(n)).sort((a, b) => a.p - b.p); arpAt.set(n, g.indexOf(n)); }
       const peds = tr.pedals || [];
       const trills = tr.trills || [];
+      const chg = tr.instChg && tr.instChg.length ? tr.instChg : null;
       // 2つの音のトレモロ：あいての音（つぎの音）は、ここでいっしょに鳴らす
       const partnerOf = new Map();
       const skip = new Set();
@@ -1042,7 +1049,7 @@ function eventListBuild(key) {
         if ((n.art || []).includes('gliss')) { const nx = tr.notes.filter((m) => m.s >= n.s + n.l - 1 && m.s > n.s && voiceOf(m) === voiceOf(n)).sort((a, b) => a.s - b.s || b.p - a.p)[0]; if (nx) gTo = nx.p; }
         const pt = partnerOf.get(n);
         const ctx = { trillSpan: trills.find((q) => n.s >= q.s && n.s < q.e) || null, partner: pt ? pt.p : null, partnerL: pt ? pt.l : 0 };
-        for (const o of ornamentNotes(n, l, arpAt.get(n), gTo, ctx)) put(n.s + o.dt, { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1 });
+        for (const o of ornamentNotes(n, l, arpAt.get(n), gTo, ctx)) put(n.s + o.dt, chg && instAt(tr, n.s) !== tr.inst ? { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1, inst: instAt(tr, n.s) } : { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1 });
       }
     } else if (tr.type === 'chord') for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
     else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) put(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
@@ -1055,7 +1062,7 @@ function eventListBuild(key) {
     let w = 0;
     for (const e of arr) {
       if (e.kind === 'note' && e.tr.type === 'melody') {
-        const k = e.tr.inst + '|' + (e.tr.real !== false) + '|' + e.p + '|' + e.rt;
+        const k = (e.inst || e.tr.inst) + '|' + (e.tr.real !== false) + '|' + e.p + '|' + e.rt;
         const f = seen.get(k);
         if (f) { (f.alt || (f.alt = [])).push({ tr: e.tr, v: e.v }); f.l = Math.max(f.l, e.l); continue; }
         seen.set(k, e);
@@ -1341,7 +1348,7 @@ function scheduleEvent(ctx, graph, e, when, withMetro) {
   const t = when + swingSec(e.t) + jt;
   const dur = e.kind === 'note' ? (absSec(e.t + e.l) - absSec(e.t)) * (e.lf || 0.96) : 0.5;
   graph.lastEnd = Math.max(graph.lastEnd || 0, t + dur);
-  if (e.kind === 'note') Sound.playNote(ctx, out, e.tr.inst, e.p, t, dur, e.v * jv, e.tr.real !== false, (e.lf || 0) > 1);
+  if (e.kind === 'note') Sound.playNote(ctx, out, e.inst || e.tr.inst, e.p, t, dur, e.v * jv, e.tr.real !== false, (e.lf || 0) > 1);
   else Sound.playDrum(ctx, out, e.id, t, e.v * jv, e.tr.real !== false);
 }
 
@@ -1722,11 +1729,11 @@ function preloadSamples() {
   for (const tr of song.tracks) {
     if (tr.real === false) continue;
     if (tr.type === 'drum') { if (!Sound.Samples.drumsReady()) jobs.push(['drums', () => Sound.Samples.loadDrums(ctx)]); }
-    else if (Sound.Samples.has(tr.inst) && !Sound.Samples.ready(tr.inst)) {
+    else for (const inst of trackInsts(tr)) if (Sound.Samples.has(inst) && !Sound.Samples.ready(inst)) {
       // 曲で使っている高さの録音だけを先に読む（あとから使う高さは、鳴らすときに読みます）
-      const ps = tr.type === 'melody' ? tr.notes.map((n) => n.p) : chordEvents(tr).map((e) => e.p);
+      const ps = tr.type === 'melody' ? tr.notes.filter((n) => instAt(tr, n.s) === inst).map((n) => n.p) : chordEvents(tr).map((e) => e.p);
       const notes = ps.length ? [...new Set(ps)] : undefined;
-      jobs.push([tr.inst, () => Sound.Samples.load(tr.inst, ctx, notes)]);
+      jobs.push([inst, () => Sound.Samples.load(inst, ctx, notes)]);
     }
   }
   for (const [key, fn] of jobs) {
@@ -3422,7 +3429,7 @@ function shiftAll(fromBar, n) {
   for (const tr of song.tracks) {
     if (tr.type === 'melody') {
       tr.notes = tr.notes.filter((x) => keep(x.s)).map((x) => (x.s >= a ? { ...x, s: x.s + d } : x));
-      for (const k of ['dyn', 'hairpins', 'slurs', 'texts', 'pedals', 'ottava', 'trills']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
+      for (const k of ['dyn', 'hairpins', 'slurs', 'texts', 'instChg', 'pedals', 'ottava', 'trills']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
     } else if (tr.type === 'drum') {
       for (const id in tr.grid) {
         const ng = {};
@@ -4706,7 +4713,7 @@ function scoreOpts(trackIds, withDrums) {
     if (t.type === 'melody') {
       const oi = ORCH[t.inst];
       const { clef, trans } = partClefTrans(t);
-      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => c.t === x.t)), ...t.instChg.map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -5299,7 +5306,7 @@ function scInsert(pitches, chordAdd) {
       const lastEnd = Math.max(t, ...tr.notes.filter((n) => mine(n) && n.s >= t).map((n) => n.s + n.l));
       ensureLength(lastEnd + d);
       for (const n of tr.notes) if (mine(n) && n.s >= t) n.s += d;
-      for (const k of ['dyn', 'texts']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
+      for (const k of ['dyn', 'texts', 'instChg']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
       for (const k of ['hairpins', 'slurs', 'pedals', 'ottava', 'trills']) for (const x of tr[k] || []) { if (x.s >= t) x.s += d; if (x.e >= t) x.e += d; }
     }
     ensureLength(t + d);
@@ -5719,6 +5726,7 @@ function scClearMarks() {
     tr.slurs = (tr.slurs || []).filter((x) => x.e < r.s || x.s > r.e);
     for (const n of selNotes(tr)) { for (const k of ['art', 'fg', 'gr', 'grl', 'tra', 'trs', 'nh']) delete n[k]; }
     if (tr.texts) { tr.texts = tr.texts.filter((x) => x.t < r.s || x.t >= r.end); if (!tr.texts.length) delete tr.texts; }
+    if (tr.instChg) { tr.instChg = tr.instChg.filter((x) => x.t < r.s || x.t >= r.end); if (!tr.instChg.length) delete tr.instChg; }
     if (tr.pedals) { tr.pedals = tr.pedals.filter((x) => x.e <= r.s || x.s >= r.end); if (!tr.pedals.length) delete tr.pedals; }
     if (tr.ottava) { tr.ottava = tr.ottava.filter((x) => x.e <= r.s || x.s >= r.end); if (!tr.ottava.length) delete tr.ottava; }
     if (tr.trills) { tr.trills = tr.trills.filter((x) => x.e <= r.s || x.s >= r.end); if (!tr.trills.length) delete tr.trills; }
@@ -5752,7 +5760,7 @@ const PAL_MORE = [
   ['オクターブ記号', () => `<button class="palb txt" data-ott="1" title="8va：1オクターブ上で弾く（高い音の加線をへらす）"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:13px">8va</i></button><button class="palb txt" data-ott="-1" title="8vb：1オクターブ下で弾く"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:13px">8vb</i></button><button class="palb txt" data-ott="2" title="15ma：2オクターブ上"><i style="position:static;font-style:italic;font-weight:700;font-family:serif;font-size:12px">15ma</i></button><button class="palb" data-ott="0" title="オクターブ記号を消す">✕</button>`],
   ['音部記号', () => `${[['treble', 'gClef', 'ト音記号'], ['bass', 'fClef', 'ヘ音記号'], ['alto', 'cClef', 'ハ音記号（アルト）'], ['treble8', 'gClef', 'ト音記号（8つ下）']].map(([c, g, t]) => `<button class="palb" data-clef="${c}" title="${t}：カーソルの小節から">${palGlyph(g)}${c === 'treble8' ? '<i>8</i>' : ''}</button>`).join('')}<button class="palb" data-clef="" title="この小節の音部記号の変化を消す">✕</button>`],
   ['ピアノ', () => `<button class="palb" id="palPed" title="ペダル：えらんだ音符のはじめからおわりまで、ペダルをふむ（Ped. ＊）">${palGlyph('keyboardPedalPed')}</button>`],
-  ['テキスト', () => `<button class="palb txt" id="palText" title="譜表テキスト：音の上にことばを書く（Alt+T）"><b>T</b></button><button class="palb" id="palReh" title="リハーサル記号 A・B・C…（Alt+M）"><b class="rehb">A</b></button>`],
+  ['テキスト', () => `<button class="palb txt" id="palText" title="譜表テキスト：音の上にことばを書く（Alt+T）"><b>T</b></button><button class="palb" id="palReh" title="リハーサル記号 A・B・C…（Alt+M）"><b class="rehb">A</b></button><button class="palb txt" id="palInst" title="楽器の持ちかえ：ここから、ちがう楽器の音にする（れい：フルート → ピッコロ）"><i style="position:static;font-style:normal;font-size:11px;font-weight:700">持ちかえ</i></button>`],
   ['くり返し・D.C.', () => `<button class="palb" data-bar="start" title="くり返しはじめ（カーソルの小節）">𝄆</button><button class="palb" data-bar="end" title="くり返しおわり（カーソルの前の小節）">𝄇</button><button class="palb txt" data-bar="1" title="1番かっこ">1.</button><button class="palb txt" data-bar="2" title="2番かっこ">2.</button>${JUMPS.map(([k, t]) => `<button class="palb ${k === 'segno' || k === 'coda' ? '' : 'txt sm'}" data-jump="${k}" title="${t}">${k === 'segno' ? palGlyph('segno') : k === 'coda' ? palGlyph('coda') : { tocoda: 'To⊕', fine: 'Fine', dc: 'D.C.', ds: 'D.S.' }[k]}</button>`).join('')}<button class="palb" data-jump="-" title="この小節の D.C.・コーダなどを消す">✕</button><button class="palb" id="palMrep" title="前の小節と同じ（くり返し記号）：前の小節の音をこの小節にうつして、楽譜では ％ の記号で書きます"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 19 L16 5 L19 5 L8 19 Z" fill="currentColor"/><circle cx="7" cy="8" r="2.2" fill="currentColor"/><circle cx="17" cy="16" r="2.2" fill="currentColor"/></svg></button>`],
 ];
 // マス目でも使える記号（音につくもの）
@@ -5788,6 +5796,7 @@ function scPalette(gridMode = ui.view !== 'score') {
   d.querySelectorAll('[data-jump]').forEach((b) => (b.onclick = () => { setJump(barOf(Math.min(ui.sc.cursor, totalTicks() - 1)), b.dataset.jump); renderScoreEdit(); }));
   const on = (id, fn) => { const el = d.querySelector('#' + id); if (el) el.onclick = fn; };
   on('palText', scStaffText);
+  on('palInst', scInstChange);
   on('palReh', scRehearsal);
   on('palPed', scPedal);
   on('palMrep', scMeasureRepeat);
@@ -6055,6 +6064,47 @@ function scStaffText() {
     if (!tr.texts.length) delete tr.texts;
   }, '譜表テキスト');
   renderScoreEdit();
+}
+// 楽器の持ちかえ：カーソル（えらんだ音）の所から、ちがう楽器の音にする
+function scInstChange() {
+  const tr = scEditable();
+  if (!tr || tr.type !== 'melody') return;
+  const r = selRange(tr);
+  const t = r ? r.s : ui.sc.cursor;
+  if (t == null) return toast('持ちかえる所の音符をえらんでください');
+  const old = (tr.instChg || []).find((x) => x.t === t);
+  const cur = instAt(tr, t);
+  let dlg = $('#dlgInstChg');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'dlgInstChg';
+    dlg.className = 'dlg small';
+    document.body.appendChild(dlg);
+  }
+  const b = barOf(t);
+  dlg.innerHTML = `<h3>楽器の持ちかえ</h3><p class="muted">${b + 1}小節目のここから、ちがう楽器の音で鳴らします。楽譜には「○○ に持ちかえ」と出ます。</p>
+    <label>ここからの楽器 <select id="icSel">${Object.entries(Sound.INSTRUMENTS).map(([id, nm]) => `<option value="${id}"${id === cur ? ' selected' : ''}>${escapeHtml(nm)}${id === tr.inst ? '（もとの楽器）' : ''}</option>`).join('')}</select></label>
+    <div class="btnrow" style="margin-top:12px"><button class="mini" id="icTry">ためしに聞く</button><span class="grow"></span>${old ? '<button class="mini" id="icDel">持ちかえを消す</button>' : ''}<button class="mini" id="icNo">やめる</button><button class="mini accent" id="icOk">決める</button></div>`;
+  const sel = dlg.querySelector('#icSel');
+  const set = (inst) => {
+    edit(() => {
+      tr.instChg = (tr.instChg || []).filter((x) => x.t !== t);
+      if (inst && inst !== instAt(tr, t)) tr.instChg.push({ t, inst });
+      tr.instChg.sort((a, c) => a.t - c.t);
+      // つづけて同じ楽器になる持ちかえは、いらない
+      let prev = tr.inst;
+      tr.instChg = tr.instChg.filter((x) => { const keep = x.inst !== prev; if (keep) prev = x.inst; return keep; });
+      if (!tr.instChg.length) delete tr.instChg;
+    }, '楽器の持ちかえ');
+    dlg.close();
+    preloadSamples();
+    renderScoreEdit();
+  };
+  dlg.querySelector('#icTry').onclick = () => { const ctx = ensureAudio(); const go = () => Sound.playNote(ctx, ctx._comp || ctx.destination, sel.value, 67, ctx.currentTime + 0.05, 0.6, 0.8, tr.real !== false); if (Sound.Samples.has(sel.value) && !Sound.Samples.ready(sel.value)) Sound.Samples.load(sel.value, ctx, [67]).then(go, go); else go(); };
+  dlg.querySelector('#icNo').onclick = () => dlg.close();
+  dlg.querySelector('#icOk').onclick = () => set(sel.value);
+  if (old) dlg.querySelector('#icDel').onclick = () => set(null);
+  dlg.showModal();
 }
 function scRehearsal() {
   const tr = track();
@@ -8287,7 +8337,7 @@ async function renderSong(onProg, opts = {}) {
   stop();
   if (onProg) onProg(0.02);
   const c0 = audioCtx();
-  await Promise.all(song.tracks.filter((t) => t.real !== false).map((t) => (t.type === 'drum' ? Sound.Samples.loadDrums(c0) : Sound.Samples.has(t.inst) ? Sound.Samples.load(t.inst, c0) : null)).map((p) => p && p.catch(() => null)));
+  await Promise.all(song.tracks.filter((t) => t.real !== false).flatMap((t) => (t.type === 'drum' ? [Sound.Samples.loadDrums(c0)] : trackInsts(t).map((i) => (Sound.Samples.has(i) ? Sound.Samples.load(i, c0) : null)))).map((p) => p && p.catch(() => null)));
   const sr = 44100;
   // 曲の全部を書き出すときは、ループの「はんい」を使わない（くり返し・D.C. もそのとおりに）
   const loop0 = ui.loopOn;
@@ -8457,6 +8507,7 @@ function midiBytes() {
       const c = ch++ & 15;
       ev.push({ t: 0, o: 0, d: [0xc0 | c, Sound.GM[tr.inst] || 0] }, { t: 0, o: 0, d: [0xb0 | c, 7, Math.round(tr.vol * 127)] }, { t: 0, o: 0, d: [0xb0 | c, 10, clamp(Math.round(((+tr.pan || 0) + 1) * 63.5), 0, 127)] });
       const notes = tr.type === 'melody' ? tr.notes.map((n) => ({ ...n, v: 0.8 * (n.vel || 1) })) : chordEvents(tr);
+      for (const cg of tr.instChg || []) ev.push({ t: cg.t * k, o: 0, d: [0xc0 | c, Sound.GM[cg.inst] || 0] });
       for (const n of notes) {
         if (n.s >= totalTicks()) continue;
         const v = Math.round(clamp(n.v, 0.1, 1) * 110);
