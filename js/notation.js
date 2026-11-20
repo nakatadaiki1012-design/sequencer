@@ -537,14 +537,16 @@ const Notation = (() => {
       if (cso && cso.length > 1) for (const sg of cso) { const at = sg.o; if (at >= bL(b)) continue; set.add(at); const n = need.get(at) || { w: 0, acc: false, pre: 0 }; n.w = Math.max(n.w, textW(sg.name) + 4); need.set(at, n); }
       const ticks = [...set].sort((a, c) => a - c);
       const segW = [];
+      const segP = []; // のびちぢみする分（d：音の長さの間隔）・ちぢまない分（m：歌詞の幅、f：臨時記号・装飾音の場所）
       for (let i = 0; i < ticks.length - 1; i++) {
         const a = need.get(ticks[i]) || { w: 0 };
         const z = need.get(ticks[i + 1]) || { w: 0, acc: false };
         // 音の長さに合った間隔・歌詞が重ならない間隔・臨時記号の分
         segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]) * SPC, (a.w + z.w) / 2 + 5) + (+z.acc || 0) * 9 + (z.pre || 0));
+        segP.push({ d: spaceFor(ticks[i + 1] - ticks[i]) * SPC, m: (a.w + z.w) / 2 + 5, f: (+z.acc || 0) * 9 + (z.pre || 0) });
       }
       const nat = 14 + chgRoom + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
-      barInfo.push({ ticks, segW, nat, accRoom, chgRoom, keyChg, mChg, clefChg });
+      barInfo.push({ ticks, segW, segP, nat, accRoom, chgRoom, keyChg, mChg, clefChg });
     }
 
     // ---- 段組み（1段に何小節入れるか） ----
@@ -577,6 +579,7 @@ const Notation = (() => {
         bi.mr = true;
         bi.ticks = [barStartTick(b), bL(b)];
         bi.segW = [60];
+        bi.segP = null;
         bi.accRoom = 0;
         bi.nat = 14 + bi.chgRoom + 60 + 6;
       }
@@ -622,7 +625,7 @@ const Notation = (() => {
           const fill = w / avail;
           const lastLine = j === n && z === bars;
           // ゆるすぎる段・きつすぎる段ほど悪い。さいごの段は短くてもよいが、短すぎはさける
-          let bad = fill > 1 ? (fill - 1) * (fill - 1) * 900 : lastLine ? (fill < 0.45 ? (0.45 - fill) * (0.45 - fill) * 60 : 0) : (1 - fill) * (1 - fill) * 100;
+          let bad = fill > 1 ? (fill - 1) * (fill - 1) * 900 : lastLine ? (fill < 0.6 ? (0.6 - fill) * (0.6 - fill) * 150 : 0) : (1 - fill) * (1 - fill) * 100; // さいごの段が短くなりすぎるなら、前の段から小節を回して、つり合わせる
           if (j - i === 1 && n > 1 && !barInfo[a + i].mm) bad += lastLine ? 24 : 6; // 1小節だけの段（とくに、さいごの段）は、なるべくつくらない
           bad += 12; // 段の数はなるべく少なく
           if (best[i] + bad < best[j]) { best[j] = best[i] + bad; from[j] = i; }
@@ -714,6 +717,7 @@ const Notation = (() => {
     }
 
     let prevStretch = 1.2;
+    let prevLam = null;
     // 臨時記号は段ごと・小節ごとに覚える
     layout.title = title;
     layout.barNat = barInfo.map((x) => Math.round(x.nat));
@@ -734,19 +738,38 @@ const Notation = (() => {
       const caut = cautK || cautM ? cautK + cautM + 8 : 0;
       const avail = width - hx - 10 - caut;
       const natSum = barInfo.slice(b0, b1).reduce((a, x) => a + x.nat, 0);
+      // 段の幅に合わせて広げる・つめる：のびちぢみするのは「音の長さの間隔」だけ。
+      // 臨時記号・装飾音の場所や、歌詞に必要な幅は変えない（臨時記号の多い小節だけ間のびしないように）
+      const barFix = (bi) => 20 + bi.accRoom + bi.chgRoom;
+      const barW = (bi, lam) => {
+        if (bi.hide) return 0;
+        if (!bi.segP || bi.mm) return barFix(bi) + (bi.nat - barFix(bi)) * lam;
+        let w = barFix(bi);
+        for (const q of bi.segP) w += Math.max(q.d * lam, q.m) + q.f;
+        return w;
+      };
+      const sysW = (lam) => { let w = 0; for (let bb = b0; bb < b1; bb++) w += barW(barInfo[bb], lam); return w; };
       let stretch = avail / natSum;
-      if (line === lines.length - 1 && lines.length > 1 && natSum * prevStretch < avail * 0.67) stretch = prevStretch;
-      if (line < lines.length - 1) prevStretch = stretch;
+      let lam = null; // null＝ちぢまない分だけで段からはみ出す → 全部を同じ割合でつめる（前と同じ）
+      if (sysW(0.2) <= avail) {
+        let lo = 0.2, hi = 60;
+        for (let it = 0; it < 40; it++) { const mid = (lo + hi) / 2; if (sysW(mid) > avail) hi = mid; else lo = mid; }
+        lam = lo;
+      }
+      if (line === lines.length - 1 && lines.length > 1 && prevLam != null && lam != null && sysW(prevLam) < avail * 0.67) lam = prevLam;
+      else if (line === lines.length - 1 && lines.length > 1 && lam == null && natSum * prevStretch < avail * 0.67) stretch = prevStretch;
+      if (line < lines.length - 1) { prevStretch = stretch; prevLam = lam; }
       const sys = { y0: sysTop - topRow, y1: sysTop + sysHOf(line) - topRow, bars: [], staves: [] };
       // 小節の x 位置
       let x = hx;
       for (let bb = b0; bb < b1; bb++) {
         const bi = barInfo[bb];
-        const w = bi.nat * stretch;
+        const w = lam != null ? barW(bi, lam) : bi.nat * stretch;
         const k = bi.hide ? 0 : (w - 20 - bi.accRoom - bi.chgRoom) / bi.segW.reduce((a, v) => a + v, 0);
+        const own = lam != null && bi.segP && !bi.mm && !bi.hide; // 間隔ごとに、のびる分・のびない分を分けて置く
         const xs = [];
         let cx = x + 14 + bi.chgRoom + bi.accRoom;
-        bi.ticks.forEach((t, i) => { xs.push(cx); if (i < bi.segW.length) cx += bi.segW[i] * k; });
+        bi.ticks.forEach((t, i) => { xs.push(cx); if (i < bi.segW.length) cx += own ? Math.max(bi.segP[i].d * lam, bi.segP[i].m) + bi.segP[i].f : bi.segW[i] * k; });
         sys.bars.push({ b: bb, x0: x, x1: x + w, ticks: bi.ticks, xs, keyChg: bi.keyChg, mChg: bi.mChg, clefChg: bi.clefChg });
         x += w;
       }
@@ -1031,7 +1054,7 @@ const Notation = (() => {
                 if (lastAccPos - h.pos < 6) accCol++; else accCol = 0;
                 lastAccPos = h.pos;
                 const an = ACC_G[h.acc] || 'accidentalNatural';
-                o.push(G(an, x - hw - GW(an) - 2.5 - accCol * 9 + Math.min(0, disp[i]), y, `fill="${col}"`));
+                o.push(G(an, x - hw - GW(an) - 2.5 - accCol * 9 + Math.min(0, ...disp), y, `fill="${col}"`)); // 左にずれた符頭（2度）がある和音では、その分だけ左へ
               }
               if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; o.push(G('augmentationDot', x + hw + 3 + Math.max(0, ...disp), y + dy, `fill="${col}"`)); }
             }
@@ -1064,7 +1087,7 @@ const Notation = (() => {
           prevOf[stream] = prevHead;
           drawStemsAndBeams(o, drawn, mAt(bb));
           for (const R of restLater) drawRest(o, R.ev, R.x, R.yOf, restShift(R, drawn));
-          drawTriplets(o, drawn, yOf, tripRests);
+          drawTriplets(o, drawn, yOf, tripRests, st.hasLyr && st.sub === 0 && stream === 'A' && !st.notes2.length); // 歌詞のある段は、3連符の数字を上に（歌詞とぶつからないように）
           return drawn;
           };
           const MM = barInfo[bb].mm;
@@ -1214,26 +1237,31 @@ const Notation = (() => {
         melFlush();
         // 2番からあるときは、段のはじめに「1.」「2.」と番号を書く
         if (st.lyrN > 1) for (let r = 0; r < st.lyrN; r++) { const f = lyrBuf.filter((q) => q.row === r).sort((a, c) => a.x - c.x)[0]; if (f) o.push(`<text x="${(f.x - textW(f.t) / 2 - 4).toFixed(1)}" y="${lyrY + r * LYR_GAP}" font-size="10" text-anchor="end" fill="#444" font-family="${SERIF}" class="lyrno">${r + 1}.</text>`); }
-        for (let row = 0; row < 3; row++) lyrBuf.filter((q) => q.row === row).sort((a, c) => a.x - c.x).forEach((L, i, lyrBuf) => {
-          const lyrY0 = lyrY;
-          const lyrY1 = lyrY0 + row * LYR_GAP;
-          const prev = lyrBuf[i - 1];
-          const next = lyrBuf[i + 1];
-          const room = Math.min(prev ? L.x - prev.x : 1e9, next ? next.x - L.x : 1e9) - 4;
-          const w = textW(L.t);
-          let fs = 12;
-          let fit = '';
-          if (w > room) {
-            fs = Math.max(8.5, (12 * room) / w);
-            if ((w * fs) / 12 > room) fit = ` textLength="${Math.max(8, room).toFixed(1)}" lengthAdjust="spacingAndGlyphs"`;
-          }
-          o.push(`<text x="${L.x}" y="${lyrY1}" font-size="${+fs.toFixed(1)}" text-anchor="middle" fill="#111" font-family="${SERIF}" class="lyr${row ? ' lyr' + (row + 1) : ''}"${fit}>${esc(L.t)}</text>`);
-          if (L.hy) { // ハイフン：となりの音節とのあいだのまん中（段のおわりなら、すぐうしろ）
-            const a = L.x + Math.min(w, room) / 2;
-            const z = next ? next.x - Math.min(textW(next.t), room) / 2 : a + 12;
-            if (z - a > 5) o.push(`<line x1="${((a + z) / 2 - 3).toFixed(1)}" x2="${((a + z) / 2 + 3).toFixed(1)}" y1="${lyrY1 - 4}" y2="${lyrY1 - 4}" stroke="#111" stroke-width="1.1" class="lyhy"/>`);
-          }
-        });
+        // 歌詞の文字の大きさは、段の中でそろえる（となりとぶつかる所があれば、その行を全部同じだけ小さく）
+        // 文字の幅は、字の種類ごとに見つもる（英字の i・l は細く、m・w は太い）
+        const lyW = (t) => 1.04 * [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12.5 : /[MW]/.test(c) ? 11.2 : /[iljtfrI.,'!\- ]/.test(c) ? 4.2 : /[A-Z]/.test(c) ? 8.8 : /[mw]/.test(c) ? 9.5 : 6.2), 0);
+        for (let row = 0; row < 3; row++) {
+          const rowL = lyrBuf.filter((q) => q.row === row).sort((a, c) => a.x - c.x);
+          let f = 1;
+          for (let i = 1; i < rowL.length; i++) { const need = (lyW(rowL[i - 1].t) + lyW(rowL[i].t)) / 2 + 4; const dx = rowL[i].x - rowL[i - 1].x; if (need > dx) f = Math.min(f, dx / need); }
+          const fs = Math.max(8.5, Math.floor(12 * f * 2) / 2);
+          const lyrY1 = lyrY + row * LYR_GAP;
+          const wOf = (q) => (lyW(q.t) * fs) / 12;
+          rowL.forEach((L, i) => {
+            const prev = rowL[i - 1];
+            const next = rowL[i + 1];
+            // それでも入らない字だけ、横につめる
+            const room = Math.min(prev ? 2 * (L.x - prev.x) - wOf(prev) : 1e9, next ? 2 * (next.x - L.x) - wOf(next) : 1e9) - 4;
+            const w = wOf(L);
+            const fit = w > room + 0.5 && 12 * f < 8.5 ? ` textLength="${Math.max(8, Math.min(w, room)).toFixed(1)}" lengthAdjust="spacingAndGlyphs"` : '';
+            o.push(`<text x="${L.x}" y="${lyrY1}" font-size="${fs}" text-anchor="middle" fill="#111" font-family="${SERIF}" class="lyr${row ? ' lyr' + (row + 1) : ''}"${fit}>${esc(L.t)}</text>`);
+            if (L.hy) { // ハイフン：となりの音節とのあいだのまん中（段のおわりなら、すぐうしろ）
+              const a = L.x + w / 2;
+              const z = next ? next.x - wOf(next) / 2 : a + 12;
+              if (z - a > 5) o.push(`<line x1="${((a + z) / 2 - 3).toFixed(1)}" x2="${((a + z) / 2 + 3).toFixed(1)}" y1="${lyrY1 - 4}" y2="${lyrY1 - 4}" stroke="#111" stroke-width="1.1" class="lyhy"/>`);
+            }
+          });
+        }
         if (st.hasLyr && opts.lyrPart && st.part.id === opts.lyrPart) { const yv = lyrY + (Math.max(1, +opts.lyrVerse || 1) - 1) * LYR_GAP; o.push(`<line class="lyrbase" data-pi="${st.pi}" x1="${L}" x2="${xEnd}" y1="${yv}" y2="${yv}" stroke="none"/>`); }
         // 予告の調号・拍子（段の終わり）
         if (caut) {
@@ -1628,14 +1656,14 @@ const Notation = (() => {
     for (const q of groups) if (q.total == null) q.total = q.evs[q.evs.length - 1].pos + q.evs[q.evs.length - 1].len - q.start;
     return groups;
   }
-  function drawTriplets(o, drawn, yOf, rests = []) {
+  function drawTriplets(o, drawn, yOf, rests = [], above = false) {
     const all = [...drawn, ...rests].sort((a, c) => a.ev.pos - c.ev.pos);
     const byEv = new Map(all.map((d) => [d.ev, d]));
     const groups = tripGroups(all.map((d) => d.ev)).map((g) => ({ list: g.evs.map((ev) => byEv.get(ev)) }));
     for (const { list: L0 } of groups) {
       const list = L0.map((d) => (d.rest ? { x: d.x + 5, rest: true, ev: d.ev, hi: 8, lo: 0, yOf: d.yOf } : d));
       const notes = list.filter((d) => !d.rest);
-      const up = notes.length ? notes.filter((d) => d.up).length * 2 >= notes.length : true;
+      const up = above || (notes.length ? notes.filter((d) => d.up).length * 2 >= notes.length : true);
       const x0 = list[0].x;
       const x1 = list[list.length - 1].x;
       const edge = list.map((d) => (d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? (d.tipY != null ? d.tipY + (up ? -2 : 2) : stemEnd(d)) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
