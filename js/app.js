@@ -4156,6 +4156,66 @@ function addTrack(type) {
   if (type !== 'chord') openInstPicker(cur);
 }
 
+// 和音をパートに分ける（MuseScore の「展開」）：上の音から順に、1つずつ下のパートへ。
+// 音が足りない所は、いちばん下の音を下のパートにも入れる（どのパートも休みにならないように）
+function explodeTrack(tr) {
+  const groups = new Map();
+  for (const n of tr.notes) { if (!groups.has(n.s)) groups.set(n.s, []); groups.get(n.s).push(n); }
+  let parts = 0;
+  for (const g of groups.values()) parts = Math.max(parts, new Set(g.map((n) => n.p)).size);
+  if (parts < 2) return toast('和音（同時に鳴る2つ以上の音）がありません');
+  parts = Math.min(parts, 4);
+  if (song.tracks.length + parts - 1 > MAX_TRACKS) return toast(`トラックは${MAX_TRACKS}つまでです`);
+  const at = song.tracks.indexOf(tr);
+  const strip = (n) => { const o = { ...n }; for (const k of ['ly', 'ly2', 'ly3', 'v']) delete o[k]; return o; };
+  edit(() => {
+    const lists = Array.from({ length: parts }, () => []);
+    for (const g of groups.values()) {
+      const byP = [...g].sort((a, b) => b.p - a.p).filter((n, i, arr) => !i || arr[i - 1].p !== n.p);
+      for (let k = 0; k < parts; k++) {
+        // 4つより多い和音は、いちばん下のパートに、のこりを全部
+        if (k === parts - 1 && byP.length > parts) { for (const n of byP.slice(k)) lists[k].push(strip(n)); continue; }
+        const n = byP[Math.min(k, byP.length - 1)];
+        lists[k].push(k === 0 ? n : strip(n));
+      }
+    }
+    tr.notes = lists[0];
+    const base = tr.name.replace(/\s*[1-4１-４]$/, '');
+    const made = [];
+    for (let k = 1; k < parts; k++) made.push(newTrack('melody', { name: base + ' ' + (k + 1), inst: tr.inst, range: tr.range, vol: tr.vol, pan: tr.pan, real: tr.real, notes: lists[k].sort((a, b) => a.s - b.s) }));
+    if (!/[1-4１-４]$/.test(tr.name)) tr.name = base + ' 1';
+    song.tracks.splice(at + 1, 0, ...made);
+  }, '和音をパートに分ける');
+  renderTracks(); renderEditorTools(); draw(); drawOverview();
+  if (ui.view === 'score') renderScoreEdit();
+  toast(`${parts}つのパートに分けました`);
+}
+// 下のパートをまとめる（MuseScore の「集約」）：すぐ下のメロディのパートの音を、このパートの和音にする
+function implodeTrack(tr) {
+  const at = song.tracks.indexOf(tr);
+  const src = song.tracks[at + 1];
+  if (!src || src.type !== 'melody') return toast('すぐ下にメロディのパートがありません');
+  if (src.locked) return toast('下のパートがロックされています');
+  edit(() => {
+    const have = new Set(tr.notes.map((n) => n.s + ':' + n.p));
+    for (const n of src.notes) {
+      if (have.has(n.s + ':' + n.p)) continue;
+      have.add(n.s + ':' + n.p);
+      const o = { ...n };
+      for (const k of ['ly', 'ly2', 'ly3']) delete o[k];
+      // 長さのちがう音は、楽譜では下の声部に書く
+      const mate = tr.notes.find((m) => m.s === n.s && voiceOf(m) === 1);
+      if (mate && mate.l !== n.l) o.v = 2; else if (!mate && tr.notes.some((m) => voiceOf(m) === 1 && m.s < n.s + n.l && m.s + m.l > n.s)) o.v = 2; else delete o.v;
+      tr.notes.push(o);
+    }
+    tr.notes.sort((a, b) => a.s - b.s || b.p - a.p);
+    song.tracks.splice(at + 1, 1);
+  }, '下のパートをまとめる');
+  renderTracks(); renderEditorTools(); draw(); drawOverview();
+  if (ui.view === 'score') renderScoreEdit();
+  toast(`「${src.name}」をまとめました（「もどす」で元にもどせます）`);
+}
+
 function renderEditorTools() {
   const tr = track();
   const box = $('#editorTools');
@@ -4189,7 +4249,9 @@ function renderEditorTools() {
       <div class="sub">音の移動 <small>${multi ? `（${ui.sel.b0 + 1}〜${ui.sel.b1 + 1}小節だけ）` : '（全部。曲の地図で2小節以上えらぶとその範囲だけ）'}</small></div>
       <div class="btnrow"><button class="mini" id="tOctUp">オクターブ↑</button><button class="mini" id="tSemiUp">半音↑</button><button class="mini" id="tDegUp">音階↑</button></div>
       <div class="btnrow"><button class="mini" id="tOctDn">オクターブ↓</button><button class="mini" id="tSemiDn">半音↓</button><button class="mini" id="tDegDn">音階↓</button></div>
-      ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}`;
+      ${others.length ? `<div class="sub">輪唱づくり</div><div class="btnrow"><select id="rSrc">${others.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}</select>を<select id="rBars">${[0, 1, 2, 4].map((b) => `<option value="${b}" ${b === 2 ? 'selected' : ''}>${b}小節</option>`).join('')}</select>ずらして<button class="mini" id="btnRound">ここに写す</button></div>` : ''}
+      <div class="sub">パートを分ける・まとめる</div>
+      <div class="btnrow"><button class="mini" id="btnExplode" title="和音を、上の音から順に、べつべつのパートに分けます（このパートにいちばん上の音がのこり、下に新しいパートができます）">和音をパートに分ける</button><button class="mini" id="btnImplode" title="すぐ下のメロディのパートを、このパートにまとめて和音にします（下のパートはなくなります）" ${song.tracks[cur + 1] && song.tracks[cur + 1].type === 'melody' ? '' : 'disabled'}>下のパートをまとめる</button></div>`;
   } else if (tr.type === 'drum') {
     html += `<button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>`;
     html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
@@ -4267,6 +4329,8 @@ function renderEditorTools() {
     $('#tOctUp').onclick = guard(() => transpose(tr, 12), 'オクターブ上げる');
     const ba = $('#btnAuto');
     if (ba) ba.onclick = () => { if (lk) return toast('ロックされています'); if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「元に戻す」で戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
+    $('#btnExplode').onclick = () => { if (lk) return toast('ロックされています'); explodeTrack(tr); };
+    $('#btnImplode').onclick = () => { if (lk) return toast('ロックされています'); implodeTrack(tr); };
     if (others.length) $('#btnRound').onclick = () => {
       if (lk) return;
       const src = song.tracks.find((t) => t.id === $('#rSrc').value);
