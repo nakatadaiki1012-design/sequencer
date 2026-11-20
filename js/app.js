@@ -4061,8 +4061,91 @@ function clearAll(key) {
 let stripScroll = 0;
 function stripBW() {
   const w = ($('#trackList').clientWidth || innerWidth) - 40;
-  return Math.max(30, Math.floor(w / Math.min(song.bars, 8)));
+  // ui.stripZoom：スマホのトラック画面を2本指で広げた・つまんだ倍率
+  return Math.max(10, Math.floor((Math.max(30, Math.floor(w / Math.min(song.bars, 8))) * (ui.stripZoom || 1))));
 }
+// 2本指で広げる・つまむ（ピンチ）：el の上で2本指を動かすと、on.move(倍率, 中心x, 中心y) をよぶ
+function pinchOn(el, on) {
+  let g = null;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const move = (e) => {
+    if (!g || e.touches.length !== 2 || e._pinch) return;
+    e._pinch = true;
+    e.preventDefault();
+    g.k = on.move(dist(e.touches) / g.d0, (e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2);
+  };
+  const done = (e) => {
+    if (!g || (e && e._pinch)) return;
+    if (e) e._pinch = true;
+    const k = g.k;
+    for (const t of g.targets) { t.removeEventListener('touchmove', move); t.removeEventListener('touchend', done); t.removeEventListener('touchcancel', done); }
+    g = null;
+    on.end(k);
+  };
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) { if (g) done(); return; }
+    if (g || (on.ok && !on.ok())) return;
+    // 指をおいた部品が、とちゅうで書きなおされて消えても動きを受け取れるように、その部品にも直接つける
+    g = { d0: Math.max(10, dist(e.touches)), k: 1, targets: new Set([el, ...[...e.touches].map((t) => t.target)]) };
+    for (const t of g.targets) { t.addEventListener('touchmove', move, { passive: false }); t.addEventListener('touchend', done); t.addEventListener('touchcancel', done); }
+    on.start();
+    e.preventDefault();
+  }, { passive: false });
+}
+function initPinch() {
+  // 楽譜の画面：2本指で大きく・小さく。指を動かしている間は絵をのばすだけにして、はなしたときに書きなおす（軽くするため）
+  const view = $('#scoreEditView');
+  let z0 = 1, c = null;
+  const svgs = () => [...view.querySelectorAll(':scope > svg, :scope > div > svg')];
+  pinchOn(view, {
+    ok: () => ui.view === 'score',
+    start: () => {
+      z0 = ui.sc.zoom || 1; c = null;
+      ui.sc.pinching = true;
+      // 1本目の指で音符をつかんでいたら、はなす。音が入ってしまっていたら、取り消す
+      if (ui.sc.dragging) dispatchEvent(new Event('pointercancel'));
+      if (scTouch && performance.now() - scTouch.t < 600 && undoStack.length > scTouch.n) undo();
+      scTouch = null;
+    },
+    move: (f, x, y) => {
+      const k = clamp(z0 * f, 0.6, 2) / z0;
+      const r = view.getBoundingClientRect();
+      if (!c) c = { x: x - r.left + view.scrollLeft, y: y - r.top + view.scrollTop, vx: x - r.left, vy: y - r.top };
+      for (const el of svgs()) { el.style.transformOrigin = `${c.x - el.offsetLeft}px ${c.y - el.offsetTop}px`; el.style.transform = `scale(${k.toFixed(3)})`; }
+      return k;
+    },
+    end: (k) => {
+      ui.sc.pinching = false;
+      for (const el of svgs()) { el.style.transform = ''; el.style.transformOrigin = ''; }
+      const z = clamp(Math.round(z0 * k * 100) / 100, 0.6, 2);
+      if (Math.abs(z - z0) < 0.02) return;
+      const kk = z / z0;
+      ui.sc.zoom = z;
+      renderScoreEditNow();
+      // 指のあった所が、同じ所にのこるように
+      if (c) { view.scrollLeft = c.x * kk - c.vx; view.scrollTop = c.y * kk - c.vy; }
+    },
+  });
+  // スマホのトラックの画面：2本指で、小節のはばを広く・せまく
+  const box = document.querySelector('.tracks');
+  let s0 = 1, raf = 0;
+  pinchOn(box, {
+    ok: () => isPhone,
+    start: () => { s0 = ui.stripZoom || 1; },
+    move: (f) => {
+      const z = clamp(s0 * f, 0.25, 6);
+      const old = ui.stripZoom || 1;
+      if (Math.abs(z - old) / old < 0.03) return z / s0;
+      stripScroll = stripScroll * (z / old);
+      ui.stripZoom = z;
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; renderTracks(); });
+      return z / s0;
+    },
+    end: () => { renderTracks(); lsSet('otsumiki-stripzoom', String(ui.stripZoom || 1)); },
+  });
+  ui.stripZoom = clamp(+lsGet('otsumiki-stripzoom', '1') || 1, 0.25, 6);
+}
+let scTouch = null; // 楽譜を指でおしたときの記録（2本目の指が来たら、1本目の操作を取り消すため）
 function trackStrip(tr, i) {
   const BW = stripBW();
   const H = 44;
@@ -7081,7 +7164,8 @@ function scoreKey(e) {
 }
 function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
-  $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; if (scBandStart(e)) return; scoreClick(e); });
+  $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; if (ui.sc && ui.sc.pinching) return; if (e.pointerType === 'touch' && !e.isPrimary) return; if (e.pointerType === 'touch') scTouch = { t: performance.now(), n: undoStack.length }; if (scBandStart(e)) return; scoreClick(e); });
+  initPinch();
   // Ctrl＋ホイールで楽譜を大きく・小さく
   // 音符をドラッグしているあいだは、画面をスクロールさせない（タブレット）
   $('#scoreEditView').addEventListener('touchmove', (e) => { if (ui.sc && ui.sc.dragging) e.preventDefault(); }, { passive: false });
