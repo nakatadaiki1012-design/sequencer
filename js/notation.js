@@ -685,6 +685,30 @@ const Notation = (() => {
     const sysHOf = (line) => { fitLine(line); return topRow + vis[line].reduce((a, s) => a + staffH(s), 0) + 16; };
     // 大きな曲：opts.window＝[はじめの小節, おわりの小節) にかかる段だけを書く（画面を軽くする）
     const W = WIN;
+    // 大きな曲を画面で書くとき：部品の数をへらす（ぼう・加線・連桁などを、段ごとに1つの図形にまとめる）。
+    // 部品が何万個もあると、音を1つ入れるたびの書きなおしが重くなる。印刷・書き出し・小さな曲は今までどおり
+    const COMPACT = !!(W && edit);
+    const LINE_RE = /^<line x1="(-?[\d.]+)" x2="(-?[\d.]+)" y1="(-?[\d.]+)" y2="(-?[\d.]+)" stroke="#111" stroke-width="([\d.]+)"\/>$/;
+    const POLY_RE = /^<path d="(M-?[\d.]+ -?[\d.]+(?: L-?[\d.]+ -?[\d.]+)+ Z)" fill="#111"\/>$/;
+    const compact = (arr) => {
+      const out = [];
+      const byW = new Map(); // 線の太さ → { i: 置く場所, d: 図形 }
+      let poly = null;
+      for (const sx of arr) {
+        let m;
+        if (sx.length < 140 && (m = LINE_RE.exec(sx))) {
+          let q = byW.get(m[5]);
+          if (!q) { q = { i: out.length, d: '' }; byW.set(m[5], q); out.push(''); }
+          q.d += `M${m[1]} ${m[3]}L${m[2]} ${m[4]}`;
+        } else if (sx.length < 260 && (m = POLY_RE.exec(sx))) {
+          if (!poly) { poly = { i: out.length, d: '' }; out.push(''); }
+          poly.d += m[1];
+        } else out.push(sx);
+      }
+      for (const [w, q] of byW) out[q.i] = `<path d="${q.d}" stroke="#111" stroke-width="${w}" fill="none"/>`;
+      if (poly) out[poly.i] = `<path d="${poly.d}" fill="#111"/>`;
+      return out;
+    };
     const inWin = (line) => !W || (lines[line][0] >= W[0] && lines[line][1] <= W[1]);
     const lineTop = [];
     { let y = 0; lines.forEach((_, i) => { lineTop.push(y); if (inWin(i)) y += sysHOf(i); }); }
@@ -1042,14 +1066,14 @@ const Notation = (() => {
               const col = isSel ? SELC : outP ? '#e03131' : outA ? '#d9480f' : (ev.cols && NOTE_COLS[ev.cols[h.p]]) || '#111';
               const data = `class="nh" data-pi="${st.pi}" data-s="${ev.src}" data-e="${ev.srcEnd}" data-p="${h.p}"${stream === 'B' ? ' data-v="2"' : ''}`;
               // 符頭のまわりに、クリックしやすい透明な当たりを入れる
-              o.push(`<rect ${data.replace('class="nh"', 'class="nhhit"')} x="${hx2 - hw - 2}" y="${y - 5}" width="${hw * 2 + 4}" height="10" fill="transparent"/>`);
+              if (!COMPACT) o.push(`<rect ${data.replace('class="nh"', 'class="nhhit"')} x="${hx2 - hw - 2}" y="${y - 5}" width="${hw * 2 + 4}" height="10" fill="transparent"/>`);
               if (st.part.slash) o.push(`<path ${data} d="M${hx2 - 6} ${y + 6} L${hx2 + 2} ${y - 6} L${hx2 + 6} ${y - 6} L${hx2 - 2} ${y + 6} Z" fill="${col}"/>`); // スラッシュ（コードのリズム）
               else if (nhk === 'diamond') {
                 const dw = hw + 0.6;
                 const dh = SP / 2 + 0.6;
                 o.push(`<path ${data} d="M${hx2 - dw} ${y} L${hx2} ${y - dh} L${hx2 + dw} ${y} L${hx2} ${y + dh} Z" fill="${ev.base >= 96 ? 'none' : col}" stroke="${col}" stroke-width="${ev.base >= 96 ? 1.3 : 0.6}"/>`);
               } else if (ev.sm && !perc) { const sps = SP * 0.72; const hws = GW(hn, sps) / 2; o.push(G(hn, up ? hx2 + hw - 2 * hws : hx2 - hw, y, `${data} fill="${col}"`, sps)); } // 小さい音符：ぼうの側にそろえる
-              else o.push(G(hn, hx2 - hw, y, `${data} fill="${col}"`));
+              else o.push(G(hn, hx2 - hw, y, COMPACT ? `${data} fill="${col}" stroke="transparent" stroke-width="0.45" pointer-events="all"` : `${data} fill="${col}"`)); // まとめるときは、当たりの四角のかわりに、すきとおったふちで、おしやすく
               if (h.accTxt && !st.part.slash) {
                 if (lastAccPos - h.pos < 6) accCol++; else accCol = 0;
                 lastAccPos = h.pos;
@@ -1458,6 +1482,7 @@ const Notation = (() => {
           for (const B of sys.bars) o.push(conn(B, yA + 4 * SP, tops[si + 1]));
         }
       });
+      if (COMPACT) { const part = compact(o.splice(oStart)); for (const q of part) o.push(q); }
       sys.svg = o.slice(oStart).join('');
       layout.systems.push(sys);
     });

@@ -1666,6 +1666,7 @@ function anim() {
   requestAnimationFrame(anim);
 }
 let animLast = 0;
+let animN = 0;
 const animVis = { t: 0, grid: true, ov: true };
 function animBody() {
   // スマホ・タブレットでは、画面の書きかえは1秒に30回まで（音の計算に力をのこす）
@@ -1694,7 +1695,8 @@ function animBody() {
     drawOverview(pos);
   }
   updateMini(pos);
-  drawViz();
+  // 上の小さな波形：スマホでは3コマに1回（1秒に10回くらい）
+  if (!LOW_POWER || (animN = (animN + 1) % 3) === 0) drawViz();
   if (document.body.classList.contains('present')) karaoke(pos);
   if (ui.view === 'score') highlightScore(pos);
 }
@@ -1859,7 +1861,7 @@ let highlightRow = null;
 
 // 再生中のマス目：毎コマ全部を描きなおすと重いので、描いた絵をとっておき、
 // 変わらないあいだは「とっておいた絵＋動く線」だけにする（鳴っている音が変わったとき・画面が動いたときに描きなおす）
-const drawCache = { cv: null, key: '' };
+const drawCache = { cv: null, key: '', px: null };
 let drawSerial = 0;
 function litSig(tr, pos) {
   if (tr.type !== 'melody') return 'q' + Math.floor(pos / 6);
@@ -1905,10 +1907,16 @@ function draw(playPos, fromAnim) {
   const lit = fromAnim && playPos != null ? litSig(tr, playPos) : null;
   const cacheKey = lit != null ? [version, cur, sx, sy, cv.width, cv.height, k, rh, drawSerial, lit].join('|') : '';
   if (cacheKey && drawCache.cv && drawCache.key === cacheKey && drawCache.cv.width > 0 && drawCache.cv.height > 0) {
+    // とっておいた絵から、前の線があった所と今度の線の所だけをもどして、線を書く（全面をコピーしない）
+    const px = LW + playPos * k - sx;
+    const a = Math.max(0, Math.floor((Math.min(px, drawCache.px) - 112) * dpr));
+    const z = Math.min(cv.width, Math.ceil((Math.max(px, drawCache.px) + 26) * dpr));
     g2.setTransform(1, 0, 0, 1, 0, 0);
-    g2.drawImage(drawCache.cv, 0, 0);
+    if (drawCache.px == null || z - a > cv.width * 0.6) g2.drawImage(drawCache.cv, 0, 0);
+    else if (z > a) g2.drawImage(drawCache.cv, a, 0, z - a, cv.height, a, 0, z - a, cv.height);
     g2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawPlayhead(LW + playPos * k - sx, W, H);
+    drawPlayhead(px, W, H);
+    drawCache.px = px;
     return;
   }
   const rows = rowsFor(tr);
@@ -2293,6 +2301,7 @@ function draw(playPos, fromAnim) {
       if (cc.width !== cv.width || cc.height !== cv.height) { cc.width = cv.width; cc.height = cv.height; }
       cc.getContext('2d').drawImage(cv, 0, 0);
       drawCache.key = cacheKey;
+      drawCache.px = X(playPos);
     }
     drawPlayhead(X(playPos), W, H);
   }
@@ -5426,8 +5435,9 @@ function renderScoreEditNow() {
 // 楽譜の画面で、一度に書く小節の数（大きな曲だけ。小さな曲は全部書く）
 function scoreWindow(nParts) {
   const n = Math.max(1, nParts);
-  if (song.bars * n <= 2400) return 0;
-  return Math.max(4, Math.round(1200 / n));
+  // スマホ・タブレットは、一度に書く量を少なく（音を入れるたびの書きなおしを軽くする）
+  if (song.bars * n <= (LOW_POWER ? 1200 : 2400)) return 0;
+  return Math.max(4, Math.round((LOW_POWER ? 480 : 900) / n));
 }
 function scoreWinMove(dir) {
   const L = $('#scoreEditView')._layout;
