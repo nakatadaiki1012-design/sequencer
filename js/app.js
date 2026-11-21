@@ -3609,7 +3609,52 @@ function scaleDegreesInRange(lo, hi) {
   for (let m = lo; m <= hi; m++) if (pcs.has(m % 12)) out.push(m);
   return out;
 }
+/* ---------- コード・スケール（そのコードの上で使える音階） ----------
+   コードごとに「使える音階」を決める。候補の音階のうち、コードの音を全部ふくみ、曲の調の音といちばん多く重なるものをえらぶ
+   （例：ハ長調の E7 → ミ ファ ソ♯ ラ シ ド レ。ソではなくソ♯を使う）
+   音は3つに分ける：0＝コードの音、1＝テンション（のばしてもきれいな音。9th・11th・13th など）、
+   2＝アボイド（コードの音の半音上でにごる音。通りすぎるだけにする） */
+const CHORD_SCALES = {
+  ion: [0, 2, 4, 5, 7, 9, 11], lyd: [0, 2, 4, 6, 7, 9, 11], mix: [0, 2, 4, 5, 7, 9, 10], dor: [0, 2, 3, 5, 7, 9, 10], aeo: [0, 2, 3, 5, 7, 8, 10],
+  phr: [0, 1, 3, 5, 7, 8, 10], loc: [0, 1, 3, 5, 6, 8, 10], loc2: [0, 2, 3, 5, 6, 8, 10], mel: [0, 2, 3, 5, 7, 9, 11], hm: [0, 2, 3, 5, 7, 8, 11],
+  lydb7: [0, 2, 4, 6, 7, 9, 10], mixb13: [0, 2, 4, 5, 7, 8, 10], phrdom: [0, 1, 4, 5, 7, 8, 10], alt: [0, 1, 3, 4, 6, 8, 10],
+  hw: [0, 1, 3, 4, 6, 7, 9, 10], wh: [0, 2, 3, 5, 6, 8, 9, 11], wt: [0, 2, 4, 6, 8, 10], lydaug: [0, 2, 4, 6, 8, 9, 11],
+};
+const CHORD_SCALE_NAMES = { ion: 'アイオニアン（長音階）', lyd: 'リディアン', mix: 'ミクソリディアン', dor: 'ドリアン', aeo: 'エオリアン（自然短音階）', phr: 'フリジアン', loc: 'ロクリアン', loc2: 'ロクリアン♯2', mel: 'メロディック・マイナー', hm: 'ハーモニック・マイナー', lydb7: 'リディアン♭7', mixb13: 'ミクソリディアン♭13', phrdom: 'ハーモニック・マイナー・パーフェクト5thビロウ', alt: 'オルタード', hw: 'コンビネーション・オブ・ディミニッシュ', wh: 'ディミニッシュ', wt: 'ホールトーン', lydaug: 'リディアン・オーギュメント' };
+const CHORD_SCALE_FAMILY = {
+  M: ['ion', 'lyd', 'mix'], 6: ['ion', 'lyd', 'mix'], add9: ['ion', 'lyd', 'mix'], M7: ['ion', 'lyd'], M9: ['ion', 'lyd'],
+  m: ['dor', 'aeo', 'phr'], m7: ['dor', 'aeo', 'phr'], m9: ['dor', 'aeo'], m6: ['dor', 'mel'], mM7: ['mel', 'hm'],
+  7: ['mix', 'lydb7', 'mixb13', 'phrdom'], 9: ['mix', 'lydb7', 'mixb13'], '7b9': ['phrdom', 'hw'], '7s9': ['hw', 'alt'],
+  '7sus4': ['mix', 'dor'], sus4: ['mix', 'ion', 'dor'], m7b5: ['loc', 'loc2'], dim: ['loc', 'wh'], dim7: ['wh'], aug: ['wt', 'lydaug'],
+};
+const DOMINANT_Q = new Set(['7', '9', '7b9', '7s9']);
+function chordScale(c, keyPcs) {
+  const iv = CHORD_Q[c.q].iv.map((x) => x % 12);
+  let best = null, bs = -1;
+  // 調の外の音を根音にする属7（♭Ⅱ7＝裏コード、♭Ⅶ7 など）は、リディアン♭7 を使うのがきまり
+  const fam = (c.q === '7' || c.q === '9') && !keyPcs.has(c.r % 12) ? ['lydb7'] : CHORD_SCALE_FAMILY[c.q] || ['ion'];
+  for (const id of fam) {
+    const sc = CHORD_SCALES[id];
+    if (!iv.every((x) => sc.includes(x))) continue;
+    const ov = sc.filter((x) => keyPcs.has((c.r + x) % 12)).length - (sc.length - 7) * 0.5; // 8音の音階は少しひかえめに
+    if (ov > bs) { bs = ov; best = id; }
+  }
+  const rel = best ? CHORD_SCALES[best] : [...new Set([...iv, ...[...keyPcs].map((x) => (x - c.r + 12) % 12)])];
+  const kind = new Map();
+  for (const x of rel) {
+    let k;
+    if (iv.includes(x)) k = 0;
+    else if (DOMINANT_Q.has(c.q)) k = x === 5 ? 2 : 1; // 属7：♭9・♯9・♯11・♭13・9・13 はテンション、11 はアボイド
+    else if (c.q === '7sus4' || c.q === 'sus4') k = x === 4 || x === 3 ? 2 : iv.includes((x + 11) % 12) && x !== 9 ? 2 : 1;
+    else k = iv.includes((x + 11) % 12) ? 2 : 1; // コードの音の半音上はアボイド
+    kind.set((c.r + x) % 12, k);
+  }
+  return { id: best, name: best ? CHORD_SCALE_NAMES[best] : '', pcs: new Set(kind.keys()), kind };
+}
 // おまかせ作曲：音階・コード・ほかのパートに合わせて、メロディを自動で作ります
+// ・コード・スケール：コードごとに使える音階を決め、コードの音・テンション・アボイドを区別する（7th や 9th のおしゃれなコードにも合う）
+// ・ガイドトーン：コードがかわる所では3度・7度をえらびやすくし、7度は次のコードで2度下がって解決する
+// ・クロマチック・アプローチ：ジャズのコードの曲では、半音となりからコードの音へすべりこむ音を、うら拍に少しだけ使う
 // ・和声：拍の頭はコードの音。コードの外の音は、となりの音へなめらかにつなぐ（経過音・ししゅう音）だけ
 // ・対位法：ほかのパートと強い拍でぶつからない（2度・7度・増4度をさける）、平行5度・8度をさける、声部を交差させない
 // ・旋律：となりの音へ進むのを基本に、大きくとんだら反対向きにもどる。増4度・7度のとびはしない。さいごは主音
@@ -3621,6 +3666,11 @@ function autoCompose(tr) {
   // ---- 1) リズム ----
   const slots = [];
   const rhythms = [[2, 2, 2, 2], [2, 1, 1, 2, 2], [4, 2, 2], [1, 1, 2, 2, 2], [2, 2, 4], [3, 1, 2, 2], [2, 2, 1, 1, 2]];
+  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
+  // ジャズらしいコード（M7・m7・9th・dim7 など）がある曲か
+  const jazzSong = !!chordTr && chordTr.chords.some((c, b) => chordSegs(c, b).some((x) => !['M', 'm', '7', 'sus4', 'dim', 'aug'].includes(x.c.q)));
+  // ジャズの曲では、シンコペーション（拍のうらでのばす）のリズムも使う
+  if (jazzSong) rhythms.push([3, 3, 2], [3, 2, 3], [1, 2, 1, 2, 2], [2, 3, 3], [1, 2, 2, 3]);
   for (let b = 0; b < song.bars; b++) {
     const bl = barLen(b);
     const need = Math.max(1, Math.round(bl / E));
@@ -3691,11 +3741,19 @@ function autoCompose(tr) {
     for (let i = a - 1; i >= 0 && i >= a - 12; i--) { const x = ns[i]; if (x.s + x.l > t) { if (hi == null || x.p > hi) hi = x.p; if (lw == null || x.p < lw) lw = x.p; } }
     return hi == null ? null : { hi, lw };
   };
-  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
   const triadOf = (c) => new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12));
-  const barChords = []; // 小節ごとの [{o, pcs, root}]
+  const barChords = []; // 小節ごとの [{o, pcs, root, q, cs}]
   if (chordTr) {
-    for (let b = 0; b < song.bars; b++) barChords.push(chordSegs(chordTr.chords[b], b).map((x) => ({ o: x.o, pcs: triadOf(x.c), root: x.c.r })));
+    for (let b = 0; b < song.bars; b++) {
+      const K = pcsAtBar(b);
+      barChords.push(chordSegs(chordTr.chords[b], b).map((x) => {
+        const iv = CHORD_Q[x.c.q].iv;
+        return { o: x.o, pcs: triadOf(x.c), root: x.c.r, q: x.c.q,
+          cs: K.steps.length === 7 ? chordScale(x.c, K.pcs) : null, // 5音の音階などは、えらんだ音階のまま
+          rich: iv.length > 3, // 7th・6th・9th のあるコード（テンションをのばしてよい）
+          third: (x.c.r + iv[1]) % 12, seventh: iv.length > 3 && iv[3] >= 9 && iv[3] <= 11 ? (x.c.r + iv[3]) % 12 : -1 };
+      }));
+    }
   } else {
     // コードのトラックがないとき：音階の上にできる三和音から、ほかのパートの音に合うものを小節ごとに見立てる
     const tmpl = [[0, 3, 4, 0], [0, 5, 3, 4], [0, 4, 5, 3], [0, 3, 0, 4], [0, 1, 4, 0]][Math.floor(Math.random() * 5)];
@@ -3732,10 +3790,14 @@ function autoCompose(tr) {
   for (let b = 0; b < song.bars; b += 4) arch.push({ peak: 0.35 + Math.random() * 0.4, amp: 2 + Math.random() * 4, base: centre - 1 + Math.random() * 3 });
   const S = slots.map((sl, i) => {
     const K = pcsAtBar(sl.b);
-    const cand = [];
-    for (let m = LO; m <= HI; m++) if (K.pcs.has(m % 12)) cand.push(m);
     const off = sl.s - barStart(sl.b);
     const ch = chordAt(sl.b, off);
+    const cs = ch && ch.cs;
+    const scale = cs ? cs.pcs : K.pcs;
+    // クロマチック・アプローチ：ジャズの曲の、うら拍のみじかい音だけ、音階の外の音もこうほに入れる
+    const chrOk = jazzSong && !!cs && sl.strong === 0 && sl.l <= 24 && i > 0 && i < n - 1 && !sl.restAfter;
+    const cand = [], chr = [];
+    for (let m = LO; m <= HI; m++) { if (scale.has(m % 12)) { cand.push(m); chr.push(false); } else if (chrOk) { cand.push(m); chr.push(true); } }
     const prevCh = i > 0 ? chordAt(slots[i - 1].b, slots[i - 1].s - barStart(slots[i - 1].b)) : null;
     const strong = Math.max(sl.strong, ch && prevCh && ch !== prevCh && off > 0 ? 2 : 0); // コードがかわる所も強い拍としてあつかう
     const oth = others.map((o) => ({ o, now: sounding(o, sl.s) }));
@@ -3746,14 +3808,23 @@ function autoCompose(tr) {
     const target = ph.base + ph.amp * (pos < ph.peak ? pos / ph.peak : (1 - pos) / (1 - ph.peak)) - ph.amp / 2;
     const first = i === 0, lastN = i === n - 1;
     const hasTonic = cand.some((m) => m % 12 === K.key);
-    const un = [], nct = [];
+    const un = [], nct = [], tone = [];
     cand.forEach((p, k) => {
       let c = Math.random() * 1.2 + Math.abs(p - target) * 0.12;
       const inCh = !ch || ch.pcs.has(p % 12);
+      const kd = chr[k] ? 3 : cs ? cs.kind.get(p % 12) : inCh ? 0 : 2; // 0 コードの音・1 テンション・2 アボイド・3 音階の外
       let bad = !inCh;
-      // 弱い拍の頭なら、なめらかにつなぐ「経過音」としてコードの外の音も少しゆるす
-      if (!inCh) c += strong === 3 ? 14 : strong === 2 ? 10 : strong === 1 ? 2 : 0.4;
-      if (!inCh && sl.l >= 48) c += 6;
+      if (kd === 3) c += 1.6;
+      else if (kd === 1 && ch.rich) {
+        // 7th のあるコードでは、テンション（9th・11th・13th）は強い拍でものばしてもよい「色のある音」
+        bad = false;
+        c += strong === 3 ? 1.3 : strong === 2 ? 1 : strong === 1 ? 0.3 : 0;
+      } else if (!inCh) {
+        // 弱い拍の頭なら、なめらかにつなぐ「経過音」としてコードの外の音も少しゆるす
+        c += strong === 3 ? 14 : strong === 2 ? 10 : strong === 1 ? 2 : 0.4;
+        if (sl.l >= 48) c += 6;
+        if (kd === 2 && cs) c += strong ? 3 : 0.4; // アボイド・ノートはさらにひかえる
+      } else if (ch && ch.rich && strong >= 2 && (p % 12 === ch.third || p % 12 === ch.seventh)) c -= 0.7; // ガイドトーン（3度・7度）
       for (const x of oth) {
         if (!x.now) continue;
         for (const q of x.now.hi === x.now.lw ? [x.now.hi] : [x.now.hi, x.now.lw]) {
@@ -3768,10 +3839,11 @@ function autoCompose(tr) {
         else if (x.o.rel > 0 && p > x.now.lw) c += 8;
       }
       if (first && ch && !inCh) c += 8;
-      if (lastN && hasTonic && p % 12 !== K.key) c += 1000;
-      un.push(c); nct.push(bad);
+      // さいごの音：主音。さいごのコードに主音がないとき（Ⅴ7 で終わるなど）は、そのコードの音
+      if (lastN) { if (ch && !ch.pcs.has(K.key)) c += inCh ? 0 : 1000; else if (hasTonic && p % 12 !== K.key) c += 1000; }
+      un.push(c); nct.push(bad); tone.push(kd === 0 && !!ch && ch.rich);
     });
-    return { sl, K, cand, un, nct, oth, strong, lt: K.steps.includes(11) ? (K.key + 11) % 12 : -1 };
+    return { sl, K, cand, chr, ch, tone, semi: !!cs, un, nct, oth, strong, lt: K.steps.includes(11) && scale.has((K.key + 11) % 12) ? (K.key + 11) % 12 : -1 };
   });
   // 音階の上で何段はなれているか
   const degMemo = new Map();
@@ -3781,6 +3853,7 @@ function autoCompose(tr) {
     return t.get(m);
   };
   const LEAP = [2.6, 0, 1.5, 2.4, 3, 5, 11, 5];
+  const SEM_DEG = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7];
   // となり合う2音の減点
   const pairCost = (i) => {
     const A = S[i - 1], B = S[i];
@@ -3791,14 +3864,22 @@ function autoCompose(tr) {
     const mv = [];
     for (let x = 0; x < A.oth.length; x++) { const q1 = A.oth[x].now, q2 = B.oth[x].now; if (q1 && q2) mv.push([q1.hi, q2.hi], ...(q1.lw !== q1.hi || q2.lw !== q2.hi ? [[q1.lw, q2.lw]] : [])); }
     A.cand.forEach((a, j) => B.cand.forEach((b, k) => {
-      const d = degIn(B.K, b) - degIn(B.K, a);
+      const sem = Math.abs(b - a);
+      // 何段はなれているか。コードごとに音階がかわるときは、半音の数から数える（1〜2＝となり、3〜4＝3度…）
+      const d = B.semi || A.semi ? Math.sign(b - a) * (sem > 12 ? 9 : SEM_DEG[sem]) : degIn(B.K, b) - degIn(B.K, a);
       D[j][k] = d;
-      const ad = Math.abs(d), sem = Math.abs(b - a);
+      const ad = Math.abs(d);
       let c = (ad < LEAP.length ? LEAP[ad] : 20) * (ad === 0 ? 1 : mul);
       if (sem === 6 || sem === 10 || sem === 11) c += 12;
       if (sem > 12) c += 20;
       if (ad >= 2 && (A.nct[j] || B.nct[k])) c += 3; // コードの外の音へはとばない
+      if (ad === 2 && A.tone[j] && B.tone[k]) c -= 1; // 7th のコードは、コードの音を3度でつなぐ（アルペジオ）のもジャズらしい
       if (A.lt >= 0 && a % 12 === A.lt && b !== a + 1) c += 2.5; // 導音は主音へ
+      // クロマチック・アプローチ：半音となりのコードの音（またはテンション）へ、かならずすべりこむ。入るときも、となりから
+      if (A.chr[j]) c += sem === 1 && !B.chr[k] && !B.nct[k] ? 0 : 30;
+      if (B.chr[k]) c += A.chr[j] ? 30 : sem <= 2 && sem > 0 ? 0 : 8;
+      // 7度の音は、コードがかわったら2度下がって解決する（ジャズでも和声でも同じきまり）
+      if (A.ch && B.ch && A.ch !== B.ch && A.ch.seventh >= 0 && a % 12 === A.ch.seventh) c += b - a === -1 || b - a === -2 ? -1 : b === a ? 0 : 1.5;
       if (i === n - 1 && ad !== 1) c += 3; // さいごは、となりの音から主音へ
       for (const [q1, q2] of mv) {
         if (q1 === q2 || a === b) continue;
@@ -3846,7 +3927,7 @@ function autoCompose(tr) {
         let best = Infinity, bh = 0;
         const d2 = D[j][k];
         for (let h = 0; h < nh; h++) {
-          const c = dp[h][j] + triCost(A, prevD[h][j], d2, Z.cand[h], A.cand[j], B.cand[k], A.nct[j]);
+          const c = dp[h][j] + triCost(A, prevD[h][j], d2, Z.cand[h], A.cand[j], B.cand[k], A.nct[j] && !A.chr[j]);
           if (c < best) { best = c; bh = h; }
         }
         cur[j][k] = best + P[j][k] + B.un[k];
