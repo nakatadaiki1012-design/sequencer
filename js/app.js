@@ -3659,44 +3659,119 @@ function chordScale(c, keyPcs) {
 // ・対位法：ほかのパートと強い拍でぶつからない（2度・7度・増4度をさける）、平行5度・8度をさける、声部を交差させない
 // ・旋律：となりの音へ進むのを基本に、大きくとんだら反対向きにもどる。増4度・7度のとびはしない。さいごは主音
 // リズムを先に決めてから、きまりをやぶるほど点が高くなる「減点」をつけ、曲全体で減点がいちばん少ない音のならびをえらぶ
-function autoCompose(tr) {
-  const lo = Math.max(trackRange(tr)[0], (RANGES[tr.range] || RANGES.soprano)[1]);
-  let LO = lo + 2, HI = lo + 16;
-  const E = 24;
-  // ---- 1) リズム ----
-  const slots = [];
-  const rhythms = [[2, 2, 2, 2], [2, 1, 1, 2, 2], [4, 2, 2], [1, 1, 2, 2, 2], [2, 2, 4], [3, 1, 2, 2], [2, 2, 1, 1, 2]];
+// おまかせ作曲の設定（前にえらんだものをおぼえておく）
+const AUTO_DEFAULT = { style: 'auto', density: 1, rests: 1, span: 1, height: 1, motif: 1 };
+function autoOpts() {
+  try { const o = JSON.parse(lsGet('otsumiki-auto', '') || '{}'); const r = { ...AUTO_DEFAULT }; for (const k in r) if (k === 'style' ? ['auto', 'easy', 'pop', 'jazz'].includes(o[k]) : [0, 1, 2].includes(o[k])) r[k] = o[k]; return r; } catch (e) { return { ...AUTO_DEFAULT }; }
+}
+function autoCompose(tr, opt) {
+  opt = { ...AUTO_DEFAULT, ...(opt || autoOpts()) };
   const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
   // ジャズらしいコード（M7・m7・9th・dim7 など）がある曲か
   const jazzSong = !!chordTr && chordTr.chords.some((c, b) => chordSegs(c, b).some((x) => !['M', 'm', '7', 'sus4', 'dim', 'aug'].includes(x.c.q)));
-  // ジャズの曲では、シンコペーション（拍のうらでのばす）のリズムも使う
-  if (jazzSong) rhythms.push([3, 3, 2], [3, 2, 3], [1, 2, 1, 2, 2], [2, 3, 3], [1, 2, 2, 3]);
-  for (let b = 0; b < song.bars; b++) {
-    const bl = barLen(b);
-    const need = Math.max(1, Math.round(bl / E));
-    const last = b === song.bars - 1;
-    let pattern;
-    if (last) pattern = [need];
-    else if (b % 4 === 3) pattern = need > 2 ? [need - 2, 2] : [need];
-    else {
-      pattern = rhythms[Math.floor(Math.random() * rhythms.length)].slice();
-      let sum = pattern.reduce((a, x) => a + x, 0);
-      while (sum > need) sum -= pattern.pop();
-      if (sum < need) pattern.push(need - sum);
+  // 感じ：やさしい（童謡のように歌いやすい）・ポップス・ジャズ。おまかせ＝コードを見て決める
+  const style = opt.style === 'auto' ? (jazzSong ? 'jazz' : 'pop') : opt.style;
+  const useChr = style === 'jazz' && jazzSong;
+  // 音域：はば（せまい＝6度・ふつう＝1オクターブと少し・広い＝1オクターブ半）と、高さ
+  const [rlo0, rhi0] = trackRange(tr);
+  const lo = Math.max(rlo0, (RANGES[tr.range] || RANGES.soprano)[1]);
+  let LO = lo + [1, 5, 9][opt.height], HI = LO + [9, 14, 19][opt.span];
+  if (HI > rhi0) { LO -= HI - rhi0; HI = rhi0; }
+  if (LO < rlo0) LO = rlo0;
+  const rnd = Math.random;
+  const pickW = (arr) => { let t = 0; for (const x of arr) t += x[1]; let r = rnd() * t; for (const x of arr) { r -= x[1]; if (r <= 0) return x[0]; } return arr[arr.length - 1][0]; };
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+
+  // ---- 1) リズム ----
+  // 旋律の形：2小節を1つのまとまり（フレーズ）にして、8小節で「モチーフ → くり返し → 変化（山場）→ しめくくり」
+  // ・モチーフのリズムをくり返す（おぼえやすくなる）
+  // ・フレーズのおわりは長い音にして、休符で息つぎをする。次のフレーズへ入る前に、短い音（弱起）を入れることもある
+  const sync = style === 'jazz' ? 1 : style === 'pop' ? 0.6 : 0;
+  // 1拍の中の音のならび（1＝1拍）と、えらばれやすさ
+  const CELLS = {
+    s: [
+      [[[1], 5], [[2], 3], [[1.5, 0.5], 1.2], [[3], 0.5]],
+      [[[1], 5], [[0.5, 0.5], 3.5], [[2], 1.5], [[1.5, 0.5], 2], [[0.5, 1, 0.5], sync]],
+      [[[0.5, 0.5], 6], [[1], 2.5], [[0.25, 0.25, 0.5], 1.2], [[0.5, 0.25, 0.25], 1.2], [[1.5, 0.5], 1.5], [[0.75, 0.25], style === 'easy' ? 0 : 0.8], [[0.5, 1, 0.5], sync]],
+    ],
+    c: [ // 6/8 など、1拍が3つに分かれる拍子
+      [[[1], 5], [[2], 2]],
+      [[[1], 3], [[2 / 3, 1 / 3], 4], [[1 / 3, 1 / 3, 1 / 3], 2], [[2], 0.8]],
+      [[[1 / 3, 1 / 3, 1 / 3], 5], [[2 / 3, 1 / 3], 3], [[1], 1]],
+    ],
+  };
+  const genBar = (b) => {
+    const bl = barLen(b), beat = beatAt(b);
+    if (bl % beat || beat < 12) return [bl];
+    const tbl = CELLS[beat % 72 === 0 && beat % 48 !== 0 ? 'c' : 's'][opt.density];
+    const out = [];
+    let pos = 0;
+    while (pos < bl) {
+      const rem = (bl - pos) / beat, even = Math.round(pos / beat) % 2 === 0;
+      const ok = tbl.filter(([c, w]) => w > 0 && sum(c) <= rem + 1e-6 && (sum(c) <= 1 || even) && c.every((x) => Number.isInteger(Math.round(x * beat * 1000) / 1000)));
+      const cell = ok.length ? pickW(ok) : [rem];
+      for (const x of cell) out.push(Math.round(x * beat));
+      pos += Math.round(sum(cell) * beat);
     }
-    let s = barStart(b);
-    const beat = beatAt(b);
-    pattern.forEach((len, k) => {
-      const off = s - barStart(b);
-      const rest = Math.random() < 0.07 && k > 0 && !last;
-      // 拍の強さ：3＝小節の頭、2＝まん中の強い拍（4拍子の3拍目など）、1＝ほかの拍の頭、0＝うら
-      const nb = Math.round(bl / beat);
-      const strong = off === 0 ? 3 : off % beat !== 0 ? 0 : nb >= 4 && nb % 2 === 0 && off === (nb / 2) * beat ? 2 : 1;
-      if (!rest) slots.push({ s, l: Math.min(len * E, barStart(b + 1) - s), b, strong, gap: false });
-      else if (slots.length) slots[slots.length - 1].restAfter = true;
-      s += len * E;
-    });
-  }
+    return out;
+  };
+  // うしろから want 以上をまとめて、1つの長い音にする
+  const endLong = (r, want) => { r = r.slice(); let got = 0; while (r.length && got < want) got += r.pop(); r.push(got); return r; };
+  const units = [];
+  for (let b0 = 0; b0 < song.bars; b0 += 2) units.push({ b0, nb: Math.min(2, song.bars - b0), role: ['M', 'M2', 'N', 'K'][Math.floor((b0 % 8) / 2)] });
+  units[units.length - 1].role = 'K';
+  units[units.length - 1].final = true;
+  const motifR = {}; // モチーフのリズム（小節の長さごとにおぼえる）
+  const barRhythm = (kind, j, b) => {
+    const key = kind + ':' + j + ':' + barLen(b) + ':' + beatAt(b);
+    if (opt.motif === 0) return genBar(b);
+    if (!motifR[key]) motifR[key] = genBar(b);
+    return motifR[key].slice();
+  };
+  const slots = [];
+  units.forEach((u, ui) => {
+    const items = []; // { d, rest, pick }
+    for (let j = 0; j < u.nb; j++) {
+      const b = u.b0 + j, bl = barLen(b), beat = beatAt(b), nb = Math.max(1, Math.round(bl / beat));
+      const lastBar = j === u.nb - 1;
+      // フレーズのおわりに休符（息つぎ）を入れるか。入れるときは、そのぶん長い音を長めにとっておく
+      const cut = lastBar && opt.rests > 0 && nb >= (opt.rests === 2 ? 3 : 4) && (opt.rests === 2 || u.final || rnd() < 0.6) ? beat : 0;
+      let r;
+      if (u.role === 'K' && lastBar) r = u.final || nb <= 2 ? [bl] : endLong(barRhythm('M', 0, b), Math.max(2 * beat, bl / 2));
+      else {
+        const kind = u.role === 'N' ? 'N' : 'M';
+        // 「くり返し」が ふつう のときは、ときどき2小節目だけ変える
+        r = u.role === 'M2' && j === 1 && opt.motif === 1 && rnd() < 0.3 ? genBar(b) : barRhythm(kind, u.role === 'K' ? 0 : j, b);
+        if (lastBar) r = endLong(r, nb <= 2 ? beat : Math.min(2 * beat + cut, bl - beat));
+      }
+      const its = r.map((d) => ({ d, b }));
+      if (lastBar) {
+        // フレーズのおわり：長い音を1拍ちぢめて休符にする（息つぎ）。次のフレーズがあれば、そこに弱起の音を入れることも
+        const L = its[its.length - 1];
+        if (cut && L.d >= 2 * beat) {
+          L.d -= cut;
+          if (!u.final && rnd() < [0, 0.35, 0.3][opt.rests] && beat % 2 === 0) { if (rnd() < 0.6) its.push({ d: cut / 2, b, pick: true }, { d: cut / 2, b, pick: true }); else its.push({ d: cut, b, pick: true }); } else its.push({ d: cut, b, rest: true });
+        }
+      } else if (j === 0 && opt.rests === 2 && u.role !== 'K' && ui > 0 && its[0].d >= beat && beat % 2 === 0 && rnd() < 0.35) {
+        // 休符が多め：フレーズを拍のうらから始める
+        its.splice(0, 1, { d: beat / 2, b, rest: true }, { d: its[0].d - beat / 2, b });
+      }
+      items.push(...its);
+    }
+    let s = barStart(u.b0), k = 0;
+    for (const it of items) {
+      const b = it.b, bl = barLen(b), beat = beatAt(b), off = s - barStart(b);
+      if (it.rest) { if (slots.length) slots[slots.length - 1].restAfter = true; } else {
+        // 拍の強さ：3＝小節の頭、2＝まん中の強い拍（4拍子の3拍目など）、1＝ほかの拍の頭、0＝うら
+        const nb = Math.round(bl / beat);
+        const strong = off === 0 ? 3 : off % beat !== 0 ? 0 : nb >= 4 && nb % 2 === 0 && off === (nb / 2) * beat ? 2 : 1;
+        slots.push({ s, l: it.d, b, strong, gap: false, u: it.pick ? ui + 1 : ui, k: it.pick ? -1 : k++, pick: !!it.pick, endU: false });
+      }
+      s += it.d;
+    }
+    // そのフレーズのさいごの音（弱起はのぞく）
+    for (let i = slots.length - 1; i >= 0; i--) if (slots[i].u === ui && !slots[i].pick) { slots[i].endU = true; break; }
+  });
   slots.forEach((x, i) => { x.gap = i > 0 && !!slots[i - 1].restAfter; });
   const n = slots.length;
   if (!n) { tr.notes = []; return; }
@@ -3725,7 +3800,7 @@ function autoCompose(tr) {
   // ほかのパートと音域が重なるときは、自分の音域の中で、重ならない高さへ寄せる
   {
     const below = others.filter((o) => o.rel < 0).map((o) => o.mean), above = others.filter((o) => o.rel > 0).map((o) => o.mean);
-    const [rlo, rhi] = trackRange(tr);
+    const rlo = rlo0, rhi = rhi0;
     let sh = 0;
     if (below.length) sh = Math.max(0, Math.min(rhi - HI, Math.ceil(Math.max(...below) + 5 - (LO + HI) / 2)));
     if (above.length && !sh) sh = -Math.max(0, Math.min(LO - rlo, Math.ceil((LO + HI) / 2 - (Math.min(...above) - 5))));
@@ -3785,9 +3860,43 @@ function autoCompose(tr) {
   // ---- 3) それぞれの音のこうほと、その音だけで決まる減点 ----
   const sign = Math.sign;
   const DIS = new Set([1, 2, 6, 10, 11]);
-  // フレーズ（4小節）ごとに、山なりの形をめざす
-  const arch = [];
-  for (let b = 0; b < song.bars; b += 4) arch.push({ peak: 0.35 + Math.random() * 0.4, amp: 2 + Math.random() * 4, base: centre - 1 + Math.random() * 3 });
+  // 旋律の形（りんかく）：モチーフの形を決めて、くり返しでは同じ形を少し高さをかえて使う（反復・ゼクエンツ）。
+  // 「変化」のフレーズでいちばん高い音（山場）へのぼり、「しめくくり」で下りて終わる
+  const hasN = units.some((u) => u.role === 'N');
+  const genContour = () => {
+    const c = [0];
+    let dir = rnd() < 0.7 ? 1 : -1;
+    const leapAt = rnd() < 0.7 ? 1 + Math.floor(rnd() * 2) : -1;
+    const leap2 = style === 'easy' ? -1 : 4 + Math.floor(rnd() * 4);
+    for (let j = 1; j < 40; j++) {
+      let st;
+      if (j === leapAt) { st = 2 + Math.floor(rnd() * 3); dir = -1; } // とんで上がって、順に下りる
+      else if (j === leap2) { st = -dir * (2 + Math.floor(rnd() * 2)); } // もう1回、3度〜4度のとび
+      else { const r = rnd(); const rp = style === 'pop' ? 0.14 : 0.06; st = r < 0.42 ? dir : r < 0.42 + rp ? 0 : r < 0.66 ? -dir : r < 0.88 ? dir * 2 : -dir * 2; } // となりへ進むのが半分ちょっと、3度のとびが3割
+      let v = c[j - 1] + st;
+      if (v > 5) { v = 5 - (v - 5); dir = -1; } else if (v < -3) { v = -3 + (-3 - v); dir = 1; } else if (rnd() < 0.2) dir = -dir;
+      c.push(v);
+    }
+    return c;
+  };
+  const contM = genContour();
+  const seq = pickW([[1, 3], [2, 2], [-1, 1.5], [0, 1]]); // くり返しのとき、何段ずらすか
+  const wT = [0.2, 0.4, 0.55][opt.motif];
+  const AMP = (1.7 * (HI - LO)) / 14; // 音域が広いほど、形の上下も大きく
+  const topP = HI - 1; // 山場でめざす高さ
+  const base = centre - 1 - Math.max(0, HI - LO - 14) / 3; // 広い音域では、ふだんは低めにいて、山場との差を大きくする
+  const uCount = units.map((u, ui) => slots.filter((x) => x.u === ui && !x.pick).length);
+  const targetOf = (sl) => {
+    const u = units[Math.min(sl.u, units.length - 1)];
+    const ui = Math.min(sl.u, units.length - 1);
+    const k = Math.max(0, sl.k), cnt = Math.max(1, uCount[ui]);
+    let t, w = wT;
+    if (u.role === 'N') { const peakAt = Math.max(1, Math.round(cnt * 0.7)); t = k <= peakAt ? centre + ((topP + 1 - centre) * k) / peakAt : topP - (k - peakAt) * 2; w = k === peakAt ? 0.7 : 0.4; } // 山場へのぼる
+    else if (u.role === 'K') { const half = Math.ceil(cnt / 2); t = k < half ? base + AMP * contM[k] : base - ((k - half) * AMP) / 1.7; w = k < half ? wT : 0.25; } // 思い出して、下りて終わる
+    else t = base + AMP * (contM[k] + (u.role === 'M2' ? seq : 0));
+    if (sl.pick) { t -= 2; w = 0.2; } // 弱起は下から入る
+    return { t: clamp(t, LO + 1, u.role === 'N' ? HI : HI - 3), w, role: u.role, final: !!u.final };
+  };
   const S = slots.map((sl, i) => {
     const K = pcsAtBar(sl.b);
     const off = sl.s - barStart(sl.b);
@@ -3795,7 +3904,7 @@ function autoCompose(tr) {
     const cs = ch && ch.cs;
     const scale = cs ? cs.pcs : K.pcs;
     // クロマチック・アプローチ：ジャズの曲の、うら拍のみじかい音だけ、音階の外の音もこうほに入れる
-    const chrOk = jazzSong && !!cs && sl.strong === 0 && sl.l <= 24 && i > 0 && i < n - 1 && !sl.restAfter;
+    const chrOk = useChr && !!cs && sl.strong === 0 && sl.l <= 24 && i > 0 && i < n - 1 && !sl.restAfter;
     const cand = [], chr = [];
     for (let m = LO; m <= HI; m++) { if (scale.has(m % 12)) { cand.push(m); chr.push(false); } else if (chrOk) { cand.push(m); chr.push(true); } }
     const prevCh = i > 0 ? chordAt(slots[i - 1].b, slots[i - 1].s - barStart(slots[i - 1].b)) : null;
@@ -3803,14 +3912,15 @@ function autoCompose(tr) {
     const oth = others.map((o) => ({ o, now: sounding(o, sl.s) }));
     let bass = null;
     for (const x of oth) if (x.now && (bass == null || x.now.lw < bass)) bass = x.now.lw;
-    const ph = arch[Math.floor(sl.b / 4)];
-    const pos = ((sl.b % 4) + off / barLen(sl.b)) / 4;
-    const target = ph.base + ph.amp * (pos < ph.peak ? pos / ph.peak : (1 - pos) / (1 - ph.peak)) - ph.amp / 2;
+    const tg = targetOf(sl);
     const first = i === 0, lastN = i === n - 1;
     const hasTonic = cand.some((m) => m % 12 === K.key);
     const un = [], nct = [], tone = [];
     cand.forEach((p, k) => {
-      let c = Math.random() * 1.2 + Math.abs(p - target) * 0.12;
+      let c = Math.random() * 0.6 + Math.abs(p - tg.t) * tg.w;
+      if (hasN && tg.role !== 'N' && p > HI - 4) c += p > HI - 3 ? 4 : 1; // いちばん高い音は、山場のためにとっておく
+      // とちゅうのしめくくり（半終止）：主音で終わると「おしまい」に聞こえるので、主和音でなければ主音をさける
+      if (sl.endU && tg.role === 'K' && !tg.final && p % 12 === K.key && !(ch && ch.root === K.key)) c += 2.5;
       const inCh = !ch || ch.pcs.has(p % 12);
       const kd = chr[k] ? 3 : cs ? cs.kind.get(p % 12) : inCh ? 0 : 2; // 0 コードの音・1 テンション・2 アボイド・3 音階の外
       let bad = !inCh;
@@ -3852,7 +3962,8 @@ function autoCompose(tr) {
     if (!t) { t = new Map(); let d = 0; for (let x = 0; x < 128; x++) { if (K.pcs.has(x % 12)) d++; t.set(x, d); } degMemo.set(K, t); }
     return t.get(m);
   };
-  const LEAP = [2.6, 0, 1.5, 2.4, 3, 5, 11, 5];
+  // となりへ進むのを基本に。同じ音のくり返しは、ポップスではよく使う。やさしい感じでは、大きなとびをへらす
+  const LEAP = style === 'easy' ? [2, 0, 1.3, 2.8, 4, 7, 14, 8] : style === 'pop' ? [1.3, 0, 1.5, 2.4, 3, 5, 11, 5] : [2.6, 0, 1.5, 2.4, 3, 5, 11, 5];
   const SEM_DEG = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7];
   // となり合う2音の減点
   const pairCost = (i) => {
@@ -3900,7 +4011,7 @@ function autoCompose(tr) {
     if (midBad && !(a1 === 1 && a2 === 1)) c += 9; // コードの外の音は、となりから入って、となりへ出る
     if (a1 >= 3) { if (!(d2 !== 0 && sign(d2) === -sign(d1) && a2 <= 2)) c += 3; if (sign(d2) === sign(d1) && a2 >= 2) c += 3; }
     else if (a1 === 2 && a2 >= 3 && sign(d1) === sign(d2)) c += 2;
-    if (x === a && a === b) c += 5;
+    if (x === a && a === b) c += style === 'pop' ? 3 : 5;
     else if (x === b && a !== b) c += 0.5;
     const span = Math.abs(b - x);
     if (sign(d1) === sign(d2) && (span === 6 || span === 10 || span === 11)) c += 2;
@@ -3942,6 +4053,44 @@ function autoCompose(tr) {
   pick[n - 1] = bkk; pick[n - 2] = bj;
   for (let i = n - 1; i >= 2; i--) pick[i - 2] = back[i - 1][pick[i - 1]][pick[i]];
   tr.notes = slots.map((sl, i) => ({ s: sl.s, p: S[i].cand[pick[i]], l: sl.l }));
+}
+// おまかせ作曲のまど：感じ・音の細かさ・休符・音域・くり返しをえらんで、気に入るまで何度でも作りなおせる
+function autoDialog(tr) {
+  let dlg = $('#dlgAuto');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'dlgAuto';
+    dlg.className = 'dlg small';
+    document.body.appendChild(dlg);
+  }
+  const o = autoOpts();
+  const sel = (k, label, items, tip) => `<label title="${tip}">${label} <select data-k="${k}">${items.map(([v, n]) => `<option value="${v}"${String(o[k]) === String(v) ? ' selected' : ''}>${n}</option>`).join('')}</select></label>`;
+  dlg.innerHTML = `<h3>おまかせ作曲</h3><p class="muted">コードやほかのパートに合うメロディを作ります。気に入るまで、何度でも作りなおせます。</p>
+    <div class="autogrid">
+    ${sel('style', '感じ', [['auto', 'おまかせ（コードに合わせる）'], ['easy', 'やさしい（歌いやすい）'], ['pop', 'ポップス'], ['jazz', 'ジャズ']], 'やさしい＝となりの音へ進むことが多い。ポップス＝同じ音のくり返しや、拍のうらの音も使う。ジャズ＝半音のすべりこみも使う')}
+    ${sel('density', '音の細かさ', [[0, 'ゆったり（長い音が多い）'], [1, 'ふつう'], [2, 'こまかい（短い音が多い）']], '1小節に入る音の数')}
+    ${sel('rests', '休符（息つぎ）', [[0, '少ない（つなげて歌う）'], [1, 'ふつう'], [2, '多い（間をあける）']], 'フレーズのおわりに休符を入れて、息つぎの場所を作ります')}
+    ${sel('span', '音域のはば', [[0, 'せまい（6度くらい）'], [1, 'ふつう（1オクターブと少し）'], [2, '広い（1オクターブ半）']], 'いちばん低い音からいちばん高い音までのはば')}
+    ${sel('height', '音の高さ', [[0, '低め'], [1, 'ふつう'], [2, '高め']], 'そのパートの音域の中で、どのあたりを使うか')}
+    ${sel('motif', 'くり返し', [[0, '自由（毎回ちがうリズム）'], [1, 'ふつう'], [2, 'しっかり（同じ形をくり返す）']], '同じリズムや形をくり返すと、おぼえやすいメロディになります')}
+    </div>
+    <div class="btnrow" style="margin-top:12px"><button class="mini" id="auPlay">${I('play')}聞く</button><span class="grow"></span><button class="mini" id="auNo">とじる</button><button class="mini accent" id="auGo">${I('spark')}<span>作る</span></button></div>`;
+  let made = false;
+  const read = () => { const r = {}; dlg.querySelectorAll('select[data-k]').forEach((x) => { r[x.dataset.k] = x.dataset.k === 'style' ? x.value : +x.value; }); return r; };
+  dlg.querySelectorAll('select[data-k]').forEach((x) => (x.onchange = () => lsSet('otsumiki-auto', JSON.stringify(read()))));
+  dlg.querySelector('#auGo').onclick = () => {
+    if (locked(tr)) return toast('ロックされています');
+    if (!made && tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「元に戻す」で戻せます）')) return;
+    stop(true);
+    edit(() => autoCompose(tr, read()), 'おまかせ作曲');
+    made = true;
+    dlg.querySelector('#auGo span').textContent = '作りなおす';
+    scrollToNotes();
+  };
+  dlg.querySelector('#auPlay').onclick = () => { stop(true); ui.startTick = 0; play(); };
+  dlg.querySelector('#auNo').onclick = () => dlg.close();
+  dlg.onclose = () => stop(true);
+  dlg.showModal();
 }
 function shiftCopy(src, dst, bars) {
   const off = barStart(bars);
@@ -4835,7 +4984,7 @@ function renderEditorTools() {
     $('#tOctDn').onclick = guard(() => transpose(tr, -12), 'オクターブ下げる');
     $('#tOctUp').onclick = guard(() => transpose(tr, 12), 'オクターブ上げる');
     const ba = $('#btnAuto');
-    if (ba) ba.onclick = () => { if (lk) return toast('ロックされています'); if (tr.notes.length && !confirm('今のメロディを消して、新しく作曲しますか？（「元に戻す」で戻せます）')) return; edit(() => autoCompose(tr), 'おまかせ作曲'); scrollToNotes(); };
+    if (ba) ba.onclick = () => { if (lk) return toast('ロックされています'); autoDialog(tr); };
     $('#btnExplode').onclick = () => { if (lk) return toast('ロックされています'); explodeTrack(tr); };
     $('#btnImplode').onclick = () => { if (lk) return toast('ロックされています'); implodeTrack(tr); };
     if (others.length) $('#btnRound').onclick = () => {

@@ -1614,3 +1614,11 @@ body.lowpower .play.on::after { animation: none; opacity: .55; }
 .pkpad:active .pic { color: #fff; }
 .pkpad span { white-space: nowrap; overflow: hidden; max-width: 100%; }
 body.phone .pad .pic { width: 36px; height: 36px; }
+
+/* おまかせ作曲のまど */
+#dlgAuto .autogrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+#dlgAuto .autogrid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+#dlgAuto .autogrid select { width: 100%; }
+body.phone #dlgAuto .autogrid { grid-template-columns: 1fr; }
+#dlgAuto .btnrow { display: flex; gap: 8px; align-items: center; }
+#dlgAuto .btnrow .grow { flex: 1; }

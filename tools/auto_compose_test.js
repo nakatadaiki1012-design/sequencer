@@ -98,3 +98,72 @@ const N = +process.argv[3] || 40;
   console.log(JSON.stringify(r, null, 1)); console.log('エラー:', errs.length ? errs : 'なし');
   await b.close();
 })();
+// ---- 設定（感じ・細かさ・休符・音域・くり返し）と、おまかせ作曲のまど ----
+(async () => {
+  const { chromium } = require('playwright');
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1366, height: 820 } }); const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+  await p.goto('http://localhost:8765/?notour'); await p.waitForTimeout(800);
+  const r = await p.evaluate(() => {
+    const d = document.querySelector('#dlgStart'); if (d.open) d.close();
+    const CH = (r, q) => ({ r, q });
+    const prog = [CH(0, 'M'), CH(7, 'M'), CH(9, 'm'), CH(5, 'M'), CH(0, 'M'), CH(7, 'M'), CH(5, 'M'), CH(0, 'M')];
+    const mk = () => loadSong({ v: 2, title: 's', bars: 16, tracks: [{ type: 'melody', range: 'soprano', notes: [] }, { type: 'chord', chords: [...prog, ...prog] }] });
+    const stat = (opt, N = 30) => {
+      const S = { 音の数: 0, はば: 0, まん中: 0, 休符の拍: 0, 同じリズム: 0, 終わりが長い主音: 0, フレーズ終わりが長い: 0, 最高音が山場: 0, 最高音1か所: 0 };
+      for (let i = 0; i < N; i++) {
+        mk(); const tr = song.tracks[0]; autoCompose(tr, opt); const ns = [...tr.notes].sort((a, z) => a.s - z.s);
+        const ps = ns.map((n) => n.p); const hi = Math.max(...ps), lo = Math.min(...ps);
+        S.音の数 += ns.length; S.はば += hi - lo; S.まん中 += (hi + lo) / 2;
+        S.休符の拍 += (totalTicks() - ns.reduce((a, n) => a + n.l, 0)) / 48;
+        const rhy = (b0) => ns.filter((n) => n.s >= barStart(b0) && n.s < barStart(b0 + 1)).map((n) => (n.s - barStart(b0)) + ':' + n.l).join(' ');
+        if (rhy(0) === rhy(2)) S.同じリズム++;
+        const L = ns[ns.length - 1]; if (L.p % 12 === song.key && L.l >= 96) S.終わりが長い主音++;
+        // 2小節ごとのフレーズのおわり（弱起をのぞく）に、2拍以上の音がある
+        let ok = 0; for (let b0 = 1; b0 < 16; b0 += 2) if (ns.some((n) => n.s >= barStart(b0) && n.s < barStart(b0 + 1) && n.l >= 96)) ok++; S.フレーズ終わりが長い += ok / 8;
+        const top = ns.filter((n) => n.p === hi); const inN = top.every((n) => [4, 5, 12, 13].includes(barOf(n.s)));
+        if (inN) S.最高音が山場++;
+        if (new Set(top.map((n) => Math.floor(barOf(n.s) / 8))).size <= 2 && top.length <= 4) S.最高音1か所++;
+      }
+      const f = (x) => Math.round((x / N) * 10) / 10;
+      return { 音の数: f(S.音の数), はば: f(S.はば), まん中: f(S.まん中), 休符の拍: f(S.休符の拍), 同じリズム: Math.round((S.同じリズム / N) * 100) + '%', 終わりが長い主音: Math.round((S.終わりが長い主音 / N) * 100) + '%', フレーズ終わりが長い: Math.round((S.フレーズ終わりが長い / N) * 100) + '%', 最高音が山場: Math.round((S.最高音が山場 / N) * 100) + '%' };
+    };
+    const out = {};
+    out.ふつう = stat({});
+    out.ゆったり = stat({ density: 0 }); out.こまかい = stat({ density: 2 });
+    out.休符少ない = stat({ rests: 0 }); out.休符多い = stat({ rests: 2 });
+    out.せまい = stat({ span: 0 }); out.広い = stat({ span: 2 });
+    out.低め = stat({ height: 0 }); out.高め = stat({ height: 2 });
+    out.くり返し自由 = stat({ motif: 0 }); out.くり返ししっかり = stat({ motif: 2 });
+    out.やさしい = stat({ style: 'easy' }); out.ジャズ = stat({ style: 'jazz' });
+    // 音域の中におさまる（ベースのパートでも）
+    loadSong({ v: 2, title: 'b', bars: 8, tracks: [{ type: 'melody', range: 'bass', notes: [] }, { type: 'chord', chords: prog }] });
+    let inR = true; for (let i = 0; i < 20; i++) { autoCompose(song.tracks[0], { span: 2, height: 2 }); const [lo, hi] = trackRange(song.tracks[0]); if (song.tracks[0].notes.some((n) => n.p < lo || n.p > hi)) inR = false; }
+    out.ベースの音域におさまる = inR;
+    // 短い曲・変わった拍子でもこわれない
+    const odd = {};
+    for (const [nm, ex] of [['1小節', { bars: 1 }], ['3小節', { bars: 3 }], ['5/4', { bars: 8, meter: [5, 4] }], ['6/8', { bars: 8, meter: [6, 8] }], ['2/4', { bars: 8, meter: [2, 4] }], ['7/8', { bars: 6, meter: [7, 8] }]]) {
+      let ok = true; for (let i = 0; i < 15; i++) for (const d of [0, 1, 2]) { loadSong({ v: 2, title: 'o', ...ex, tracks: [{ type: 'melody', notes: [] }] }); autoCompose(song.tracks[0], { density: d, rests: 2 }); const ns = song.tracks[0].notes; if (!ns.length || ns.some((n) => n.l <= 0 || !Number.isInteger(n.l) || !Number.isInteger(n.s) || n.s + n.l > totalTicks()) || ns.some((n, i2) => i2 > 0 && ns[i2 - 1].s + ns[i2 - 1].l > n.s)) ok = false; }
+      odd[nm] = ok;
+    }
+    out.いろいろな拍子 = odd;
+    return out;
+  });
+  // まど：ボタンをおすと開く・えらんだ設定をおぼえる・作る→作りなおす
+  await p.evaluate(() => { loadSong(sampleSong()); selectTrack(song.tracks.findIndex((t) => t.type === 'melody')); song.tracks[cur].notes = []; renderEditorTools(); });
+  await p.click('#btnAuto'); await p.waitForTimeout(200);
+  r.まどが開く = await p.evaluate(() => !!document.querySelector('#dlgAuto[open]'));
+  await p.selectOption('#dlgAuto select[data-k="density"]', '2');
+  await p.click('#auGo'); await p.waitForTimeout(200);
+  const n1 = await p.evaluate(() => JSON.stringify(track().notes));
+  r.作れた = await p.evaluate(() => track().notes.length > 8);
+  r.ボタンが作りなおすに = await p.evaluate(() => document.querySelector('#auGo span').textContent);
+  await p.click('#auGo'); await p.waitForTimeout(200);
+  r.作りなおすと変わる = (await p.evaluate(() => JSON.stringify(track().notes))) !== n1;
+  await p.click('#auNo'); await p.waitForTimeout(100);
+  r.設定をおぼえる = await p.evaluate(() => autoOpts().density);
+  await p.evaluate(() => { undo(); }); r.元に戻せる = (await p.evaluate(() => JSON.stringify(track().notes))) === n1;
+  await p.evaluate(() => localStorage.removeItem('otsumiki-auto'));
+  await p.click('#btnAuto'); await p.waitForTimeout(200); await p.screenshot({ path: (process.argv[2] || '.') + '/auto_dialog.png' });
+  console.log(JSON.stringify(r, null, 1)); console.log('エラー:', errs.length ? errs : 'なし');
+  await b.close();
+})();
