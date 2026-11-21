@@ -5466,12 +5466,27 @@ function renderScoreEditNow() {
   if (ui.sc.tup) setTimeout(() => scTupEnd(false), 0);
   scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi, on: el.classList.contains('playing') })); // のこした段の音符は、光ったままのことがある
   scPosShow(box);
+  box.classList.toggle('mode-input', !!ui.sc.input);
+  box.classList.toggle('mode-select', !ui.sc.input);
+  $('#scGhost')?.remove();
+  // 指で使うとき：音を1つえらんだら「ここから範囲でえらぶ」ボタンを出す（さいごの音をタップすると、その間を全部えらぶ）
+  box.querySelector('.scrange')?.remove();
+  if (LOW_POWER && track() && track().type === 'melody' && (ui.sc.sel.size >= 1 || ui.sc.rangeTap)) {
+    const rb = document.createElement('button');
+    rb.className = 'scrange' + (ui.sc.rangeTap ? ' on' : '');
+    rb.textContent = ui.sc.rangeTap ? 'さいごの音をタップ（やめる）' : 'ここから範囲でえらぶ';
+    rb.onpointerdown = (ev) => ev.stopPropagation();
+    rb.onclick = (ev) => { ev.stopPropagation(); ui.sc.rangeTap = !ui.sc.rangeTap; if (ui.sc.rangeTap) toast('さいごの音をタップすると、その間を全部えらびます'); renderScoreEdit(); if (typeof renderPhonePad === 'function' && isPhone) renderPhonePad(); };
+    box.appendChild(rb);
+  }
   const st = $('#scStatus');
   if (st) {
     const bt = barTicks();
     const b = barOf(ui.sc.cursor);
     const beat = (ui.sc.cursor - barStart(b)) / beatAt(b) + 1;
-    st.textContent = `${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${beatPos(ui.sc.cursor).text}${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
+    const touchy = LOW_POWER;
+    const how = ui.sc.input ? (touchy ? '【入力】タップ＝音を置く' : '【入力】クリック＝音を置く・ドラッグ＝範囲をえらぶ') : (touchy ? '【選択】タップ＝音をえらぶ' : '【選択】クリック＝音をえらぶ・ドラッグ＝範囲をえらぶ');
+    st.textContent = `${how}｜${ui.sc.repitch ? '【高さだけ入れなおす】' : ''}${track().name}｜${beatPos(ui.sc.cursor).text}${ui.sc.sel.size ? `｜${ui.sc.sel.size}音えらび中` : ''}`;
   }
 }
 // 楽譜の画面で、一度に書く小節の数（大きな曲だけ。小さな曲は全部書く）
@@ -6983,9 +6998,21 @@ function scApplyDurToSel() {
 }
 // 楽譜を四角でかこんで、音符をまとめてえらぶ（何もない所からドラッグ。入力モードでは五線の外から）
 function scBandStart(e) {
-  if (e.pointerType === 'touch' && !ui.sc.rangeTap) return false;
   const t = e.target;
-  if (t.closest && t.closest('.nh, .nhhit, .chd, .sctitle, .hp, .scpos')) return false;
+  if (t.closest && t.closest('.nh, .nhhit, .chd, .sctitle, .hp, .scpos, .scrange')) return false;
+  // 指（タッチ）：動かしたらスクロール。動かさずにはなしたときだけ「おした」ことにする（スクロールのつもりで音が入らないように）
+  if (e.pointerType === 'touch' && !ui.sc.rangeTap) {
+    const x0t = e.clientX, y0t = e.clientY, t0 = performance.now();
+    let moved = false;
+    const mvT = (ev) => { if (ev.pointerId === e.pointerId && Math.hypot(ev.clientX - x0t, ev.clientY - y0t) > 8) moved = true; };
+    const end = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      removeEventListener('pointermove', mvT); removeEventListener('pointerup', end); removeEventListener('pointercancel', end);
+      if (ev.type === 'pointerup' && !moved && performance.now() - t0 < 700 && !(ui.sc && ui.sc.pinching)) scoreClick(e);
+    };
+    addEventListener('pointermove', mvT); addEventListener('pointerup', end); addEventListener('pointercancel', end);
+    return true;
+  }
   const box = $('#scoreEditView');
   const svg = box.querySelector('svg');
   const L = box._layout;
@@ -6994,7 +7021,7 @@ function scBandStart(e) {
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
   const h = Notation.hit(L, x, y);
-  if (ui.sc.input && h && h.pitch != null && !e.shiftKey) return false; // 入力モード：五線の上は、ふつうに音を置く
+  // 入力モードでも選択モードでも：ドラッグ＝四角でかこんで範囲をえらぶ。動かさずにはなしたら「クリック」（入力モードなら音を置く）
   const br = box.getBoundingClientRect();
   const x0 = e.clientX;
   const y0 = e.clientY;
@@ -7108,6 +7135,42 @@ function scoreClick(e) {
     if (e.shiftKey && ui.sc.lastIns && ui.sc.lastIns.t === t) scInsert([h.pitch], true);
     else { ui.sc.lastIns = null; scInsert([h.pitch], false); }
   } else { ui.sc.sel = new Set(); renderScoreEdit(); }
+}
+// 入力モード（マウス）：クリックしたら入る音符の「影」を、マウスの所に出す（どこに・どの高さで入るかが、おす前に分かる）
+function scGhost(e) {
+  const box = $('#scoreEditView');
+  let g = $('#scGhost');
+  const hide = () => { if (g) g.hidden = true; };
+  if (ui.view !== 'score' || !ui.sc.input || e.pointerType !== 'mouse' || e.buttons || player.on || ui.sc.lyr || ui.chd) return hide();
+  if (e.target.closest && e.target.closest('.nh, .nhhit, .chd, .sctitle, .hp, .scpos, .scwin, .scrange')) return hide();
+  const svg = box.querySelector('svg');
+  const L = box._layout;
+  if (!svg || !L) return hide();
+  const r = svg.getBoundingClientRect();
+  const kx = r.width / L.width;
+  const x = (e.clientX - r.left) / kx;
+  const y = (e.clientY - r.top) / kx;
+  const h = Notation.hit(L, x, y);
+  if (!h || h.pitch == null || h.perc) return hide();
+  const tr = scoreParts[h.pi];
+  if (!tr || tr.type !== 'melody' || locked(tr)) return hide();
+  const sys = L.systems.find((q) => q.bars.some((B) => B.b === h.bar));
+  const stf = sys && sys.staves.find((q) => q.pi === h.pi && q.sub === h.sub);
+  if (!stf) return hide();
+  // 入る位置（クリックしたときと同じ決め方）
+  const unit = Math.min(scDur(), ui.sc.trip ? scDur() : 24);
+  const bStart = barStart(h.bar);
+  const rel = Math.floor((h.tick - bStart) / unit) * unit;
+  const B = sys.bars.find((q) => q.b === h.bar);
+  let gx = B.xs[0];
+  for (let i = 0; i < B.ticks.length - 1; i++) if (rel >= B.ticks[i]) gx = B.xs[i] + ((Math.min(rel, B.ticks[i + 1]) - B.ticks[i]) / (B.ticks[i + 1] - B.ticks[i] || 1)) * (B.xs[i + 1] - B.xs[i]);
+  const gy = stf.top + 32 - h.staffPos * 4;
+  if (!g) { g = document.createElement('div'); g.id = 'scGhost'; g.innerHTML = '<i></i><b></b>'; box.appendChild(g); }
+  const br = box.getBoundingClientRect();
+  g.hidden = false;
+  g.style.transform = `translate(${Math.round(r.left - br.left + box.scrollLeft + gx * kx)}px,${Math.round(r.top - br.top + box.scrollTop + gy * kx)}px) scale(${kx.toFixed(3)})`;
+  const q = (tr.ottava || []).find((o2) => bStart + rel >= o2.s && bStart + rel < o2.e);
+  setText(g.lastChild, noteName(clamp(h.pitch + (q ? 12 * q.k : 0), 0, 127)));
 }
 // 音符を上下にドラッグして高さを変える（MuseScore と同じ。1目もり＝線か間1つ。Shift で半音ずつ）
 function scDragPitch(e, k) {
@@ -7265,6 +7328,9 @@ function initScoreEditor() {
   $$('#viewSeg button').forEach((b) => (b.onclick = () => setView(b.dataset.v)));
   $('#scoreEditView').addEventListener('pointerdown', (e) => { if (e.button > 0) return; if (ui.sc && ui.sc.pinching) return; if (e.pointerType === 'touch' && !e.isPrimary) return; if (e.pointerType === 'touch') scTouch = { t: performance.now(), n: undoStack.length }; if (scBandStart(e)) return; scoreClick(e); });
   initPinch();
+  $('#scoreEditView').addEventListener('pointermove', scGhost);
+  $('#scoreEditView').addEventListener('pointerleave', () => { const g = $('#scGhost'); if (g) g.hidden = true; });
+  $('#scoreEditView').addEventListener('pointerdown', () => { const g = $('#scGhost'); if (g) g.hidden = true; }, true);
   // Ctrl＋ホイールで楽譜を大きく・小さく
   // 音符をドラッグしているあいだは、画面をスクロールさせない（タブレット）
   $('#scoreEditView').addEventListener('touchmove', (e) => { if (ui.sc && ui.sc.dragging) e.preventDefault(); }, { passive: false });

@@ -1590,3 +1590,16 @@ body.phone .minitime { font-size: 10.5px; }
 
 /* スマホ・タブレット：再生ボタンのまわりの波（ずっと動くアニメーション）は止める。画面の書きかえをへらして、音の計算に力をのこす */
 body.lowpower .play.on::after { animation: none; opacity: .55; }
+
+/* 楽譜：入力モードと選択モードが、見て分かるように */
+#scoreEditView.mode-input svg { cursor: crosshair; }
+#scoreEditView.mode-select svg { cursor: default; }
+#scoreEditView .nh, #scoreEditView .nhhit { cursor: pointer; }
+/* クリックしたら入る音符の影（入力モード・マウス） */
+#scGhost { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 3; transform-origin: 0 0; }
+#scGhost[hidden] { display: none; }
+#scGhost i { position: absolute; left: -6px; top: -4.5px; width: 12px; height: 9px; border-radius: 50%; background: var(--accent); opacity: .62; transform: rotate(-20deg); }
+#scGhost b { position: absolute; left: 10px; top: -22px; font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 5px; padding: 0 5px; white-space: nowrap; opacity: .9; }
+/* 指で使うとき：範囲でえらぶボタン（楽譜の下に、はりついて見える） */
+#scoreEditView .scrange { position: sticky; left: 8px; bottom: 8px; z-index: 5; display: inline-block; margin: 6px 8px; padding: 7px 14px; border-radius: 999px; border: 1.5px solid var(--accent); background: var(--panel, #fff); color: var(--accent); font-size: 13px; font-weight: 700; box-shadow: 0 3px 10px rgba(0,0,0,.15); }
+#scoreEditView .scrange.on { background: var(--accent); color: #fff; }
