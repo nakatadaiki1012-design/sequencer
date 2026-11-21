@@ -1,7 +1,7 @@
 // 大きな曲の楽譜：部品をまとめて軽く（ぼう・加線・連桁を段ごとに1つの図形に）。見た目・音符を押す操作は今までどおり
 const { chromium } = require('playwright');
 (async () => {
-  const b = await chromium.launch();
+  const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const p = await b.newPage({ viewport: { width: 1366, height: 860 } });
   const errs = [];
   p.on('pageerror', (e) => errs.push(e.message));
@@ -31,6 +31,56 @@ const { chromium } = require('playwright');
   await p.waitForTimeout(300);
   out['音符のはしを押してもえらべる'] = await p.evaluate((pt) => ui.sc.sel.has(pt.s + ':' + pt.p), pt2);
   await p.screenshot({ path: process.argv[2] || 'tools/big_score.png' });
+  // 変わった段だけ入れかえる：いろいろな操作のあと、全部作りなおした絵と同じか
+  out['変わった段だけ入れかえても、全部作りなおしたときと同じ'] = await p.evaluate(async () => {
+    const box = document.querySelector('#scoreEditView');
+    const same = () => { const a = box.innerHTML; box._frame = null; renderScoreEditNow(); return a === box.innerHTML; };
+    const res = [];
+    let replaced = 0;
+    const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeName === 'g') replaced++; });
+    mo.observe(box, { subtree: true, childList: true });
+    const tr = track();
+    // 音を入れる・高さを変える
+    edit(() => { tr.notes.push({ s: 12, p: 70, l: 12 }); }, 't'); renderScoreEditNow(); res.push(same());
+    edit(() => { tr.notes[5].p += 2; }, 't'); renderScoreEditNow(); res.push(same());
+    // えらぶ・カーソルを動かす
+    ui.sc.sel = new Set([tr.notes[20].s + ':' + tr.notes[20].p]); renderScoreEditNow(); res.push(same());
+    ui.sc.cursor = barStart(9); renderScoreEditNow(); res.push(same());
+    // もどす
+    undo(); renderScoreEditNow(); res.push(same());
+    // 歌詞（段の高さが変わる → 全部作りなおしになる）
+    edit(() => { track().notes[0].ly = 'あ'; }, 't'); renderScoreEditNow(); res.push(same());
+    // べつのトラックをえらぶ
+    selectTrack(3); renderScoreEditNow(); res.push(same());
+    await new Promise((r) => setTimeout(r, 50));
+    mo.disconnect();
+    const total = box.querySelectorAll('svg > g.sys').length;
+    return res.every(Boolean) ? `同じ（${res.length}回）・段は${total}こ` : JSON.stringify(res);
+  });
+  out['1音変えたとき、入れかえる段は1つだけ'] = await p.evaluate(async () => {
+    const box = document.querySelector('#scoreEditView');
+    renderScoreEditNow();
+    let replaced = 0;
+    const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeName === 'g') replaced++; });
+    mo.observe(box, { subtree: true, childList: true });
+    ui.sc.sel = new Set(); ui.sc.cursor = 0; renderScoreEditNow();
+    await new Promise((r) => setTimeout(r, 30)); replaced = 0;
+    edit(() => { track().notes[2].p += 1; }, 't'); renderScoreEditNow();
+    await new Promise((r) => setTimeout(r, 30));
+    mo.disconnect();
+    return replaced;
+  });
+  // 再生：光っている音符が、止めたあとにのこらない
+  out['再生して止めると、光った音符はのこらない'] = await p.evaluate(async () => {
+    cheer = () => {};
+    ui.startTick = 0; play();
+    await new Promise((r) => setTimeout(r, 900));
+    edit(() => { track().notes[3].p += 1; }, 't'); renderScoreEditNow();
+    await new Promise((r) => setTimeout(r, 500));
+    stop();
+    await new Promise((r) => setTimeout(r, 300));
+    return document.querySelectorAll('#scoreEditView .nh.playing').length === 0 && !document.querySelector('#playCur:not([hidden])');
+  });
   // 小さな曲は今までどおり（当たりの四角・1本ずつの線）
   const small = await info(mk(4));
   out['小さな曲：今までどおり'] = small.hits === small.heads && small.win === null;

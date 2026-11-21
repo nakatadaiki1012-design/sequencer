@@ -5392,7 +5392,27 @@ function renderScoreEditNow() {
   const svgHtml = Notation.render(o);
   const LW0 = Notation.lastLayout;
   const nav = win && LW0 && LW0.window ? `<div class="scwin" role="navigation" aria-label="楽譜のページ"><button class="mini" data-w="-1" ${LW0.window[0] <= 0 ? 'disabled' : ''}>◀ 前</button><span>${LW0.window[0] + (song.pickup ? 0 : 1)}〜${LW0.window[1] - (song.pickup ? 1 : 0)}小節（全${song.bars - (song.pickup ? 1 : 0)}小節）</span><button class="mini" data-w="1" ${LW0.window[1] >= song.bars ? 'disabled' : ''}>次 ▶</button></div>` : '';
-  box.innerHTML = nav + svgHtml;
+  // 大きな曲：前に書いた楽譜と、わく（大きさ・曲名など）と段の数が同じなら、変わった段だけを入れかえる（全部入れかえると重い）
+  const sysStr = LW0 && LW0.window ? LW0.systems.map((x) => x.svg) : null;
+  const cut = sysStr && sysStr.length ? svgHtml.indexOf('<g class="sys">') : -1;
+  const frame = cut >= 0 ? nav + svgHtml.slice(0, cut) : null;
+  const oldG = frame != null && box._frame === frame && box._sysStr && box._sysStr.length === sysStr.length ? box.querySelectorAll(':scope > svg > g.sys') : null;
+  if (oldG && oldG.length === sysStr.length) {
+    let tmp = null;
+    for (let i = 0; i < sysStr.length; i++) {
+      if (sysStr[i] === box._sysStr[i]) continue;
+      if (!tmp) tmp = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      tmp.innerHTML = sysStr[i];
+      oldG[i].replaceWith(tmp.firstChild);
+    }
+    document.querySelector('#scoreEditView .scpos')?.remove();
+    const pc = $('#playCur');
+    if (pc && !player.on) pc.remove();
+  } else {
+    box.innerHTML = nav + svgHtml;
+  }
+  box._frame = frame;
+  box._sysStr = sysStr;
   box.scrollTop = pageChanged ? 0 : keepTop;
   box._layout = LW0;
   if (nav) box.querySelectorAll('.scwin button').forEach((bt) => (bt.onclick = (e) => { e.stopPropagation(); scoreWinMove(+bt.dataset.w); }));
@@ -5422,7 +5442,7 @@ function renderScoreEditNow() {
     }
   }
   if (ui.sc.tup) setTimeout(() => scTupEnd(false), 0);
-  scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi }));
+  scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi, on: el.classList.contains('playing') })); // のこした段の音符は、光ったままのことがある
   scPosShow(box);
   const st = $('#scStatus');
   if (st) {

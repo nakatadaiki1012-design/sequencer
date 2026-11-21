@@ -696,11 +696,12 @@ const Notation = (() => {
       let poly = null;
       for (const sx of arr) {
         let m;
-        if (sx.length < 140 && (m = LINE_RE.exec(sx))) {
+        const c1 = sx.charCodeAt(1); // 'l'=108（line）・'p'=112（path）。それ以外は調べない（速くするため）
+        if (c1 === 108 && sx.length < 140 && (m = LINE_RE.exec(sx))) {
           let q = byW.get(m[5]);
           if (!q) { q = { i: out.length, d: '' }; byW.set(m[5], q); out.push(''); }
           q.d += `M${m[1]} ${m[3]}L${m[2]} ${m[4]}`;
-        } else if (sx.length < 260 && (m = POLY_RE.exec(sx))) {
+        } else if (c1 === 112 && sx.length < 260 && sx.charCodeAt(9) === 77 && (m = POLY_RE.exec(sx))) {
           if (!poly) { poly = { i: out.length, d: '' }; out.push(''); }
           poly.d += m[1];
         } else out.push(sx);
@@ -1482,7 +1483,8 @@ const Notation = (() => {
           for (const B of sys.bars) o.push(conn(B, yA + 4 * SP, tops[si + 1]));
         }
       });
-      if (COMPACT) { const part = compact(o.splice(oStart)); for (const q of part) o.push(q); }
+      // 段ごとに <g> でくるむ（画面では、変わった段だけを入れかえられるように）
+      if (COMPACT) { const part = compact(o.splice(oStart)); o.push('<g class="sys">'); for (const q of part) o.push(q); o.push('</g>'); }
       sys.svg = o.slice(oStart).join('');
       layout.systems.push(sys);
     });
