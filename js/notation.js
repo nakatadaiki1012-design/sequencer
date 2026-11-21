@@ -570,9 +570,11 @@ const Notation = (() => {
     };
     const groups = groupsOf(staves);
     const brk = groups.some((g) => g.z > g.a) ? 9 : 0;
-    const nameW = staves.length > 1 ? Math.min(110, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partLabel(st)) * 0.85)) + 10) + brk : 0;
-    const nameW2 = staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.85)) + 10) + brk : brk;
-    const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6 + nameW2) + (staves.some((s) => s.grand) ? 10 : 0);
+    // 大譜表の波かっこ（ブレース）は、五線の左の外に書く。そのぶん、五線を右へよせる
+    const grd = staves.some((s) => s.grand) ? 10 : 0;
+    const nameW = (staves.length > 1 ? Math.min(110, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partLabel(st)) * 0.85)) + 10) + brk : 0) + grd;
+    const nameW2 = (staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.85)) + 10) + brk : brk) + grd;
+    const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6 + nameW2);
     // 全部の段が「くり返し記号」の小節は、せまくする
     for (let b = 1; b < bars; b++) {
       if (staves.length && staves.every((st) => st.mrepSame && st.mrepSame(b))) {
@@ -903,7 +905,7 @@ const Notation = (() => {
           sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: 'tab', perc: true, baseDn: 30, kc: 0, kcs: st.kcs, tr: 0, tabH: (n - 1) * gap });
           for (let i = 0; i < n; i++) o.push(`<line x1="${L}" x2="${xEnd}" y1="${stTop + i * gap}" y2="${stTop + i * gap}" stroke="#222" stroke-width="0.9"/>`);
           'TAB'.split('').forEach((c, i) => o.push(`<text x="${L + 12}" y="${stTop + ((n - 1) * gap) / 2 - 11 + i * 12}" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#111" font-family="serif" class="tabclef">${c}</text>`));
-          if (staves.length > 1 && st.sub === 0) o.push(`<text x="${L - 6 - brk}" y="${stTop + ((n - 1) * gap) / 2 + 3.5}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
+          if (staves.length > 1 && st.sub === 0) o.push(`<text x="${L - 6 - brk - grd}" y="${stTop + ((n - 1) * gap) / 2 + 3.5}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
           let handPos = 2;
           for (const B of sys.bars) {
             const bb = B.b;
@@ -927,8 +929,8 @@ const Notation = (() => {
         }
         sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: st.clef, baseDn: st.baseDn, baseAt: st.baseAt, kc: st.kcs[b0], kcs: st.kcs, tr: st.tr, perc });
         for (let i = 0; i < 5; i++) o.push(`<line x1="${L}" x2="${xEnd + caut}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="1.05"/>`);
-        if (staves.length > 1 && st.sub === 0 && (line === 0 || !opts.noShortNames)) o.push(`<text x="${L - 6 - brk}" y="${stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5)}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
-        const cl = L + (st.grand ? 10 : 0);
+        if (staves.length > 1 && st.sub === 0 && (line === 0 || !opts.noShortNames)) o.push(`<text x="${L - 6 - brk - grd}" y="${stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5)}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
+        const cl = L;
         // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
         if (perc) o.push(G('unpitchedPercussionClef1', cl + 7, yOf(4)));
         else if (st.clef === 'treble') o.push(G('gClef', cl + 4, yOf(2)));
@@ -1525,9 +1527,10 @@ const Notation = (() => {
         if (st.grand && st.sub === 0 && VS[si + 1]) {
           const yA = tops[si];
           const yZ = tops[si + 1] + 4 * SP;
-          const xm = L + 5;
-          o.push(G('brace', xm - 3, yZ, 'fill="#111"', (yZ - yA) / 4));
-          o.push(`<line x1="${L + 10}" x2="${L + 10}" y1="${yA}" y2="${yZ}" stroke="#222"/>`);
+          // 波かっこは、左のたて線のすぐ外がわ（左）に。高さは2つの五線ぴったり
+          const bsc = (yZ - yA) / 4;
+          o.push(G('brace', L - 2.5 - 0.277 * bsc, yZ, 'fill="#111"', bsc));
+          o.push(`<line x1="${L}" x2="${L}" y1="${yA}" y2="${yZ}" stroke="#222"/>`);
           for (const B of sys.bars) o.push(conn(B, yA + 4 * SP, tops[si + 1]));
         }
       });
