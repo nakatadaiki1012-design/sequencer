@@ -4067,7 +4067,13 @@ function renderTracksNow() {
       // スマホ：トラックの中身を、小節ごとの帯で見せる（タップでその小節を打ち込みへ）
       const strip = document.createElement('div');
       strip.className = 'tstrip';
-      strip.innerHTML = trackStrip(tr, i);
+      {
+        // 絵が前と同じなら、前に作った部品をそのまま付けなおす（文字から作りなおさない）
+        const html = trackStrip(tr, i);
+        const c = stripCache.get(tr.id);
+        if (c && c.node && c.nodeKey === c.key) strip.appendChild(c.node);
+        else { strip.innerHTML = html; if (c) { c.node = strip.firstElementChild; c.nodeKey = c.key; } }
+      }
       strip.onclick = (ev) => {
         const svg = strip.querySelector('svg');
         const r = svg.getBoundingClientRect();
@@ -4194,7 +4200,21 @@ function initPinch() {
   ui.stripZoom = clamp(+lsGet('otsumiki-stripzoom', '1') || 1, 0.25, 6);
 }
 let scTouch = null; // 楽譜を指でおしたときの記録（2本目の指が来たら、1本目の操作を取り消すため）
+// トラックの帯の絵は、中身が変わっていなければ前のものを使い回す（30パートの曲で、毎回2万個の音を書きなおさない）
+const stripCache = new Map(); // トラックの id → { key, html }
 function trackStrip(tr, i) {
+  let h = 0;
+  if (tr.type === 'melody') { const ns = tr.notes; h = ns.length; for (let q = 0; q < ns.length; q++) { const n = ns[q]; h = (Math.imul(h, 31) + n.s * 7 + n.p * 131 + n.l) | 0; } }
+  else h = JSON.stringify(tr.type === 'chord' ? tr.chords : tr.grid);
+  const key = [tr.type, i, stripBW(), song.bars, totalTicks(), JSON.stringify(song.meter), JSON.stringify(song.meters || 0), song.pickup || 0, i === cur ? ui.sel.b0 + ':' + ui.sel.b1 : '', h].join('|');
+  const c = stripCache.get(tr.id);
+  if (c && c.key === key) return c.html;
+  const html = trackStripBuild(tr, i);
+  stripCache.set(tr.id, { key, html });
+  if (stripCache.size > 200) stripCache.clear();
+  return html;
+}
+function trackStripBuild(tr, i) {
   const BW = stripBW();
   const H = 44;
   const W = BW * song.bars;

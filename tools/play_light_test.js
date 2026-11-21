@@ -18,6 +18,15 @@ const { chromium, devices } = require('playwright');
     setView('grid');
     await new Promise((res) => setTimeout(res, 400));
     out['トラックの帯の部品（4000音でも少ない）'] = document.querySelectorAll('#trackList .tstrip svg *').length < 3000;
+    // トラックをえらびなおしても、帯の絵を作りなおすのは、変わった2つだけ
+    { const ob = trackStripBuild; let n = 0; trackStripBuild = (...a) => { n++; return ob(...a); };
+      renderTracksNow(); n = 0; selectTrack(3); renderTracksNow();
+      const a1 = n; n = 0;
+      edit(() => { song.tracks[5].notes[0].p += 1; }, 't'); renderTracksNow();
+      const a2 = n; trackStripBuild = ob;
+      out['えらびなおし：作りなおす帯は2つまで・1つのトラックを変えたら1つだけ'] = a1 <= 2 && a2 === 1 ? true : a1 + '・' + a2;
+      out['帯の絵は、音を変えると変わる'] = document.querySelectorAll('#trackList .tstrip svg').length === 10;
+      selectTrack(0); }
     // 再生中2秒の、文字の書きかえの回数
     const cnt = {};
     const mo = new MutationObserver((ms) => { for (const m of ms) { const t = m.target.nodeType === 1 ? m.target : m.target.parentElement; const id = t && t.id; if (id) cnt[id] = (cnt[id] || 0) + 1; } });
