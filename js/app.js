@@ -5408,6 +5408,8 @@ function renderScoreEditNow() {
     ui.sc.win = clamp(ui.sc.win, 0, Math.max(0, song.bars - 1));
     o.window = [ui.sc.win, Math.min(song.bars, ui.sc.win + win)];
   } else ui.sc.win = null;
+  // 段ごとの絵のとりおき用：曲・楽譜の設定・画面のようすが同じかどうかの目じるし
+  o.cacheSalt = [cur, ui.sc.input ? 1 : 0, ui.sc.voice || 1, JSON.stringify(song.score || 0), document.documentElement.dataset.theme || '', isPhone ? 1 : 0].join('|');
   const keepTop = box.scrollTop;
   const svgHtml = Notation.render(o);
   const LW0 = Notation.lastLayout;

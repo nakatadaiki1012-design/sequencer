@@ -292,6 +292,7 @@ const Notation = (() => {
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   let textW = (t) => [...String(t || '')].reduce((a, c) => a + (c.charCodeAt(0) > 255 ? 12 : 7), 0);
   // 音の長さ → 横の間隔。16分・32分は符頭がくっつかないよう、少し多めにとる
+  const sysCache = { key: null, m: new Map() };
   const spaceFor = (d) => 10 + 8.2 * Math.log2(Math.max(d, 4) / 6) + (d < 24 ? ((24 - Math.max(d, 4)) / 18) * 4 : 0);
 
   /* ------------------------------------------------------------
@@ -743,6 +744,40 @@ const Notation = (() => {
 
     let prevStretch = 1.2;
     let prevLam = null;
+    // 段ごとの絵のとりおき（大きな曲を画面で書くときだけ）。
+    // 全体にかかわるもの（設定・強弱・スラー・段の高さなど）が変わったら全部すてる。音符は、その段（と前後1小節）の分だけを見る
+    let SYSKEY = null;
+    let selSpans = [];
+    let barHash = null; // パートごと・小節ごとの、音符の中身のしるし
+    if (COMPACT && opts.cacheSalt != null) {
+      const hs = (h, str) => { for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0; return h; };
+      const hashNote = (n) => { let h = (n.s * 7 + n.p * 131 + n.l * 17) | 0; for (const k in n) { if (k === 's' || k === 'p' || k === 'l') continue; const v = n[k]; if (v == null) continue; h = hs(hs(h, k), typeof v === 'object' ? JSON.stringify(v) : String(v)); } return h; };
+      try {
+        SYSKEY = opts.cacheSalt + JSON.stringify(opts, (k, v) => {
+          if (k === 'notes' && Array.isArray(v)) return 0;
+          if (k === 'edit' && v) { const e2 = { ...v }; delete e2.cursor; delete e2.sel; delete e2.curLabel; return e2; }
+          if (k === 'cacheSalt' || k === 'partTracks') return undefined;
+          if (typeof v === 'function') return 'fn';
+          if (v instanceof Set) return [...v];
+          return v;
+        }) + JSON.stringify(staves.map((st) => { const q = [st.notes.length, st.notes2.length]; for (const k in st) { const v = st[k]; if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string') q.push(k, v); } return q; }));
+      } catch (e) { SYSKEY = null; }
+      if (SYSKEY != null) {
+        if (sysCache.key !== SYSKEY) { sysCache.key = SYSKEY; sysCache.m = new Map(); }
+        barHash = new Int32Array(bars + 2);
+        for (let si = 0; si < staves.length; si++) for (const ns of [staves[si].notes, staves[si].notes2]) for (let i = 0; i < ns.length; i++) {
+          const n = ns[i];
+          const h = Math.imul(hashNote(n) ^ (si * 7919 + (ns === staves[si].notes2 ? 104729 : 0)), 2654435761) | 0;
+          const ba = barOfT(Math.min(n.s, bS(bars) - 1));
+          const bz = barOfT(Math.min(Math.max(n.s, n.s + n.l - 1), bS(bars) - 1));
+          for (let b = ba; b <= bz; b++) barHash[b] = (barHash[b] + h) | 0; // 足し算：音のならぶ順にはよらない
+        }
+        // えらんでいる音が鳴っている範囲（タイで次の段につづく音は、次の段でも色がつく）
+        const pn = (opts.parts[edit.part] || {}).notes || [];
+        if (edit.sel && edit.sel.size) for (const id of edit.sel) { const [ss, pp] = String(id).split(':').map(Number); const n = pn.find((q) => q.s === ss && q.p === pp); selSpans.push([id, ss, n ? ss + n.l : ss + 1]); }
+        selSpans.sort((a, c) => (a[0] < c[0] ? -1 : 1));
+      }
+    }
     // 臨時記号は段ごと・小節ごとに覚える
     layout.title = title;
     layout.barNat = barInfo.map((x) => Math.round(x.nat));
@@ -784,6 +819,17 @@ const Notation = (() => {
       if (line === lines.length - 1 && lines.length > 1 && prevLam != null && lam != null && sysW(prevLam) < avail * 0.67) lam = prevLam;
       else if (line === lines.length - 1 && lines.length > 1 && lam == null && natSum * prevStretch < avail * 0.67) stretch = prevStretch;
       if (line < lines.length - 1) { prevStretch = stretch; prevLam = lam; }
+      // 大きな曲：前に書いたときと、曲も設定も同じで、この段にカーソルもえらんだ音もかかっていなければ、前の絵をそのまま使う
+      // （カーソルを動かす・音符をえらぶだけで、全部の段を描きなおさない）
+      let sysSig = null;
+      if (SYSKEY) {
+        const ta = bS(b0), tz = bS(b1);
+        const cIn = edit.cursor != null && edit.cursor >= ta && edit.cursor <= tz;
+        let nh = 0; for (let b = Math.max(0, b0 - 1); b <= Math.min(bars - 1, b1); b++) nh = (Math.imul(nh, 31) + barHash[b]) | 0;
+        sysSig = [b0, b1, lam, stretch, sysTop, hx, L, avail, nh, cIn ? edit.cursor + '/' + (edit.curLabel || '') : '', selSpans.filter((q) => q[1] < tz + 1 && q[2] > ta - 1).map((q) => q[0]).join(',')].join('|');
+        const hit = sysCache.m.get(line);
+        if (hit && hit.sig === sysSig) { for (const q of hit.strs) o.push(q); layout.systems.push(hit.sys); return; }
+      }
       const sys = { y0: sysTop - topRow, y1: sysTop + sysHOf(line) - topRow, bars: [], staves: [] };
       // 小節の x 位置
       let x = hx;
@@ -1486,6 +1532,7 @@ const Notation = (() => {
       // 段ごとに <g> でくるむ（画面では、変わった段だけを入れかえられるように）
       if (COMPACT) { const part = compact(o.splice(oStart)); o.push('<g class="sys">'); for (const q of part) o.push(q); o.push('</g>'); }
       sys.svg = o.slice(oStart).join('');
+      if (SYSKEY) sysCache.m.set(line, { sig: sysSig, strs: [sys.svg], sys });
       layout.systems.push(sys);
     });
     o.push('</svg>');
@@ -2029,5 +2076,5 @@ const Notation = (() => {
     });
   }
 
-  return { render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
+  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
 })();

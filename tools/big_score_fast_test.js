@@ -34,7 +34,7 @@ const { chromium } = require('playwright');
   // 変わった段だけ入れかえる：いろいろな操作のあと、全部作りなおした絵と同じか
   out['変わった段だけ入れかえても、全部作りなおしたときと同じ'] = await p.evaluate(async () => {
     const box = document.querySelector('#scoreEditView');
-    const same = () => { const a = box.innerHTML; box._frame = null; renderScoreEditNow(); return a === box.innerHTML; };
+    const same = () => { const a = box.innerHTML; Notation.clearCache(); box._frame = null; renderScoreEditNow(); return a === box.innerHTML; }; // とりおきを全部すてて作りなおした絵とくらべる
     const res = [];
     let replaced = 0;
     const mo = new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeName === 'g') replaced++; });
@@ -46,6 +46,21 @@ const { chromium } = require('playwright');
     // えらぶ・カーソルを動かす
     ui.sc.sel = new Set([tr.notes[20].s + ':' + tr.notes[20].p]); renderScoreEditNow(); res.push(same());
     ui.sc.cursor = barStart(9); renderScoreEditNow(); res.push(same());
+    // カーソルを少しずつ動かす・段をまたぐ・えらぶ音を変える（とりおきが古いままにならないか）
+    for (const t of [24, 48, 96, 192, 768, 1536, 2304, 0, 3000, 12]) { ui.sc.cursor = t; renderScoreEditNow(); res.push(same()); }
+    for (const k of [1, 30, 77, 150, 33]) { ui.sc.sel = new Set([tr.notes[k].s + ':' + tr.notes[k].p, tr.notes[k + 1].s + ':' + tr.notes[k + 1].p]); renderScoreEditNow(); res.push(same()); }
+    ui.sc.sel = new Set(); renderScoreEditNow(); res.push(same());
+    // 「元に戻す」の記録をとらずに音の高さ・長さだけ変えたとき（ドラッグのとちゅう）
+    tr.notes[40].p += 2; renderScoreEditNow(); res.push(same());
+    tr.notes[41].l = 12; renderScoreEditNow(); res.push(same());
+    // 段をまたいでのびる音をえらぶ（次の段でも色がつく）
+    { const L = box._layout; const endBar = L.systems[0].bars[L.systems[0].bars.length - 1].b + 1; const st = barStart(endBar) - 24;
+      edit(() => { tr.notes = tr.notes.filter((n) => !(n.s >= st && n.s < st + 96)); tr.notes.push({ s: st, p: 67, l: 72 }); }, 't'); renderScoreEditNow(); res.push(same());
+      ui.sc.sel = new Set([st + ':67']); renderScoreEditNow(); res.push(same());
+      ui.sc.sel = new Set(); renderScoreEditNow(); res.push(same()); }
+    // 入力モードの切りかえ・記号
+    ui.sc.input = !ui.sc.input; renderScoreEditNow(); res.push(same()); ui.sc.input = !ui.sc.input;
+    edit(() => { tr.notes[10].art = ['stac']; tr.dyn = [{ t: 0, v: 'f' }]; }, 't'); renderScoreEditNow(); res.push(same());
     // もどす
     undo(); renderScoreEditNow(); res.push(same());
     // 歌詞（段の高さが変わる → 全部作りなおしになる）
