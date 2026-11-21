@@ -3602,20 +3602,21 @@ function scaleDegreesInRange(lo, hi) {
   for (let m = lo; m <= hi; m++) if (pcs.has(m % 12)) out.push(m);
   return out;
 }
-// おまかせ作曲：音階とコードに合わせてメロディを自動で作ります
+// おまかせ作曲：音階・コード・ほかのパートに合わせて、メロディを自動で作ります
+// ・和声：拍の頭はコードの音。コードの外の音は、となりの音へなめらかにつなぐ（経過音・ししゅう音）だけ
+// ・対位法：ほかのパートと強い拍でぶつからない（2度・7度・増4度をさける）、平行5度・8度をさける、声部を交差させない
+// ・旋律：となりの音へ進むのを基本に、大きくとんだら反対向きにもどる。増4度・7度のとびはしない。さいごは主音
+// リズムを先に決めてから、きまりをやぶるほど点が高くなる「減点」をつけ、曲全体で減点がいちばん少ない音のならびをえらぶ
 function autoCompose(tr) {
   const lo = Math.max(trackRange(tr)[0], (RANGES[tr.range] || RANGES.soprano)[1]);
-  const tones = scaleDegreesInRange(lo + 2, lo + 16);
-  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
-  const bt = barTicks();
+  let LO = lo + 2, HI = lo + 16;
   const E = 24;
-  const notes = [];
-  let idx = tones.findIndex((m) => m % 12 === song.key && m >= lo + 5);
-  if (idx < 0) idx = Math.floor(tones.length / 2);
+  // ---- 1) リズム ----
+  const slots = [];
   const rhythms = [[2, 2, 2, 2], [2, 1, 1, 2, 2], [4, 2, 2], [1, 1, 2, 2, 2], [2, 2, 4], [3, 1, 2, 2], [2, 2, 1, 1, 2]];
   for (let b = 0; b < song.bars; b++) {
-    const bt = barLen(b);
-    const need = Math.max(1, Math.round(bt / E));
+    const bl = barLen(b);
+    const need = Math.max(1, Math.round(bl / E));
     const last = b === song.bars - 1;
     let pattern;
     if (last) pattern = [need];
@@ -3627,28 +3628,232 @@ function autoCompose(tr) {
       if (sum < need) pattern.push(need - sum);
     }
     let s = barStart(b);
-    const c = chordTr && chordTr.chords[b];
-    const chordPcs = c ? new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12)) : null;
+    const beat = beatAt(b);
     pattern.forEach((len, k) => {
-      if (last) {
-        let best = idx;
-        let bd = 99;
-        tones.forEach((m, i) => { if (m % 12 === song.key && Math.abs(i - idx) < bd) { bd = Math.abs(i - idx); best = i; } });
-        idx = best;
-      } else {
-        idx = clamp(idx + [-2, -1, -1, 0, 1, 1, 2, 3, -3][Math.floor(Math.random() * 9)], 0, tones.length - 1);
-        if (chordPcs && k === 0) {
-          for (const dd of [0, 1, -1, 2, -2]) {
-            const j = clamp(idx + dd, 0, tones.length - 1);
-            if (chordPcs.has(tones[j] % 12)) { idx = j; break; }
-          }
-        }
-      }
-      if (!(Math.random() < 0.07 && k > 0 && !last)) notes.push({ s, p: tones[idx], l: Math.min(len * E, barStart(b + 1) - s) });
+      const off = s - barStart(b);
+      const rest = Math.random() < 0.07 && k > 0 && !last;
+      // 拍の強さ：3＝小節の頭、2＝まん中の強い拍（4拍子の3拍目など）、1＝ほかの拍の頭、0＝うら
+      const nb = Math.round(bl / beat);
+      const strong = off === 0 ? 3 : off % beat !== 0 ? 0 : nb >= 4 && nb % 2 === 0 && off === (nb / 2) * beat ? 2 : 1;
+      if (!rest) slots.push({ s, l: Math.min(len * E, barStart(b + 1) - s), b, strong, gap: false });
+      else if (slots.length) slots[slots.length - 1].restAfter = true;
       s += len * E;
     });
   }
-  tr.notes = notes;
+  slots.forEach((x, i) => { x.gap = i > 0 && !!slots[i - 1].restAfter; });
+  const n = slots.length;
+  if (!n) { tr.notes = []; return; }
+
+  // ---- 2) まわりのようす（調・コード・ほかのパート） ----
+  const hasKeys = !!(song.keys && Object.keys(song.keys).length);
+  const pcsMemo = new Map();
+  const pcsAtBar = (b) => {
+    const k = keyAt(b);
+    const id = k.key + ':' + (k.minor ? 1 : 0);
+    if (!pcsMemo.has(id)) {
+      const steps = (!hasKeys || (k.key === song.key && !!k.minor === isMinor())) ? SCALES[song.scale].steps : SCALES[k.minor ? 'minor' : 'major'].steps;
+      pcsMemo.set(id, { key: k.key, steps, pcs: new Set(steps.map((x) => (x + k.key) % 12)) });
+    }
+    return pcsMemo.get(id);
+  };
+  const myMid = (trackRange(tr)[0] + trackRange(tr)[1]) / 2;
+  const others = song.tracks.filter((t) => t !== tr && t.type === 'melody' && t.notes.length).map((t) => {
+    const ns = [...t.notes].sort((a, z) => a.s - z.s);
+    const mean = ns.reduce((a, x) => a + x.p, 0) / ns.length;
+    // そのパートは自分より下か上か：まず音域の設定でくらべ、同じなら実際の音の高さでくらべる
+    const mid = (trackRange(t)[0] + trackRange(t)[1]) / 2;
+    const rel = mid !== myMid ? Math.sign(mid - myMid) : Math.abs(mean - (LO + HI) / 2) > 3 ? Math.sign(mean - (LO + HI) / 2) : 0;
+    return { ns, mean, rel };
+  });
+  // ほかのパートと音域が重なるときは、自分の音域の中で、重ならない高さへ寄せる
+  {
+    const below = others.filter((o) => o.rel < 0).map((o) => o.mean), above = others.filter((o) => o.rel > 0).map((o) => o.mean);
+    const [rlo, rhi] = trackRange(tr);
+    let sh = 0;
+    if (below.length) sh = Math.max(0, Math.min(rhi - HI, Math.ceil(Math.max(...below) + 5 - (LO + HI) / 2)));
+    if (above.length && !sh) sh = -Math.max(0, Math.min(LO - rlo, Math.ceil((LO + HI) / 2 - (Math.min(...above) - 5))));
+    LO += sh; HI += sh;
+  }
+  const centre = (LO + HI) / 2;
+  // ある時刻に鳴っている音（パートごとに、いちばん高い音と低い音）
+  const sounding = (o, t) => {
+    let hi = null, lw = null;
+    const ns = o.ns;
+    let a = 0, z = ns.length;
+    while (a < z) { const m = (a + z) >> 1; if (ns[m].s <= t) a = m + 1; else z = m; }
+    for (let i = a - 1; i >= 0 && i >= a - 12; i--) { const x = ns[i]; if (x.s + x.l > t) { if (hi == null || x.p > hi) hi = x.p; if (lw == null || x.p < lw) lw = x.p; } }
+    return hi == null ? null : { hi, lw };
+  };
+  const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
+  const triadOf = (c) => new Set(CHORD_Q[c.q].iv.map((x) => (c.r + x) % 12));
+  const barChords = []; // 小節ごとの [{o, pcs, root}]
+  if (chordTr) {
+    for (let b = 0; b < song.bars; b++) barChords.push(chordSegs(chordTr.chords[b], b).map((x) => ({ o: x.o, pcs: triadOf(x.c), root: x.c.r })));
+  } else {
+    // コードのトラックがないとき：音階の上にできる三和音から、ほかのパートの音に合うものを小節ごとに見立てる
+    const tmpl = [[0, 3, 4, 0], [0, 5, 3, 4], [0, 4, 5, 3], [0, 3, 0, 4], [0, 1, 4, 0]][Math.floor(Math.random() * 5)];
+    for (let b = 0; b < song.bars; b++) {
+      const K = pcsAtBar(b);
+      if (K.steps.length !== 7) { barChords.push([]); continue; }
+      const tri = (d) => new Set([0, 2, 4].map((x) => (K.key + K.steps[(d + x) % 7]) % 12));
+      const b0 = barStart(b), b1 = barStart(b + 1);
+      let best = 0, bs = -1e9;
+      for (const d of [0, 3, 4, 5, 1]) {
+        const t = tri(d);
+        if ([...t].some((x) => !K.pcs.has(x))) continue;
+        let sc = Math.random() * 0.3 + (d === tmpl[b % 4] ? 0.6 : 0);
+        if (b === song.bars - 1) sc += d === 0 ? 6 : 0;
+        else if (b === song.bars - 2) sc += d === 4 ? 1.5 : 0;
+        else if (b === 0) sc += d === 0 ? 1.5 : 0;
+        for (const o of others) for (const x of o.ns) {
+          if (x.s >= b1) break;
+          const ov = Math.min(x.s + x.l, b1) - Math.max(x.s, b0);
+          if (ov > 0) sc += (ov / (b1 - b0)) * (t.has(x.p % 12) ? 2 : -2.5);
+        }
+        if (sc > bs) { bs = sc; best = d; }
+      }
+      barChords.push([{ o: 0, pcs: tri(best), root: (K.key + K.steps[best]) % 12 }]);
+    }
+  }
+  const chordAt = (b, off) => { let c = null; for (const x of barChords[b] || []) if (x.o <= off) c = x; return c; };
+
+  // ---- 3) それぞれの音のこうほと、その音だけで決まる減点 ----
+  const sign = Math.sign;
+  const DIS = new Set([1, 2, 6, 10, 11]);
+  // フレーズ（4小節）ごとに、山なりの形をめざす
+  const arch = [];
+  for (let b = 0; b < song.bars; b += 4) arch.push({ peak: 0.35 + Math.random() * 0.4, amp: 2 + Math.random() * 4, base: centre - 1 + Math.random() * 3 });
+  const S = slots.map((sl, i) => {
+    const K = pcsAtBar(sl.b);
+    const cand = [];
+    for (let m = LO; m <= HI; m++) if (K.pcs.has(m % 12)) cand.push(m);
+    const off = sl.s - barStart(sl.b);
+    const ch = chordAt(sl.b, off);
+    const prevCh = i > 0 ? chordAt(slots[i - 1].b, slots[i - 1].s - barStart(slots[i - 1].b)) : null;
+    const strong = Math.max(sl.strong, ch && prevCh && ch !== prevCh && off > 0 ? 2 : 0); // コードがかわる所も強い拍としてあつかう
+    const oth = others.map((o) => ({ o, now: sounding(o, sl.s) }));
+    let bass = null;
+    for (const x of oth) if (x.now && (bass == null || x.now.lw < bass)) bass = x.now.lw;
+    const ph = arch[Math.floor(sl.b / 4)];
+    const pos = ((sl.b % 4) + off / barLen(sl.b)) / 4;
+    const target = ph.base + ph.amp * (pos < ph.peak ? pos / ph.peak : (1 - pos) / (1 - ph.peak)) - ph.amp / 2;
+    const first = i === 0, lastN = i === n - 1;
+    const hasTonic = cand.some((m) => m % 12 === K.key);
+    const un = [], nct = [];
+    cand.forEach((p, k) => {
+      let c = Math.random() * 1.2 + Math.abs(p - target) * 0.12;
+      const inCh = !ch || ch.pcs.has(p % 12);
+      let bad = !inCh;
+      // 弱い拍の頭なら、なめらかにつなぐ「経過音」としてコードの外の音も少しゆるす
+      if (!inCh) c += strong === 3 ? 14 : strong === 2 ? 10 : strong === 1 ? 2 : 0.4;
+      if (!inCh && sl.l >= 48) c += 6;
+      for (const x of oth) {
+        if (!x.now) continue;
+        for (const q of x.now.hi === x.now.lw ? [x.now.hi] : [x.now.hi, x.now.lw]) {
+          const ic = Math.abs(p - q) % 12;
+          if (DIS.has(ic)) { bad = true; c += strong >= 2 || sl.l >= 48 ? 12 : strong === 1 ? 5 : ic === 1 || ic === 11 ? 3.5 : 1.5; }
+          else if (ic === 5 && p > q && q === bass) c += strong >= 2 ? 4 : 1; // バスの上の4度
+          else if (ic === 0) c += first || lastN ? 0.5 : p === q ? 3.5 : 2; // 同じ音・オクターブばかりだとうすくなる
+          else if (ic === 7) c += 0.8;
+        }
+        // 声部の交差：下のパートより下へ、上のパートより上へ行かない
+        if (x.o.rel < 0 && p < x.now.hi) c += 8;
+        else if (x.o.rel > 0 && p > x.now.lw) c += 8;
+      }
+      if (first && ch && !inCh) c += 8;
+      if (lastN && hasTonic && p % 12 !== K.key) c += 1000;
+      un.push(c); nct.push(bad);
+    });
+    return { sl, K, cand, un, nct, oth, strong, lt: K.steps.includes(11) ? (K.key + 11) % 12 : -1 };
+  });
+  // 音階の上で何段はなれているか
+  const degMemo = new Map();
+  const degIn = (K, m) => {
+    let t = degMemo.get(K);
+    if (!t) { t = new Map(); let d = 0; for (let x = 0; x < 128; x++) { if (K.pcs.has(x % 12)) d++; t.set(x, d); } degMemo.set(K, t); }
+    return t.get(m);
+  };
+  const LEAP = [2.6, 0, 1.5, 2.4, 3, 5, 11, 5];
+  // となり合う2音の減点
+  const pairCost = (i) => {
+    const A = S[i - 1], B = S[i];
+    const mul = B.sl.gap ? 0.5 : 1;
+    const out = A.cand.map(() => new Float64Array(B.cand.length));
+    const D = A.cand.map(() => new Int8Array(B.cand.length));
+    // 両方の時刻に鳴っているほかのパート
+    const mv = [];
+    for (let x = 0; x < A.oth.length; x++) { const q1 = A.oth[x].now, q2 = B.oth[x].now; if (q1 && q2) mv.push([q1.hi, q2.hi], ...(q1.lw !== q1.hi || q2.lw !== q2.hi ? [[q1.lw, q2.lw]] : [])); }
+    A.cand.forEach((a, j) => B.cand.forEach((b, k) => {
+      const d = degIn(B.K, b) - degIn(B.K, a);
+      D[j][k] = d;
+      const ad = Math.abs(d), sem = Math.abs(b - a);
+      let c = (ad < LEAP.length ? LEAP[ad] : 20) * (ad === 0 ? 1 : mul);
+      if (sem === 6 || sem === 10 || sem === 11) c += 12;
+      if (sem > 12) c += 20;
+      if (ad >= 2 && (A.nct[j] || B.nct[k])) c += 3; // コードの外の音へはとばない
+      if (A.lt >= 0 && a % 12 === A.lt && b !== a + 1) c += 2.5; // 導音は主音へ
+      if (i === n - 1 && ad !== 1) c += 3; // さいごは、となりの音から主音へ
+      for (const [q1, q2] of mv) {
+        if (q1 === q2 || a === b) continue;
+        const i1 = Math.abs(a - q1) % 12, i2 = Math.abs(b - q2) % 12;
+        const same = sign(b - a) === sign(q2 - q1);
+        if ((i2 === 0 || i2 === 7) && i1 === i2) c += 25; // 平行5度・8度
+        else if ((i2 === 0 || i2 === 7) && same && ad > 1) c += 4; // とんで入る5度・8度（かくれた5度・8度）
+        else if (!same) c -= 0.3; // 反行はよい
+      }
+      out[j][k] = c;
+    }));
+    return { out, D };
+  };
+  // 3つつづく音の減点（h→j→k）
+  const triCost = (A, d1, d2, x, a, b, midBad) => {
+    let c = 0;
+    const a1 = Math.abs(d1), a2 = Math.abs(d2);
+    if (midBad && !(a1 === 1 && a2 === 1)) c += 9; // コードの外の音は、となりから入って、となりへ出る
+    if (a1 >= 3) { if (!(d2 !== 0 && sign(d2) === -sign(d1) && a2 <= 2)) c += 3; if (sign(d2) === sign(d1) && a2 >= 2) c += 3; }
+    else if (a1 === 2 && a2 >= 3 && sign(d1) === sign(d2)) c += 2;
+    if (x === a && a === b) c += 5;
+    else if (x === b && a !== b) c += 0.5;
+    const span = Math.abs(b - x);
+    if (sign(d1) === sign(d2) && (span === 6 || span === 10 || span === 11)) c += 2;
+    return c;
+  };
+
+  // ---- 4) 曲全体で減点がいちばん少ないならびをさがす ----
+  // 状態＝（1つ前の音, 今の音）。3つつづく音のきまりまで見られる
+  const back = [];
+  let prevD = null, dp = null;
+  if (n === 1) { let k = 0; S[0].un.forEach((c, i) => { if (c < S[0].un[k]) k = i; }); tr.notes = [{ s: slots[0].s, p: S[0].cand[k], l: slots[0].l }]; return; }
+  for (let i = 1; i < n; i++) {
+    const A = S[i - 1], B = S[i];
+    const { out: P, D } = pairCost(i);
+    const nj = A.cand.length, nk = B.cand.length;
+    const cur = Array.from({ length: nj }, () => new Float64Array(nk));
+    const bk = Array.from({ length: nj }, () => new Int16Array(nk));
+    if (i === 1) {
+      for (let j = 0; j < nj; j++) for (let k = 0; k < nk; k++) cur[j][k] = A.un[j] + (A.nct[j] ? 4 : 0) + P[j][k] + B.un[k];
+    } else {
+      const Z = S[i - 2];
+      const nh = Z.cand.length;
+      for (let j = 0; j < nj; j++) for (let k = 0; k < nk; k++) {
+        let best = Infinity, bh = 0;
+        const d2 = D[j][k];
+        for (let h = 0; h < nh; h++) {
+          const c = dp[h][j] + triCost(A, prevD[h][j], d2, Z.cand[h], A.cand[j], B.cand[k], A.nct[j]);
+          if (c < best) { best = c; bh = h; }
+        }
+        cur[j][k] = best + P[j][k] + B.un[k];
+        bk[j][k] = bh;
+      }
+    }
+    back.push(bk); dp = cur; prevD = D;
+  }
+  let bj = 0, bkk = 0, bc = Infinity;
+  for (let j = 0; j < dp.length; j++) for (let k = 0; k < dp[j].length; k++) if (dp[j][k] < bc) { bc = dp[j][k]; bj = j; bkk = k; }
+  const pick = new Array(n);
+  pick[n - 1] = bkk; pick[n - 2] = bj;
+  for (let i = n - 1; i >= 2; i--) pick[i - 2] = back[i - 1][pick[i - 1]][pick[i]];
+  tr.notes = slots.map((sl, i) => ({ s: sl.s, p: S[i].cand[pick[i]], l: sl.l }));
 }
 function shiftCopy(src, dst, bars) {
   const off = barStart(bars);
@@ -4448,7 +4653,7 @@ function renderEditorTools() {
   let others = [];
   if (tr.type === 'melody') {
     others = song.tracks.filter((t) => t.type === 'melody' && t !== tr);
-    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階とコードに合わせて、メロディを自動で作ります">${I('spark')}<span class="keep">おまかせ</span></button>`;
+    if (!song.locks.compose) html += `<button class="mini accent" id="btnAuto" title="音階・コード・ほかのパートに合うように、メロディを自動で作ります">${I('spark')}<span class="keep">おまかせ</span></button>`;
     const [rlo, rhi] = trackRange(tr);
     html += `<details class="pop" data-pop="range"><summary class="mini" title="表示する音の高さのはんい">${I('piano')}<span>${SOLFA_OCT(rlo)}〜${SOLFA_OCT(rhi)}</span></summary><div class="popbody">
       <div class="sub">はんいをえらぶ</div>
