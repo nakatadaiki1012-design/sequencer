@@ -1,6 +1,6 @@
 /* ============================================================
    楽器のイラスト（インラインSVG）
-   InstIcons.inst(id) / InstIcons.kit(id) / InstIcons.cat(id) が SVG の文字列を返します。
+   InstIcons.inst(id) / InstIcons.kit(id) / InstIcons.cat(id) / InstIcons.drum(id) が SVG の文字列を返します。
    色は currentColor（線）と --ii-fill（ぬり）で決まるので、ダークモードでも使えます。
    ============================================================ */
 const InstIcons = (() => {
@@ -144,6 +144,84 @@ const InstIcons = (() => {
     fx: () => `<path d="M24 4L28 16L40 10L34 22L45 27L33 30L37 43L26 35L18 44L17 32L4 32L13 24L5 13L18 16Z"${T}/>${spark(24, 24, 5)}`,
   };
 
+  /* ---------- 打楽器ひとつずつの絵（スネア・バスドラムなど） ---------- */
+  // 横から見た太鼓（つつの形）
+  const cyl = (x, y, w, h, ry = 3) => `<path d="M${x} ${y}V${y + h}C${x} ${y + h + ry * 1.35} ${x + w} ${y + h + ry * 1.35} ${x + w} ${y + h}V${y}"${T}/><ellipse cx="${x + w / 2}" cy="${y}" rx="${w / 2}" ry="${ry}"${T}/>`;
+  // ばち（先に丸い玉）
+  const stick = (x1, y1, x2, y2, r = 1.4) => `<path d="M${x1} ${y1}L${x2} ${y2}" stroke-width="1.75"/><circle cx="${x2}" cy="${y2}" r="${r}"${C}/>`;
+  // たたいたしるし（3本の短い線）
+  const hit = (x, y) => `<path d="M${x} ${y}v-4M${x - 5} ${y + 1}l-2.5-3.2M${x + 5} ${y + 1}l2.5-3.2" stroke-width="1.75"/>`;
+  // スタンドの足
+  const legs = (y = 40) => `<path d="M24 ${y}V${y + 1}M15 46l9-5l9 5"/>`;
+  // いなずま（電子音のしるし）
+  const bolt = (x = 37, y = 1) => `<path d="M${x + 5} ${y}l-5.5 7.5h4l-2.5 6.5l7-9h-4l3-5Z" fill="currentColor" stroke="none"/>`;
+  // ロープのジグザグ
+  const zig = (x, y, w, h, n) => { let d = `M${x} ${y}`; const s = w / n; for (let i = 0; i < n; i++) d += `l${+(s / 2).toFixed(2)} ${h}l${+(s / 2).toFixed(2)} ${-h}`; return `<path d="${d}" stroke-width="1.5"/>`; };
+  const dots = (pts, r = 1.2) => pts.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="${r}"${C}/>`).join('');
+  const ring = (cx, cy, rad, n, r = 1.2, a0 = 0) => Array.from({ length: n }, (_, i) => { const a = a0 + (i / n) * Math.PI * 2; return `<circle cx="${(cx + Math.cos(a) * rad).toFixed(2)}" cy="${(cy + Math.sin(a) * rad).toFixed(2)}" r="${r}"${C}/>`; }).join('');
+
+  const dKick = () => `<path d="M12 37l-4 8M36 37l4 8"/><circle cx="24" cy="24" r="17"${T}/><circle cx="24" cy="24" r="12.5" stroke-width="1.5"/><circle cx="24" cy="24" r="3"${C}/>`;
+  const dSnare = () => `${cyl(8, 19, 32, 12, 4)}<path d="M13 23.5v9M19 24.5v9.5M29 24.5v9.5M35 23.5v9" stroke-width="1.5"/>${stick(5, 5, 19, 17)}${stick(43, 5, 29, 17)}<path d="M24 37v3M15 46l9-6l9 6"/>`;
+  const dHat = (open) => `<path d="M24 5V41M15 46l9-5l9 5"/><ellipse cx="24" cy="${open ? 23 : 20}" rx="18" ry="3"${T}/><ellipse cx="24" cy="${open ? 14 : 17}" rx="18" ry="3"${T}/><circle cx="24" cy="${open ? 12.2 : 15.2}" r="1.4"${C}/>${open ? '<path d="M3 18.5h4M41 18.5h4" stroke-width="1.75"/>' : ''}`;
+  const dTomH = () => g('rotate(-10 24 24)', cyl(11, 13, 26, 15, 4) + '<path d="M17 18v12M31 18v12" stroke-width="1.5"/>') + `<path d="M26 34V45M19 45h14"/>`;
+  const dTomL = () => `<path d="M10 24V45M38 24V45"/>${cyl(8, 11, 32, 22, 4.5)}<path d="M16 16.5v19M32 16.5v19" stroke-width="1.5"/>`;
+  const dRide = () => `<path d="M24 17V41"/>${legs()}<ellipse cx="24" cy="14" rx="21" ry="5"${T}/><ellipse cx="24" cy="12.5" rx="6" ry="2.2" stroke-width="1.5"/><circle cx="24" cy="11" r="1.3"${C}/>`;
+  const dCrash = () => `<path d="M24 20V41"/>${legs()}<ellipse cx="24" cy="19" rx="20" ry="4" transform="rotate(-14 24 19)"${T}/><circle cx="24" cy="17.2" r="1.4"${C}/>${hit(35, 8)}`;
+  const dClap = () => `<ellipse cx="15.5" cy="29" rx="6.5" ry="12" transform="rotate(24 15.5 29)"${T}/><ellipse cx="32.5" cy="29" rx="6.5" ry="12" transform="rotate(-24 32.5 29)"${T}/><path d="M8 33q-4-3-3-8M40 33q4-3 3-8"/>${hit(24, 11)}`;
+  const dWood = (hi) => (hi ? `<rect x="9" y="22" width="26" height="14" rx="3"${T}/><path d="M13 29H31" stroke-width="2.5"/>${stick(44, 6, 31, 19, 2.6)}` : `<rect x="4" y="19" width="36" height="19" rx="3.5"${T}/><path d="M9 28.5H35" stroke-width="2.5"/>${stick(45, 4, 33, 16, 2.6)}`);
+  const dBongo = (hi) => `${cyl(4, 17, 17, 17, 2.6)}${cyl(24, 15, 21, 21, 3.2)}<path d="M21 27h3" stroke-width="2.5"/>${hit(hi ? 12.5 : 34.5, hi ? 11 : 9)}`;
+  const dConga = (w, extra = '') => `<path d="M${24 - w} 11C${21 - w} 22 ${23 - w} 34 ${26 - w} 45H${22 + w}C${25 + w} 34 ${27 + w} 22 ${24 + w} 11Z"${T}/><ellipse cx="24" cy="11" rx="${w}" ry="3.2"${T}/><path d="M${23.2 - w} 21H${24.8 + w}M${24.4 - w} 35H${23.6 + w}" stroke-width="1.5"/>${extra}`;
+  const dAgogo = (hi) => `<path d="M12 38V44H33V32"/><path d="M4 13C4 9.5 20 9.5 20 13L15.5 38H8.5Z"${T}/><path d="M27 15C27 12 39 12 39 15L36 32H30Z"${T}/>${hit(hi ? 33 : 12, hi ? 8 : 6)}`;
+  const dTri = (mute) => `<path d="M24 8V3"/><path d="M31 38H7L24 8L40 36" stroke-width="2.5"/>${mute ? `<ellipse cx="12.5" cy="28" rx="6" ry="4" transform="rotate(-60 12.5 28)"${T}/>` : ''}<path d="M30 22L44 14" stroke-width="2"/>`;
+  const dNagado = (rim) => `<path d="M10 13C5.5 22 5.5 31 10 40H38C42.5 31 42.5 22 38 13"${T}/><ellipse cx="24" cy="13" rx="14" ry="4.2"${T}/>${dots([[9.5, 20], [14, 21.8], [19, 22.8], [24, 23.2], [29, 22.8], [34, 21.8], [38.5, 20]], 1)}<path d="M8 44h32"/>${rim ? stick(46, 3, 38.5, 11.5, 1.6) + '<path d="M41 16l3 1.5M36 6l-1-3" stroke-width="1.75"/>' : stick(6, 2, 18, 11) + stick(42, 2, 30, 11)}`;
+  const dTsuzumi = (big) => { const r = big ? 16 : 12.5; return g(big ? '' : 'rotate(-22 24 24)', `<path d="M10 ${24 - r * 0.45}C18 ${24 - r * 0.2} 30 ${24 - r * 0.2} 38 ${24 - r * 0.45}V${24 + r * 0.45}C30 ${24 + r * 0.2} 18 ${24 + r * 0.2} 10 ${24 + r * 0.45}Z"${T}/><path d="M9 ${24 - r + 2}L24 ${24 - r * 0.3}L39 ${24 - r + 2}M9 ${24 + r - 2}L24 ${24 + r * 0.3}L39 ${24 + r - 2}" stroke-width="1.5"/><path d="M24 ${24 - r * 0.35}V${24 + r * 0.35}" stroke-width="3.5"/><ellipse cx="8" cy="24" rx="3.5" ry="${r}"${T}/><ellipse cx="40" cy="24" rx="3.5" ry="${r}"${T}/>`); };
+  const dMaraca = (x, y, a) => g(`rotate(${a} ${x} ${y})`, `<path d="M${x} ${y + 9}V${y + 26}" stroke-width="3"/><ellipse cx="${x}" cy="${y}" rx="8" ry="10"${T}/>${dots([[x - 2.5, y - 3], [x + 2.5, y + 1], [x - 2, y + 4]])}`);
+  const burst = 'M24 3L28.5 14.5L40 8.5L34.5 20.5L45.5 25L34 28.5L38 41L27 33.5L19 43L18 31L5 31.5L14 23.5L6 12.5L18.5 15.5Z';
+  const E = (f) => () => f() + bolt();
+
+  const DR = {
+    kick: dKick, snare: dSnare, hihat: () => dHat(false), ohat: () => dHat(true), tomL: dTomL, tomH: dTomH, ride: dRide, crash: dCrash,
+    // 音楽室
+    odaiko: () => `<path d="M9 45L14 35M33 45L28 35M7 45H35"/><circle cx="21" cy="22" r="17"${T}/><circle cx="21" cy="22" r="13" stroke-width="1.5"/>${stick(46, 4, 38.5, 13, 3.4)}`,
+    kodaiko: () => `${cyl(9, 17, 30, 17, 4)}${zig(9, 20.5, 30, 14, 5)}${stick(6, 3, 19, 15)}${stick(42, 3, 29, 15)}<path d="M14 45l10-6l10 6"/>`,
+    awase: () => `<ellipse cx="16" cy="26" rx="4.2" ry="17" transform="rotate(-14 16 26)"${T}/><ellipse cx="32" cy="26" rx="4.2" ry="17" transform="rotate(14 32 26)"${T}/><path d="M11 26h-6M37 26h6" stroke-width="2.5"/>${hit(24, 9)}`,
+    tamb: () => `<circle cx="24" cy="24" r="18"${T}/><circle cx="24" cy="24" r="11.5" stroke-width="1.5"/>${ring(24, 24, 14.8, 8, 1.8, 0.4)}`,
+    castanet: () => `<ellipse cx="24" cy="30" rx="16" ry="10"${T}/><ellipse cx="24" cy="21" rx="16" ry="10"${T}/><path d="M36 17v-7q0-4 4-4" stroke-width="1.75"/>${dots([[33, 18], [37, 21.5]], 1.4)}`,
+    suzu: () => `<circle cx="24" cy="24" r="11" stroke-width="3"/>` + Array.from({ length: 7 }, (_, i) => { const a = (-200 + i * 36.7) * Math.PI / 180; const x = +(24 + Math.cos(a) * 15.5).toFixed(2); const y = +(24 + Math.sin(a) * 15.5).toFixed(2); return `<circle cx="${x}" cy="${y}" r="4.3"${T}/><circle cx="${x}" cy="${y}" r="1"${C}/>`; }).join(''),
+    triangle: () => dTri(false), triMute: () => dTri(true),
+    // パーカッション
+    woodL: () => dWood(false), woodH: () => dWood(true),
+    bongoL: () => dBongo(false), bongoH: () => dBongo(true),
+    congaL: () => dConga(12), congaH: () => dConga(8.5),
+    congaM: () => dConga(10.5, `<ellipse cx="24" cy="8.5" rx="7.5" ry="3.6"${T}/><path d="M18 6.5v-3M22 5.5v-3.5M26 5.5v-3.5M30 6.5v-3" stroke-width="2"/>`),
+    cowbell: () => `<path d="M20 9V5H28V9"/><path d="M16 9H32L41 41H7Z"${T}/><path d="M11 34H37" stroke-width="1.5"/>${stick(46, 14, 37, 22, 0.1)}`,
+    maracas: () => dMaraca(14, 15, -28) + dMaraca(34, 15, 28),
+    clave: () => `<rect x="3" y="26" width="42" height="7" rx="3.5" transform="rotate(-12 24 29.5)"${T}/><rect x="3" y="15" width="42" height="7" rx="3.5" transform="rotate(32 24 18.5)"${T}/>${hit(34, 9)}`,
+    guiro: () => g('rotate(-18 24 26)', `<ellipse cx="24" cy="27" rx="21" ry="9.5"${T}/><path d="M10 21v12M15 19v16M20 18v18M25 18v18M30 18.5v17M35 20v14" stroke-width="1.5"/>`) + stick(44, 4, 26, 15, 0.1),
+    shaker: () => g('rotate(-28 24 24)', `<rect x="7" y="15" width="34" height="18" rx="9"${T}/>${dots([[15, 21], [21, 27], [27, 21], [33, 26], [18, 27.5], [30, 28]], 1.1)}`) + `<path d="M5 37q3 5 9 6M43 11q-3-5-9-6" stroke-width="1.75"/>`,
+    agogoL: () => dAgogo(false), agogoH: () => dAgogo(true),
+    gong: () => `<path d="M6 46V5H42V46"/><path d="M17 16L15 5M31 16L33 5" stroke-width="1.5"/><circle cx="24" cy="27" r="13.5"${T}/><circle cx="24" cy="27" r="4.5" stroke-width="1.5"/>`,
+    clap: dClap,
+    // 和楽器
+    chodaiko: () => dNagado(false), fuchi: () => dNagado(true),
+    okedo: () => `${cyl(9, 12, 30, 27, 4.2)}${zig(9, 16, 30, 22, 5)}`,
+    shime: () => `<path d="M12 45L17 36M36 45L31 36"/>${cyl(5, 18, 38, 13, 5)}${zig(5, 22.5, 38, 10.5, 6)}<ellipse cx="24" cy="18" rx="14" ry="3" stroke-width="1.5"/>`,
+    otsuzumi: () => dTsuzumi(true), kotsuzumi: () => dTsuzumi(false),
+    hyoshigi: () => `<rect x="9" y="12" width="9" height="30" rx="2" transform="rotate(-14 13.5 27)"${T}/><rect x="30" y="12" width="9" height="30" rx="2" transform="rotate(14 34.5 27)"${T}/><path d="M17 40Q24 47 31 40" stroke-width="1.5"/>${hit(24, 9)}`,
+    kane: () => `<circle cx="21" cy="28" r="15.5"${T}/><circle cx="21" cy="28" r="10.5" stroke-width="1.5"/><path d="M45 5L33 19" stroke-width="1.75"/><rect x="27.5" y="17" width="9" height="4.5" rx="1.2" transform="rotate(42 32 19.2)"${C}/>`,
+    // EDM
+    kick808: E(dKick), snareE: E(dSnare), hihatE: E(() => dHat(false)), ohatE: E(() => dHat(true)), tomE: E(dTomH), percE: E(() => dWood(true)), clapE: E(dClap), crashE: E(dCrash),
+    // 効果音
+    orch1: () => `<path d="${burst}"${T}/>` + note(21, 28),
+    orch2: () => `<path d="${burst}"${T}/><ellipse cx="18" cy="29" rx="2.6" ry="2"${C}/><ellipse cx="27" cy="27.5" rx="2.6" ry="2"${C}/><path d="M20.3 28.5V19l9-1.5V27"/>`,
+    airhorn: () => `<rect x="5" y="19" width="11" height="12" rx="2"${T}/><path d="M16 19L34 9V41L16 31Z"${T}/><path d="M39 18q3.5 7 0 14M43 14q5.5 11 0 22" stroke-width="1.75"/>`,
+    roll: () => `${cyl(8, 21, 32, 12, 4)}<path d="M13 25.5v9M19 26.5v9.5M29 26.5v9.5M35 25.5v9" stroke-width="1.5"/>${stick(8, 8, 20, 19)}${stick(40, 8, 28, 19)}<path d="M12 4q5-3 9 1M27 5q4-4 9-1M4 15q0-4 3-6M44 15q0-4-3-6" stroke-width="1.5"/>`,
+    beam: () => `<path d="M5 43L31 17" stroke-width="4.5"${TS}/><path d="M5 43L31 17"/><path d="M12 44l4-4M4 36l4-4" stroke-width="1.75"/>${spark(35, 13, 9)}`,
+    pop: () => `<circle cx="22" cy="27" r="14"${T}/><path d="M14 23q2-5 7-6" stroke-width="1.75"/><circle cx="39" cy="38" r="3.5"/><circle cx="41" cy="11" r="2.2"/>${hit(36, 9)}`,
+    whistle: () => `<path d="M17 16H44V25H29"${T}/><circle cx="17" cy="28" r="12"${T}/><circle cx="17" cy="28" r="3.5"${C}/><path d="M30 16v4" stroke-width="1.5"/><path d="M36 5v5M42 6l-2.5 4.5M30 6l2.5 4.5" stroke-width="1.75"/>`,
+    jump: () => `<path d="M14 45H34M15 45L33 41L15 37L33 33L15 29H33" stroke-width="2"/><path d="M24 22V5M16.5 12L24 4.5L31.5 12" stroke-width="2.5"/>`,
+  };
+
   const CA = {
     key: () => `${kb(4, 12, 40, 24, 7, 2.5).replace(/stroke-width="1.25"/, 'stroke-width="2"')}`,
     orch: () => g(rot(-30), `<path d="${VBODY}"${T}/><rect x="22.5" y="5" width="3" height="24" rx="1.5"${C}/><circle cx="24" cy="4.5" r="2"/>`),
@@ -159,6 +237,8 @@ const InstIcons = (() => {
     inst: (id) => svg((I[id] || fallback)()),
     kit: (id) => svg((K[id] || fallback)()),
     cat: (id) => svg((CA[id] || fallback)(), 3),
+    drum: (id) => svg((DR[id] || K.drums)()),
+    hasDrum: (id) => !!DR[id],
     has: (id) => !!I[id],
   };
 })();

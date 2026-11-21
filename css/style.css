@@ -1603,3 +1603,14 @@ body.lowpower .play.on::after { animation: none; opacity: .55; }
 /* 指で使うとき：範囲でえらぶボタン（楽譜の下に、はりついて見える） */
 #scoreEditView .scrange { position: sticky; left: 8px; bottom: 8px; z-index: 5; display: inline-block; margin: 6px 8px; padding: 7px 14px; border-radius: 999px; border: 1.5px solid var(--accent); background: var(--panel, #fff); color: var(--accent); font-size: 13px; font-weight: 700; box-shadow: 0 3px 10px rgba(0,0,0,.15); }
 #scoreEditView .scrange.on { background: var(--accent); color: #fff; }
+
+/* 打楽器ひとつずつの絵 */
+.pad { aspect-ratio: 3 / 2; gap: 2px; padding: 4px; font-size: 12.5px; }
+.pad .pic { width: 44px; height: 44px; color: var(--text); pointer-events: none; }
+.pad:active .pic { color: #fff; }
+.pad .padname { line-height: 1.2; text-align: center; }
+.pkpad { height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px; font-size: 11px; }
+.pkpad .pic { width: 30px; height: 30px; color: var(--text); pointer-events: none; }
+.pkpad:active .pic { color: #fff; }
+.pkpad span { white-space: nowrap; overflow: hidden; max-width: 100%; }
+body.phone .pad .pic { width: 36px; height: 36px; }

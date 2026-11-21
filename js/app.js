@@ -1859,6 +1859,30 @@ function C(n) {
 }
 let highlightRow = null;
 
+// マス目の左に出す打楽器の絵（SVG を画像にして、とっておく。色がかわったら作りなおす）
+const drumIconCache = new Map();
+let drumIconWait = 0;
+function drumIcon(id) {
+  if (typeof InstIcons === 'undefined' || !InstIcons.drum) return null;
+  const col = C('--text') || '#222', fill = C('--ii-fill') || '#e0e7ff';
+  const key = id + '|' + col + '|' + fill;
+  let im = drumIconCache.get(key);
+  if (!im) {
+    const svg = InstIcons.drum(id).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ').replace('width="100%" height="100%"', 'width="96" height="96"')
+      .replace(/currentColor/g, col).replace(/var\(--ii-fill,[^)]*\)/g, fill);
+    im = new Image();
+    im.onload = () => {
+      // 読みこめたら、まとめて1回だけ描きなおす
+      if (drumIconWait) return;
+      drumIconWait = requestAnimationFrame(() => { drumIconWait = 0; drawCache.key = ''; draw(); });
+    };
+    im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    drumIconCache.set(key, im);
+    if (drumIconCache.size > 400) drumIconCache.delete(drumIconCache.keys().next().value);
+  }
+  return im.complete && im.naturalWidth ? im : null;
+}
+
 // 再生中のマス目：毎コマ全部を描きなおすと重いので、描いた絵をとっておき、
 // 変わらないあいだは「とっておいた絵＋動く線」だけにする（鳴っている音が変わったとき・画面が動いたときに描きなおす）
 const drawCache = { cv: null, key: '', px: null };
@@ -2265,13 +2289,20 @@ function draw(playPos, fromAnim) {
       g2.fillStyle = C('--text');
       g2.font = `${tr.type === 'chord' ? 14 : Math.min(12, rh - 8)}px sans-serif`;
       g2.textBaseline = 'middle';
-      if (isPhone && tr.type === 'drum') {
-        // スマホ：せまい列でも読めるように、短い名前を2行で
-        const t = shortDrum(row.label);
-        const half = t.length > 4 ? Math.ceil(t.length / 2) : t.length;
-        const lines = t.length > 4 && rh >= 24 ? [t.slice(0, half), t.slice(half)] : [t];
-        g2.font = `${lines.length > 1 ? 10.5 : 11.5}px sans-serif`;
-        lines.forEach((ln, i) => g2.fillText(ln, 4, y + rh / 2 + 1 + (lines.length > 1 ? (i - 0.5) * 11 : 0), LW - 6));
+      if (tr.type === 'drum') {
+        // 楽器の絵＋名前。せまいときは短い名前にして、それでも入らなければ2行に
+        const s = Math.max(12, Math.min(isPhone ? 18 : 24, rh - 4));
+        const ic = drumIcon(row.id);
+        if (ic) g2.drawImage(ic, 3, y + (rh - s) / 2, s, s);
+        const tx = s + 6, tw = LW - tx - 3;
+        g2.font = `${isPhone ? 11.5 : 12}px sans-serif`;
+        let t = row.label;
+        if (isPhone || g2.measureText(t).width > tw) t = shortDrum(t);
+        const two = g2.measureText(t).width > tw * 1.25 && t.length > 3 && rh >= 24;
+        const half = Math.ceil(t.length / 2);
+        const lines = two ? [t.slice(0, half), t.slice(half)] : [t];
+        if (two) g2.font = `${isPhone ? 10.5 : 11}px sans-serif`;
+        lines.forEach((ln, i) => g2.fillText(ln, tx, y + rh / 2 + 1 + (two ? (i - 0.5) * 12 : 0), tw));
       } else g2.fillText(row.label, 6, y + rh / 2 + 1, LW - 10);
     }
     g2.strokeStyle = C('--line-step');
@@ -4585,7 +4616,7 @@ function renderPicker() {
   if (p.type === 'drum') {
     const kit = Sound.KITS.find((k) => k.id === p.val) || Sound.KITS[0];
     box.innerHTML = `${toggle}<div class="cats">${Sound.KITS.map((k) => `<button class="catbtn ${k.id === kit.id ? 'on' : ''}" data-k="${k.id}">${PIC('kit', k.id)}${k.name}</button>`).join('')}</div>
-      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${Sound.DRUMS[id].name}${p.real && Sound.Samples.hasDrum(id) ? `<small class="rec">${I('mic')}</small>` : ''}</button>`).join('')}</div>
+      <div class="pads">${[...kit.list].reverse().map((id, i) => `<button class="pad" data-id="${id}"><kbd>${'ASDFGHJK'[i]}</kbd>${PIC('drum', id)}<span class="padname">${Sound.DRUMS[id].name}</span>${p.real && Sound.Samples.hasDrum(id) ? `<small class="rec">${I('mic')}</small>` : ''}</button>`).join('')}</div>
       <p class="muted">パッドをたたくか、キーボードの A〜K で音をためせます。マイクのしるし＝本物の録音があります。</p>`;
     if (p.real) Sound.Samples.loadDrums(ctx).catch(() => {});
     box.querySelectorAll('.catbtn').forEach((b) => (b.onclick = () => { p.val = b.dataset.k; renderPicker(); }));
@@ -8059,7 +8090,7 @@ function renderPhoneKbd() {
   let keys = '';
   if (tr.type === 'drum') {
     const ids = kitRows(tr);
-    keys = `<div class="pkpads">${[...ids].reverse().slice(0, 8).map((id, i) => `<button class="pkpad" data-i="${i}">${Sound.DRUMS[id].name}</button>`).join('')}</div>`;
+    keys = `<div class="pkpads">${[...ids].reverse().slice(0, 8).map((id, i) => `<button class="pkpad" data-i="${i}">${PIC('drum', id)}<span>${shortDrum(Sound.DRUMS[id].name)}</span></button>`).join('')}</div>`;
   } else {
     const base = ui.kbOct * 12 + 12;
     let w = '';
