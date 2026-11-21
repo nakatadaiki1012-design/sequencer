@@ -1861,7 +1861,9 @@ const Notation = (() => {
     const drumIds = parts.map((p) => (p.perc ? [...new Set(p.notes.map((n) => n.id))] : null));
     parts.forEach((p, i) => x.push(p.perc && drumIds[i].length ? `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${drumIds[i].map((id, k) => `<score-instrument id="P${i + 1}-I${k + 1}"><instrument-name>${esc(id)}</instrument-name></score-instrument>`).join('')}${drumIds[i].map((id, k) => `<midi-instrument id="P${i + 1}-I${k + 1}"><midi-channel>10</midi-channel><midi-unpitched>${((opts.drumGm || {})[id] || 38) + 1}</midi-unpitched></midi-instrument>`).join('')}</score-part>` : `<score-part id="P${i + 1}"><part-name>${esc(p.name)}</part-name>${p.gm != null ? `<score-instrument id="P${i + 1}-I1"><instrument-name>${esc(p.name)}</instrument-name></score-instrument><midi-instrument id="P${i + 1}-I1">${p.perc ? '<midi-channel>10</midi-channel>' : ''}<midi-program>${(p.gm || 0) + 1}</midi-program></midi-instrument>` : ''}</score-part>`));
     x.push('</part-list>');
-    const HK = { M: 'major', m: 'minor', 7: 'dominant', M7: 'major-seventh', m7: 'minor-seventh', sus4: 'suspended-fourth', dim: 'diminished', aug: 'augmented' };
+    const HK = { M: 'major', m: 'minor', 7: 'dominant', M7: 'major-seventh', m7: 'minor-seventh', sus4: 'suspended-fourth', dim: 'diminished', aug: 'augmented', 6: 'major-sixth', m6: 'minor-sixth', add9: 'major', 9: 'dominant-ninth', M9: 'major-ninth', m9: 'minor-ninth', '7sus4': 'dominant', m7b5: 'half-diminished', dim7: 'diminished-seventh', mM7: 'major-minor', '7b9': 'dominant', '7s9': 'dominant' };
+    const HT = { add9: 'add9', '7sus4': '7sus4', '7b9': '7b9', '7s9': '7#9' }; // <kind> だけでは表せない種類は、text でも書いておく
+    const hk = (q) => `<kind${HT[q] ? ` text="${HT[q]}"` : ''}>${HK[q] || 'major'}</kind>`;
     const DYN = new Set(['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp']);
     parts.forEach((p, pi) => {
       const tr = p.transpose || 0;
@@ -1923,11 +1925,11 @@ const Notation = (() => {
           const c = chords[b];
           const rootPref = (r) => ([1, 3, 6, 8, 10].includes(((r % 12) + 12) % 12) ? (kc > 0 || (r % 12 === 6 && kc >= 0) ? 1 : -1) : 0);
           const sp = spellPref(c.r + 60, kc, rootPref(c.r));
-          x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root><kind>${HK[c.q] || 'major'}</kind></harmony>`);
+          x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root>${hk(c.q)}</harmony>`);
           const more = c.segs ? c.segs.filter((sg) => sg.o > 0) : c.h && c.hAt ? [{ o: c.hAt, r: c.h.r, q: c.h.q }] : [];
           for (const sg of more) {
             const sh = spellPref(sg.r + 60, kc, rootPref(sg.r));
-            x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root><kind>${HK[sg.q] || 'major'}</kind><offset>${sg.o}</offset></harmony>`);
+            x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root>${hk(sg.q)}<offset>${sg.o}</offset></harmony>`);
           }
         }
         if (pi === 0 && opts.rehearsal && opts.rehearsal[b]) x.push(`<direction placement="above"><direction-type><rehearsal enclosure="square">${esc(opts.rehearsal[b])}</rehearsal></direction-type></direction>`);

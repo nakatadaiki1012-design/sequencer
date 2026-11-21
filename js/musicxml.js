@@ -174,7 +174,8 @@ const MusicXMLImport = (() => {
   const ORN = { 'trill-mark': 'tr', 'inverted-mordent': 'prall', mordent: 'mord', turn: 'turn', 'delayed-turn': 'turn', 'inverted-turn': 'iturn', 'delayed-inverted-turn': 'iturn' };
   const ACC_MARK = { sharp: 1, flat: -1, natural: 0 };
   const DYN = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp'];
-  const HARM = { major: 'M', minor: 'm', dominant: '7', 'major-seventh': 'M7', 'minor-seventh': 'm7', 'suspended-fourth': 'sus4', diminished: 'dim', augmented: 'aug' };
+  const HARM = { major: 'M', minor: 'm', dominant: '7', 'major-seventh': 'M7', 'minor-seventh': 'm7', 'suspended-fourth': 'sus4', diminished: 'dim', augmented: 'aug', 'major-sixth': '6', 'minor-sixth': 'm6', 'dominant-ninth': '9', 'major-ninth': 'M9', 'minor-ninth': 'm9', 'half-diminished': 'm7b5', 'diminished-seventh': 'dim7', 'major-minor': 'mM7' };
+  const HARM_TEXT = { add9: 'add9', '7sus4': '7sus4', '7b9': '7b9', '7#9': '7s9' };
   const TEMPO_WORD = /grave|largo|larghetto|lento|adagio|andante|andantino|moderato|allegretto|allegro|vivace|vivo|presto|prestissimo|maestoso|tempo|ゆっくり|ゆったり|おだやか|はやく|速く|速さ|元気|軽やか|かろやか|歩く|おちついて|落ち着いて/i;
 
   // ---------- 1つのパートを小節ごとに読む ----------
@@ -403,7 +404,7 @@ const MusicXMLImport = (() => {
             if (st != null) {
               const r = (((st + Math.round(num(txt(root, 'root-alter'), 0))) % 12) + 12) % 12;
               const t = at() + (kid(el, 'offset') ? toT(txt(el, 'offset')) : 0);
-              M.items.push({ kind: 'harm', t, r, q: HARM[txt(el, 'kind')] || 'M' });
+              M.items.push({ kind: 'harm', t, r, q: HARM_TEXT[(kid(el, 'kind') && kid(el, 'kind').getAttribute('text')) || ''] || HARM[txt(el, 'kind')] || 'M' });
             }
           }
         } else if (tag === 'barline') {
@@ -917,6 +918,18 @@ const MusicXMLImport = (() => {
     if (n === '' || /^(maj|M)?$/.test(n)) return 'M';
     if (/^(m|mi|min|-)$/.test(n)) return 'm';
     if (/^(maj7|Maj7|MAJ7|M7|Ma7|\^7|\^|Δ7?|j7)$/.test(n)) return 'M7';
+    if (/^(m7b5|m7♭5|mi7b5|min7b5|-7b5|ø7?|0)$/.test(n)) return 'm7b5';
+    if (/^(dim7|o7|°7)$/.test(n)) return 'dim7';
+    if (/^(mMaj7|mM7|mmaj7|m\^7|-\^7|mΔ7?)$/.test(n)) return 'mM7';
+    if (/^(maj9|Maj9|M9|\^9|Δ9)$/.test(n)) return 'M9';
+    if (/^(m9|mi9|min9|-9)$/.test(n)) return 'm9';
+    if (/^(m6|mi6|min6|-6)$/.test(n)) return 'm6';
+    if (/^6$/.test(n)) return '6';
+    if (/^(add9|add2|2)$/.test(n)) return 'add9';
+    if (/^9$/.test(n)) return '9';
+    if (/^7sus4?$/.test(n)) return '7sus4';
+    if (/^7(b9|♭9)$/.test(n)) return '7b9';
+    if (/^7(#9|♯9)$/.test(n)) return '7s9';
     if (/^(m7|mi7|min7|-7)$/.test(n)) return 'm7';
     if (/^7/.test(n)) return '7';
     if (/sus/.test(n)) return 'sus4';

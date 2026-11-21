@@ -13,7 +13,7 @@ const MuseScoreExport = (() => {
   const ACCSUB = { 1: 'accidentalSharp', '-1': 'accidentalFlat', 0: 'accidentalNatural' };
   const CLEF = { treble: 'G', bass: 'F', alto: 'C3', treble8: 'G8vb', perc: 'PERC' };
   const LETTER_FIFTHS = [0, 2, 4, -1, 1, 3, 5]; // C D E F G A B（C=0 を基準にした5度の数）
-  const HNAME = { M: '', m: 'm', 7: '7', M7: 'Maj7', m7: 'm7', dim: 'dim', aug: 'aug', sus4: 'sus4' };
+  const HNAME = { M: '', m: 'm', 7: '7', M7: 'Maj7', m7: 'm7', dim: 'dim', aug: 'aug', sus4: 'sus4', 6: '6', m6: 'm6', add9: 'add9', 9: '9', M9: 'Maj9', m9: 'm9', '7sus4': '7sus4', m7b5: 'm7b5', dim7: 'dim7', mM7: 'mMaj7', '7b9': '7b9', '7s9': '7#9' };
   // 音名（Notation.spell の結果）→ MuseScore の tpc（C=14、G=15、F=13…）
   const tpcOf = (sp) => 14 + LETTER_FIFTHS['CDEFGAB'.indexOf(sp.step)] + 7 * sp.acc;
 

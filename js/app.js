@@ -50,6 +50,11 @@ const CHORD_Q = {
   M: { iv: [0, 4, 7], s: '' }, m: { iv: [0, 3, 7], s: 'm' }, 7: { iv: [0, 4, 7, 10], s: '7' },
   M7: { iv: [0, 4, 7, 11], s: 'M7' }, m7: { iv: [0, 3, 7, 10], s: 'm7' }, sus4: { iv: [0, 5, 7], s: 'sus4' },
   dim: { iv: [0, 3, 6], s: 'dim' }, aug: { iv: [0, 4, 8], s: 'aug' },
+  // おしゃれなコード・ジャズのコード
+  6: { iv: [0, 4, 7, 9], s: '6' }, m6: { iv: [0, 3, 7, 9], s: 'm6' }, add9: { iv: [0, 4, 7, 14], s: 'add9' },
+  9: { iv: [0, 4, 7, 10, 14], s: '9' }, M9: { iv: [0, 4, 7, 11, 14], s: 'M9' }, m9: { iv: [0, 3, 7, 10, 14], s: 'm9' },
+  '7sus4': { iv: [0, 5, 7, 10], s: '7sus4' }, m7b5: { iv: [0, 3, 6, 10], s: 'm7(♭5)' }, dim7: { iv: [0, 3, 6, 9], s: 'dim7' },
+  mM7: { iv: [0, 3, 7, 11], s: 'mM7' }, '7b9': { iv: [0, 4, 7, 10, 13], s: '7(♭9)' }, '7s9': { iv: [0, 4, 7, 10, 15], s: '7(♯9)' },
 };
 const CHORD_PATTERNS = {
   whole: 'じゃーん（のばす）', beat: 'ジャン・ジャン（拍ごと）', arp: 'ポロロン（分散和音）',
@@ -868,7 +873,9 @@ function harmonyVoicing(c, prev) {
   const rpc = ((c.r % 12) + 12) % 12;
   let pcs = iv.map((x) => (rpc + x) % 12);
   // 7の和音：上の3声は5度の音をはぶく（4声体のふつうの書き方）。5度が変わる和音では根音をはぶく（ベースが根音）
-  if (pcs.length > 3) pcs = iv[2] === 7 ? [pcs[0], pcs[1], pcs[3]] : [pcs[1], pcs[2], pcs[3]];
+  // 9の和音（5つの音）：3度・7度・9度をえらぶ（和音の色を決める音）
+  if (pcs.length > 4) pcs = [pcs[1], pcs[3], pcs[4]];
+  else if (pcs.length > 3) pcs = iv[2] === 7 ? [pcs[0], pcs[1], pcs[3]] : [pcs[1], pcs[2], pcs[3]];
   // ベースの候補（E2〜G3）
   const bassCands = [];
   for (let m = 40; m <= 55; m++) if (m % 12 === rpc) bassCands.push(m);
@@ -4675,7 +4682,7 @@ function renderEditorTools() {
     html += `<button class="mini ${ui.selTool ? 'on' : ''}" id="btnSelTool" title="えらぶ：ドラッグで囲んで、まとめて移動・コピー・消す（パソコンは Shift＋ドラッグでも）">${I('pointer')}<span>えらぶ</span></button>`;
     html += `<select id="rPreset" title="お手本のリズムを入れます"><option value="">リズムのお手本…</option>${Object.entries(RHYTHM_PRESETS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select><span class="hint">おすたびに ●→強→なし</span>`;
   } else {
-    if (!song.locks.compose) html += `<select id="cProg" title="よく使われるコード進行を、えらんだ小節から入れます"><option value="">コード進行…</option>${PROGRESSIONS.map(([n, , d], i) => `<option value="${i}" title="${d}">${n}</option>`).join('')}</select>`;
+    if (!song.locks.compose) html += `<select id="cProg" title="よく使われるコード進行を、えらんだ小節から入れます"><option value="">コード進行…</option>${[...new Set(PROGRESSIONS.map((x) => x[4]))].map((g) => `<optgroup label="${g}">${PROGRESSIONS.map(([n, , d, , gg], i) => (gg === g ? `<option value="${i}" title="${d}">${n}</option>` : '')).join('')}</optgroup>`).join('')}</select>`;
     if (!song.locks.compose) html += `<button class="mini accent" id="btnAutoChord" title="メロディに合うコードを、全部の小節に自動でつけます">${I('spark')}<span>コードをつける</span></button>`;
     html += `<label class="grp">伴奏の形 <select id="cPat">${Object.entries(CHORD_PATTERNS).map(([k, v]) => `<option value="${k}" ${k === tr.pattern ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="grp"><input type="checkbox" id="cBass" ${tr.bassOn ? 'checked' : ''}> ベースも</label>`;
@@ -5876,35 +5883,81 @@ function scEditSel(fn, label) {
    さいごの小節は主和音（Ⅰ）、その前は属和音（Ⅴ・Ⅴ7）になりやすくする。
    1小節の中で前半と後半の音がはっきりちがうときは、2つのコードにする */
 // よく使われるコード進行（調の主音からの半音の数・和音の種類）。'|' で小節、'/' で1小節に2つ
+// 書き方：ローマ数字＝調の主音から何番目か（♭・♯ は b・#）、うしろにコードの種類。1小節に4つまで
+// 4つ目の m: true は「短調の主音から数えた進行」
 const PROGRESSIONS = [
-  ['カノン進行', 'I V | vi iii | IV I | IV V', 'パッヘルベルのカノンの流れ。やさしく、なつかしい'],
-  ['王道進行', 'IV | V | iii | vi', 'J-POP でよく聞く、せつなくてもり上がる進行'],
-  ['小室進行', 'vi | IV | V | I', 'かっこよく、走りだしたくなる進行'],
-  ['ずっと明るい', 'I | IV | V | I', 'Ⅰ→Ⅳ→Ⅴ→Ⅰ。いちばん基本の進行'],
-  ['50年代', 'I | vi | IV | V', 'むかしのポップス・ドゥーワップ'],
-  ['ブルース（12小節）', 'I7 | I7 | I7 | I7 | IV7 | IV7 | I7 | I7 | V7 | IV7 | I7 | V7', 'ジャズ・ロックのもと'],
+  // ---- ポップス ----
+  ['カノン進行', 'I V | VIm IIIm | IV I | IV V', 'パッヘルベルのカノンの流れ。やさしく、なつかしい', 0, 'ポップス'],
+  ['王道進行', 'IV | V | IIIm | VIm', 'J-POP でよく聞く、せつなくてもり上がる進行', 0, 'ポップス'],
+  ['小室進行', 'VIm | IV | V | I', 'かっこよく、走りだしたくなる進行', 0, 'ポップス'],
+  ['ずっと明るい', 'I | IV | V | I', 'Ⅰ→Ⅳ→Ⅴ→Ⅰ。いちばん基本の進行', 0, 'ポップス'],
+  ['50年代', 'I | VIm | IV | V', 'むかしのポップス・ドゥーワップ', 0, 'ポップス'],
+  ['ポップスの定番（Ⅰ-Ⅴ-Ⅵm-Ⅳ）', 'I | V | VIm | IV', '世界中のヒット曲で使われている、明るくて力づよい進行', 0, 'ポップス'],
+  ['ブルース（12小節）', 'I7 | I7 | I7 | I7 | IV7 | IV7 | I7 | I7 | V7 | IV7 | I7 | V7', 'ジャズ・ロックのもと', 0, 'ポップス'],
+  // ---- おしゃれ ----
+  ['おしゃれ王道（7thつき）', 'IVM7 | V7 | IIIm7 | VIm7', '王道進行に7thを足して、大人っぽく', 0, 'おしゃれ'],
+  ['都会の夜（Ⅳ→Ⅲ7→Ⅵm）', 'IVM7 | III7 | VIm7 | Vm7 I7', 'R&B・シティポップでおなじみ。ぐるぐる回して気持ちいい', 0, 'おしゃれ'],
+  ['シティポップ', 'IM7 | IIIm7 | IVM7 | V7sus4 V7', 'ふわっと明るく、さわやかに', 0, 'おしゃれ'],
+  ['なめらかに下がる', 'IVM7 | IIIm7 | IIm7 | IM7', '階段を1段ずつ下りていく、やさしい流れ', 0, 'おしゃれ'],
+  ['クリシェ（半音で下がる）', 'I | IM7 | I7 | IV | IVm6 | I | IIm7 | V7', '和音の中の1つの音だけが、半音ずつ下がっていく', 0, 'おしゃれ'],
+  ['せつないⅣm', 'IM7 | IVM7 | IVm6 | IM7', '明るい調の中に、一瞬だけ短調のかげりを入れる', 0, 'おしゃれ'],
+  ['半音で上がる（dim7でつなぐ）', 'IM7 | #Idim7 | IIm7 | #IIdim7 | IIIm7 | VI7 | IIm7 | V7', 'コードのあいだを dim7 でなめらかにつなぐ', 0, 'おしゃれ'],
+  ['add9 のきらめき', 'Iadd9 | VIm7 | IVadd9 | Vsus4 V', '9度の音を足して、すきとおったひびきに', 0, 'おしゃれ'],
+  ['ボサノバ', 'IM7 | IM7 | II7 | II7 | IIm7 | bII7 | IM7 | bII7', 'ブラジルの風。半音上からすべりこむのがポイント', 0, 'おしゃれ'],
+  ['ネオソウル（9thのひびき）', 'IIm9 | V9 | IM9 | VI7b9', '9thを重ねた、とろけるようなひびき', 0, 'おしゃれ'],
+  // ---- ジャズ ----
+  ['ツー・ファイブ・ワン', 'IIm7 | V7 | IM7 | IM7', 'ジャズのいちばん大事な形（Ⅱm7→Ⅴ7→ⅠM7）', 0, 'ジャズ'],
+  ['循環コード（1-6-2-5）', 'IM7 VIm7 | IIm7 V7', 'ぐるぐる回りつづける、ジャズの基本', 0, 'ジャズ'],
+  ['3-6-2-5', 'IIIm7 VI7 | IIm7 V7 | IIIm7 VI7 | IIm7 V7', '主和音に帰らず、ずっと先へ進みたくなる', 0, 'ジャズ'],
+  ['五度圏めぐり', 'IIm7 | V7 | IM7 | IVM7 | VIIm7b5 | III7 | VIm | VIm', '4度ずつ進んで、明るい調から短調へ。ジャズの名曲の流れ', 0, 'ジャズ'],
+  ['ジャズ・ブルース（12小節）', 'I7 | IV7 | I7 | Vm7 I7 | IV7 | #IVdim7 | I7 | IIIm7b5 VI7 | IIm7 | V7 | I7 VI7 | IIm7 V7', 'ブルースをジャズらしくしたもの', 0, 'ジャズ'],
+  ['リズム・チェンジ', 'I6 VIm7 | IIm7 V7 | IIIm7 VI7 | IIm7 V7 | I I7 | IV #IVdim7 | I V7 | I6', 'ビバップでよく使われる、速い曲の形', 0, 'ジャズ'],
+  ['裏コード（半音上から帰る）', 'IIm7 | bII7 | IM7 | IM7', 'Ⅴ7 のかわりに ♭Ⅱ7。ベースが半音で下りる', 0, 'ジャズ'],
+  ['バックドア（♭Ⅶ7から帰る）', 'IVM7 | IVm7 bVII7 | IM7 | IM7', 'うら口から主和音へ帰る、あたたかい終わり方', 0, 'ジャズ'],
+  ['おしゃれな折り返し', 'IM7 bIIIM7 | bVIM7 bIIM7', '遠い調のコードをめぐって、ふしぎに帰ってくる', 0, 'ジャズ'],
+  // ---- 短調 ----
+  ['短調のツー・ファイブ', 'IIm7b5 | V7b9 | Im7 | Im7', '短調のジャズの基本（Ⅱm7♭5→Ⅴ7→Ⅰm）', 1, '短調'],
+  ['アンダルシア進行', 'Im | bVII | bVI | V', 'フラメンコのように、情熱的に下がっていく', 1, '短調'],
+  ['短調のクリシェ', 'Im | ImM7 | Im7 | Im6', 'スパイ映画のように、1つの音が半音ずつ下がる', 1, '短調'],
+  ['短調でもり上がる', 'bVI | bVII | Im | Im', 'アニメ・ゲーム音楽でよく聞く、力づよい上がり方', 1, '短調'],
+  ['ドリアン（モード）', 'Im7 | IV7 | Im7 | IV7', '2つのコードを行き来する、クールなひびき', 1, '短調'],
+  ['マイナー・ブルース（12小節）', 'Im7 | Im7 | Im7 | Im7 | IVm7 | IVm7 | Im7 | Im7 | bVI7 | V7 | Im7 | V7', '短調のブルース', 1, '短調'],
 ];
-const DEG = { I: [0, 'M'], ii: [2, 'm'], iii: [4, 'm'], IV: [5, 'M'], V: [7, 'M'], vi: [9, 'm'], I7: [0, '7'], IV7: [5, '7'], V7: [7, '7'] };
+const ROMAN = { I: 0, II: 2, III: 4, IV: 5, V: 7, VI: 9, VII: 11 };
+const ROMAN_MIN = { I: 0, II: 2, III: 3, IV: 5, V: 7, VI: 8, VII: 10 }; // 短調：♭Ⅲ・♭Ⅵ・♭Ⅶ は b をつけて書く（下で長調の数え方にそろえる）
+// 'bVIIM7' → { iv: 主音からの半音, q: 種類 }
+function parseDegree(d) {
+  const m = String(d).match(/^([b#]?)(VII|VI|IV|V|III|II|I)(.*)$/);
+  if (!m) return null;
+  const q = m[3] === '' ? 'M' : m[3] === '7#9' ? '7s9' : m[3];
+  if (!CHORD_Q[q]) return null;
+  return { iv: (ROMAN[m[2]] + (m[1] === 'b' ? -1 : m[1] === '#' ? 1 : 0) + 12) % 12, q };
+}
+// 進行を、小節ごとのコードのならびにする（base＝主音）
+function progressionBars(i, base) {
+  return PROGRESSIONS[i][1].split('|').map((x) => x.trim().split(/\s+/).filter(Boolean).map((d) => { const g = parseDegree(d) || { iv: 0, q: 'M' }; return { r: (base + g.iv) % 12, q: g.q }; }));
+}
 function applyProgression(i) {
   const tr = track();
   if (tr.type !== 'chord') return;
   if (locked(tr)) return toast('このトラックはロックされています');
-  const [name, pat] = PROGRESSIONS[i];
-  const bars = pat.split('|').map((x) => x.trim().split(/\s+/).filter(Boolean));
-  const k = song.key;
-  const mk = (d) => { const [iv, q] = DEG[d] || DEG.I; return { r: (k + iv) % 12, q }; };
+  const [name, , , minor] = PROGRESSIONS[i];
+  // 曲が短調で進行が長調（またはその逆）のときは、同じ音階を使う調（平行調）の主音から数える
+  const k = !!minor === isMinor() ? song.key : minor ? (song.key + 9) % 12 : (song.key + 3) % 12;
+  const bars = progressionBars(i, k);
   const from = ui.selBar || 0;
   edit(() => {
     while (tr.chords.length < song.bars) tr.chords.push(null);
     // えらんだ小節から、曲のおわりまでくり返し入れる
     for (let b = from, j = 0; b < song.bars; b++, j++) {
-      const ds = bars[j % bars.length];
-      const c = mk(ds[0]);
-      if (ds[1]) c.h = mk(ds[1]);
-      tr.chords[b] = c;
+      const cs = bars[j % bars.length];
+      // 1小節にいくつかあるときは、拍の頭に同じ間かくでならべる
+      const bs = beatAt(b), nb = Math.max(1, Math.round(barLen(b) / bs));
+      const segs = cs.slice(0, nb).map((c, x, a) => ({ o: Math.floor((x * nb) / a.length) * bs, c }));
+      tr.chords[b] = chordFromSegs(segs, b);
     }
   }, 'コード進行「' + name + '」');
-  toast(`「${name}」を ${from + 1}小節目から入れました（メジャーの調で、いちばん合います）`, 3500);
+  toast(`「${name}」を ${from + 1}小節目から入れました`, 3500);
   // はじめの4つのコードを、さっと鳴らして聞かせる
   const ctx = ensureAudio();
   let k2 = 0;
@@ -6800,8 +6853,9 @@ function parseChord(txt) {
   let r = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
   if (m[2] === '#' || m[2] === '♯') r++;
   if (m[2] === 'b' || m[2] === '♭') r--;
-  const rest = m[3].replace(/\s/g, '');
-  const q = { '': 'M', M: 'M', maj: 'M', m: 'm', min: 'm', 7: '7', M7: 'M7', maj7: 'M7', m7: 'm7', sus4: 'sus4', dim: 'dim', aug: 'aug', '+': 'aug' }[rest];
+  const rest = m[3].replace(/[\s()]/g, '').replace(/♭/g, 'b').replace(/♯/g, '#').replace(/-5/, 'b5');
+  const q = { '': 'M', M: 'M', maj: 'M', m: 'm', min: 'm', 7: '7', M7: 'M7', maj7: 'M7', m7: 'm7', sus4: 'sus4', dim: 'dim', aug: 'aug', '+': 'aug',
+    6: '6', m6: 'm6', add9: 'add9', 9: '9', M9: 'M9', maj9: 'M9', m9: 'm9', '7sus4': '7sus4', m7b5: 'm7b5', 'ø': 'm7b5', 'ø7': 'm7b5', dim7: 'dim7', mM7: 'mM7', mmaj7: 'mM7', '7b9': '7b9', '7#9': '7s9' }[rest];
   if (!q) return null;
   return { r: (r + 12) % 12, q };
 }
