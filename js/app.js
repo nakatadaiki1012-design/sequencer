@@ -5409,13 +5409,13 @@ function renderScoreEditNow() {
     o.window = [ui.sc.win, Math.min(song.bars, ui.sc.win + win)];
   } else ui.sc.win = null;
   // 段ごとの絵のとりおき用：曲・楽譜の設定・画面のようすが同じかどうかの目じるし
-  o.cacheSalt = [cur, ui.sc.input ? 1 : 0, ui.sc.voice || 1, JSON.stringify(song.score || 0), document.documentElement.dataset.theme || '', isPhone ? 1 : 0].join('|');
+  o.cacheSalt = [song.key, song.scale, document.body.classList.contains('kids') ? 1 : 0, ui.sc.input ? 1 : 0, ui.sc.voice || 1, JSON.stringify(song.score || 0), document.documentElement.dataset.theme || '', isPhone ? 1 : 0].join('|');
   const keepTop = box.scrollTop;
   const svgHtml = Notation.render(o);
   const LW0 = Notation.lastLayout;
   const nav = win && LW0 && LW0.window ? `<div class="scwin" role="navigation" aria-label="楽譜のページ"><button class="mini" data-w="-1" ${LW0.window[0] <= 0 ? 'disabled' : ''}>◀ 前</button><span>${LW0.window[0] + (song.pickup ? 0 : 1)}〜${LW0.window[1] - (song.pickup ? 1 : 0)}小節（全${song.bars - (song.pickup ? 1 : 0)}小節）</span><button class="mini" data-w="1" ${LW0.window[1] >= song.bars ? 'disabled' : ''}>次 ▶</button></div>` : '';
-  // 大きな曲：前に書いた楽譜と、わく（大きさ・曲名など）と段の数が同じなら、変わった段だけを入れかえる（全部入れかえると重い）
-  const sysStr = LW0 && LW0.window ? LW0.systems.map((x) => x.svg) : null;
+  // 前に書いた楽譜と、わく（大きさ・曲名など）と段の数が同じなら、変わった段だけを入れかえる（全部入れかえると重い）
+  const sysStr = LW0 ? LW0.systems.map((x) => x.svg) : null;
   const cut = sysStr && sysStr.length ? svgHtml.indexOf('<g class="sys">') : -1;
   const frame = cut >= 0 ? nav + svgHtml.slice(0, cut) : null;
   const oldG = frame != null && box._frame === frame && box._sysStr && box._sysStr.length === sysStr.length ? box.querySelectorAll(':scope > svg > g.sys') : null;

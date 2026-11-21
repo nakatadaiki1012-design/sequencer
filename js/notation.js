@@ -689,6 +689,8 @@ const Notation = (() => {
     // 大きな曲を画面で書くとき：部品の数をへらす（ぼう・加線・連桁などを、段ごとに1つの図形にまとめる）。
     // 部品が何万個もあると、音を1つ入れるたびの書きなおしが重くなる。印刷・書き出し・小さな曲は今までどおり
     const COMPACT = !!(W && edit);
+    // 画面で書くとき（曲の大きさによらず）：段ごとに <g> でくるみ、絵をとっておく。変わった段だけを入れかえられる
+    const SYSG = !!(edit && opts.cacheSalt != null);
     const LINE_RE = /^<line x1="(-?[\d.]+)" x2="(-?[\d.]+)" y1="(-?[\d.]+)" y2="(-?[\d.]+)" stroke="#111" stroke-width="([\d.]+)"\/>$/;
     const POLY_RE = /^<path d="(M-?[\d.]+ -?[\d.]+(?: L-?[\d.]+ -?[\d.]+)+ Z)" fill="#111"\/>$/;
     const compact = (arr) => {
@@ -749,13 +751,13 @@ const Notation = (() => {
     let SYSKEY = null;
     let selSpans = [];
     let barHash = null; // パートごと・小節ごとの、音符の中身のしるし
-    if (COMPACT && opts.cacheSalt != null) {
+    if (SYSG) {
       const hs = (h, str) => { for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0; return h; };
       const hashNote = (n) => { let h = (n.s * 7 + n.p * 131 + n.l * 17) | 0; for (const k in n) { if (k === 's' || k === 'p' || k === 'l') continue; const v = n[k]; if (v == null) continue; h = hs(hs(h, k), typeof v === 'object' ? JSON.stringify(v) : String(v)); } return h; };
       try {
         SYSKEY = opts.cacheSalt + JSON.stringify(opts, (k, v) => {
           if (k === 'notes' && Array.isArray(v)) return 0;
-          if (k === 'edit' && v) { const e2 = { ...v }; delete e2.cursor; delete e2.sel; delete e2.curLabel; return e2; }
+          if (k === 'edit' && v) { const e2 = { ...v }; delete e2.cursor; delete e2.sel; delete e2.curLabel; delete e2.part; return e2; } // どのパートをえらんでいるかは、カーソル・えらんだ音のある段だけに関係する
           if (k === 'cacheSalt' || k === 'partTracks') return undefined;
           if (typeof v === 'function') return 'fn';
           if (v instanceof Set) return [...v];
@@ -826,7 +828,7 @@ const Notation = (() => {
         const ta = bS(b0), tz = bS(b1);
         const cIn = edit.cursor != null && edit.cursor >= ta && edit.cursor <= tz;
         let nh = 0; for (let b = Math.max(0, b0 - 1); b <= Math.min(bars - 1, b1); b++) nh = (Math.imul(nh, 31) + barHash[b]) | 0;
-        sysSig = [b0, b1, lam, stretch, sysTop, hx, L, avail, nh, cIn ? edit.cursor + '/' + (edit.curLabel || '') : '', selSpans.filter((q) => q[1] < tz + 1 && q[2] > ta - 1).map((q) => q[0]).join(',')].join('|');
+        sysSig = [b0, b1, lam, stretch, sysTop, hx, L, avail, nh, cIn ? edit.part + '/' + edit.cursor + '/' + (edit.curLabel || '') : '', selSpans.filter((q) => q[1] < tz + 1 && q[2] > ta - 1).map((q) => edit.part + '/' + q[0]).join(',')].join('|');
         const hit = sysCache.m.get(line);
         if (hit && hit.sig === sysSig) { for (const q of hit.strs) o.push(q); layout.systems.push(hit.sys); return; }
       }
@@ -1530,7 +1532,7 @@ const Notation = (() => {
         }
       });
       // 段ごとに <g> でくるむ（画面では、変わった段だけを入れかえられるように）
-      if (COMPACT) { const part = compact(o.splice(oStart)); o.push('<g class="sys">'); for (const q of part) o.push(q); o.push('</g>'); }
+      if (SYSG) { let part = o.splice(oStart); if (COMPACT) part = compact(part); o.push('<g class="sys">'); for (const q of part) o.push(q); o.push('</g>'); }
       sys.svg = o.slice(oStart).join('');
       if (SYSKEY) sysCache.m.set(line, { sig: sysSig, strs: [sys.svg], sys });
       layout.systems.push(sys);
