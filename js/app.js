@@ -3660,7 +3660,7 @@ function chordScale(c, keyPcs) {
 // ・旋律：となりの音へ進むのを基本に、大きくとんだら反対向きにもどる。増4度・7度のとびはしない。さいごは主音
 // リズムを先に決めてから、きまりをやぶるほど点が高くなる「減点」をつけ、曲全体で減点がいちばん少ない音のならびをえらぶ
 // おまかせ作曲の設定（前にえらんだものをおぼえておく）
-const AUTO_DEFAULT = { style: 'auto', density: 1, rests: 1, span: 1, height: 1, motif: 1 };
+const AUTO_DEFAULT = { style: 'auto', density: 1, rests: 1, span: 1, height: 1, motif: 1, orn: 1 };
 function autoOpts() {
   try { const o = JSON.parse(lsGet('otsumiki-auto', '') || '{}'); const r = { ...AUTO_DEFAULT }; for (const k in r) if (k === 'style' ? ['auto', 'easy', 'pop', 'jazz'].includes(o[k]) : [0, 1, 2].includes(o[k])) r[k] = o[k]; return r; } catch (e) { return { ...AUTO_DEFAULT }; }
 }
@@ -3915,7 +3915,7 @@ function autoCompose(tr, opt) {
     const tg = targetOf(sl);
     const first = i === 0, lastN = i === n - 1;
     const hasTonic = cand.some((m) => m % 12 === K.key);
-    const un = [], nct = [], tone = [];
+    const un = [], nct = [], tone = [], pen = [];
     cand.forEach((p, k) => {
       let c = Math.random() * 0.6 + Math.abs(p - tg.t) * tg.w;
       if (hasN && tg.role !== 'N' && p > HI - 4) c += p > HI - 3 ? 4 : 1; // いちばん高い音は、山場のためにとっておく
@@ -3923,7 +3923,7 @@ function autoCompose(tr, opt) {
       if (sl.endU && tg.role === 'K' && !tg.final && p % 12 === K.key && !(ch && ch.root === K.key)) c += 2.5;
       const inCh = !ch || ch.pcs.has(p % 12);
       const kd = chr[k] ? 3 : cs ? cs.kind.get(p % 12) : inCh ? 0 : 2; // 0 コードの音・1 テンション・2 アボイド・3 音階の外
-      let bad = !inCh;
+      let bad = !inCh, pn = 0; // pn＝コードの外の音であることの減点（倚音・掛留音として正しく解決すれば、あとで返す）
       if (kd === 3) c += 1.6;
       else if (kd === 1 && ch.rich) {
         // 7th のあるコードでは、テンション（9th・11th・13th）は強い拍でものばしてもよい「色のある音」
@@ -3931,9 +3931,10 @@ function autoCompose(tr, opt) {
         c += strong === 3 ? 1.3 : strong === 2 ? 1 : strong === 1 ? 0.3 : 0;
       } else if (!inCh) {
         // 弱い拍の頭なら、なめらかにつなぐ「経過音」としてコードの外の音も少しゆるす
-        c += strong === 3 ? 14 : strong === 2 ? 10 : strong === 1 ? 2 : 0.4;
-        if (sl.l >= 48) c += 6;
-        if (kd === 2 && cs) c += strong ? 3 : 0.4; // アボイド・ノートはさらにひかえる
+        pn = strong === 3 ? 14 : strong === 2 ? 10 : strong === 1 ? 2 : 0.4;
+        if (sl.l >= 48) pn += 6;
+        if (kd === 2 && cs) pn += strong ? 3 : 0.4; // アボイド・ノートはさらにひかえる
+        c += pn;
       } else if (ch && ch.rich && strong >= 2 && (p % 12 === ch.third || p % 12 === ch.seventh)) c -= 0.7; // ガイドトーン（3度・7度）
       for (const x of oth) {
         if (!x.now) continue;
@@ -3951,9 +3952,9 @@ function autoCompose(tr, opt) {
       if (first && ch && !inCh) c += 8;
       // さいごの音：主音。さいごのコードに主音がないとき（Ⅴ7 で終わるなど）は、そのコードの音
       if (lastN) { if (ch && !ch.pcs.has(K.key)) c += inCh ? 0 : 1000; else if (hasTonic && p % 12 !== K.key) c += 1000; }
-      un.push(c); nct.push(bad); tone.push(kd === 0 && !!ch && ch.rich);
+      un.push(c); nct.push(bad); pen.push(pn); tone.push(kd === 0 && !!ch && ch.rich);
     });
-    return { sl, K, cand, chr, ch, tone, semi: !!cs, un, nct, oth, strong, lt: K.steps.includes(11) && scale.has((K.key + 11) % 12) ? (K.key + 11) % 12 : -1 };
+    return { sl, K, cand, chr, ch, tone, pen, semi: !!cs, un, nct, oth, strong, lt: K.steps.includes(11) && scale.has((K.key + 11) % 12) ? (K.key + 11) % 12 : -1 };
   });
   // 音階の上で何段はなれているか
   const degMemo = new Map();
@@ -4005,10 +4006,36 @@ function autoCompose(tr, opt) {
     return { out, D };
   };
   // 3つつづく音の減点（h→j→k）
-  const triCost = (A, d1, d2, x, a, b, midBad) => {
+  /* 非和声音（コードの外の音）の使い方。まん中の音 j がコードの外のとき、前後の動きで種類を見分ける
+     ・経過音／刺繍音：となりから入って、となりへ出る（強い拍なら「強拍の経過音」）
+     ・倚音（いおん）：強い拍に、とんで入って（またはフレーズの頭で）、となりのコードの音へ解決する
+     ・掛留音（けいりゅうおん）：前の音をそのままのこして強い拍でにごらせ、2度下のコードの音へ解決する
+     ・逸音（いつおん）：となりから入って、反対向きにとんで出る（うら拍）
+     ・先取音（せんしゅおん）：次のコードの音を、うら拍で先に鳴らす
+     きまりどおりでないコードの外の音は、大きく減点する */
+  const ORN = [null, { app: -1, sus: 0.5, accp: 4, esc: -1, ant: 1.5 }, { app: -3, sus: -1.2, accp: 2.2, esc: -2.5, ant: 0.2 }][opt.orn];
+  const nctKind = (Z, A, B, h, j, k, d1, d2) => {
+    const a1 = Math.abs(d1), a2 = Math.abs(d2);
+    const toTone = !B.nct[k] && !B.chr[k];
+    const res = toTone && A.ch === B.ch && !A.sl.restAfter && a2 === 1; // 同じコードの中で、となりのコードの音へ
+    if (a1 === 1 && a2 === 1) return A.strong >= 2 ? (res ? 'accp' : 'bad') : 'pass';
+    if (res && A.sl.l <= 96 && A.strong >= 1) {
+      if (a1 === 0 && d2 === -1 && Z && !Z.nct[h] && !A.sl.gap) return 'sus';
+      if (a1 >= 2 || A.sl.gap) return 'app';
+    }
+    if (a1 === 1 && a2 >= 2 && a2 <= 3 && sign(d2) !== sign(d1) && A.strong === 0 && toTone && !A.sl.restAfter) return 'esc';
+    if (a1 === 1 && a2 === 0 && A.strong === 0 && A.sl.l <= B.sl.l && toTone && A.ch !== B.ch && !A.sl.restAfter) return 'ant';
+    return 'bad';
+  };
+  const triCost = (Z, A, B, h, j, k, d1, d2) => {
+    const x = Z.cand[h], a = A.cand[j], b = B.cand[k];
     let c = 0;
     const a1 = Math.abs(d1), a2 = Math.abs(d2);
-    if (midBad && !(a1 === 1 && a2 === 1)) c += 9; // コードの外の音は、となりから入って、となりへ出る
+    if (A.nct[j] && !A.chr[j]) {
+      const kd = nctKind(Z, A, B, h, j, k, d1, d2);
+      if (kd === 'bad') c += 9;
+      else if (kd !== 'pass') c += ORN ? ORN[kd] - A.pen[j] * (kd === 'esc' || kd === 'ant' ? 0 : 1) : 9; // 正しく使えていれば、強い拍の減点を返す
+    }
     if (a1 >= 3) { if (!(d2 !== 0 && sign(d2) === -sign(d1) && a2 <= 2)) c += 3; if (sign(d2) === sign(d1) && a2 >= 2) c += 3; }
     else if (a1 === 2 && a2 >= 3 && sign(d1) === sign(d2)) c += 2;
     if (x === a && a === b) c += style === 'pop' ? 3 : 5;
@@ -4020,7 +4047,7 @@ function autoCompose(tr, opt) {
 
   // ---- 4) 曲全体で減点がいちばん少ないならびをさがす ----
   // 状態＝（1つ前の音, 今の音）。3つつづく音のきまりまで見られる
-  const back = [];
+  const back = [], allD = [];
   let prevD = null, dp = null;
   if (n === 1) { let k = 0; S[0].un.forEach((c, i) => { if (c < S[0].un[k]) k = i; }); tr.notes = [{ s: slots[0].s, p: S[0].cand[k], l: slots[0].l }]; return; }
   for (let i = 1; i < n; i++) {
@@ -4038,21 +4065,33 @@ function autoCompose(tr, opt) {
         let best = Infinity, bh = 0;
         const d2 = D[j][k];
         for (let h = 0; h < nh; h++) {
-          const c = dp[h][j] + triCost(A, prevD[h][j], d2, Z.cand[h], A.cand[j], B.cand[k], A.nct[j] && !A.chr[j]);
+          const c = dp[h][j] + triCost(Z, A, B, h, j, k, prevD[h][j], d2);
           if (c < best) { best = c; bh = h; }
         }
         cur[j][k] = best + P[j][k] + B.un[k];
         bk[j][k] = bh;
       }
     }
-    back.push(bk); dp = cur; prevD = D;
+    back.push(bk); dp = cur; prevD = D; allD.push(D);
   }
   let bj = 0, bkk = 0, bc = Infinity;
   for (let j = 0; j < dp.length; j++) for (let k = 0; k < dp[j].length; k++) if (dp[j][k] < bc) { bc = dp[j][k]; bj = j; bkk = k; }
   const pick = new Array(n);
   pick[n - 1] = bkk; pick[n - 2] = bj;
   for (let i = n - 1; i >= 2; i--) pick[i - 2] = back[i - 1][pick[i - 1]][pick[i]];
-  tr.notes = slots.map((sl, i) => ({ s: sl.s, p: S[i].cand[pick[i]], l: sl.l }));
+  const notes = slots.map((sl, i) => ({ s: sl.s, p: S[i].cand[pick[i]], l: sl.l }));
+  // 使った非和声音を数える。掛留音は、前の音とタイでつないで1つの長い音にする（本来の形）
+  const used = { pass: 0, accp: 0, app: 0, sus: 0, esc: 0, ant: 0, bad: 0 };
+  const drop = new Set();
+  for (let i = 1; i < n - 1; i++) {
+    const A = S[i], j = pick[i];
+    if (!A.nct[j] || A.chr[j]) continue;
+    const kd = nctKind(S[i - 1], A, S[i + 1], pick[i - 1], j, pick[i + 1], allD[i - 1][pick[i - 1]][j], allD[i][j][pick[i + 1]]);
+    used[kd]++;
+    if (kd === 'sus' && slots[i - 1].s + slots[i - 1].l === slots[i].s && !drop.has(i - 1)) { let q = i - 1; notes[q].l += notes[i].l; drop.add(i); }
+  }
+  autoCompose.last = used;
+  tr.notes = notes.filter((_, i) => !drop.has(i));
 }
 // おまかせ作曲のまど：感じ・音の細かさ・休符・音域・くり返しをえらんで、気に入るまで何度でも作りなおせる
 function autoDialog(tr) {
@@ -4072,6 +4111,7 @@ function autoDialog(tr) {
     ${sel('rests', '休符（息つぎ）', [[0, '少ない（つなげて歌う）'], [1, 'ふつう'], [2, '多い（間をあける）']], 'フレーズのおわりに休符を入れて、息つぎの場所を作ります')}
     ${sel('span', '音域のはば', [[0, 'せまい（6度くらい）'], [1, 'ふつう（1オクターブと少し）'], [2, '広い（1オクターブ半）']], 'いちばん低い音からいちばん高い音までのはば')}
     ${sel('height', '音の高さ', [[0, '低め'], [1, 'ふつう'], [2, '高め']], 'そのパートの音域の中で、どのあたりを使うか')}
+    ${sel('orn', 'かざりの音（非和声音）', [[0, '少ない（経過音・刺繍音だけ）'], [1, 'ふつう'], [2, '多い（倚音・掛留音もよく使う）']], 'コードの外の音の使い方。倚音＝強い拍でにごらせて、となりの音へ解決する。掛留音＝前の音をのこして、下へ解決する。逸音・先取音も使います')}
     ${sel('motif', 'くり返し', [[0, '自由（毎回ちがうリズム）'], [1, 'ふつう'], [2, 'しっかり（同じ形をくり返す）']], '同じリズムや形をくり返すと、おぼえやすいメロディになります')}
     </div>
     <div class="btnrow" style="margin-top:12px"><button class="mini" id="auPlay">${I('play')}聞く</button><span class="grow"></span><button class="mini" id="auNo">とじる</button><button class="mini accent" id="auGo">${I('spark')}<span>作る</span></button></div>`;

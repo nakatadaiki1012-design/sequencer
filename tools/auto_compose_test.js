@@ -135,6 +135,27 @@ const N = +process.argv[3] || 40;
     out.低め = stat({ height: 0 }); out.高め = stat({ height: 2 });
     out.くり返し自由 = stat({ motif: 0 }); out.くり返ししっかり = stat({ motif: 2 });
     out.やさしい = stat({ style: 'easy' }); out.ジャズ = stat({ style: 'jazz' });
+    // 非和声音：設定ごとに使った数（16小節×40回）と、強い拍のコードの外の音がかならず となりのコードの音へ解決しているか
+    const ornStat = (orn) => {
+      const T = { pass: 0, accp: 0, app: 0, sus: 0, esc: 0, ant: 0, bad: 0, 強い拍のコード外: 0, 解決しない: 0, タイでのびた掛留音: 0 };
+      for (let i = 0; i < 40; i++) {
+        mk(); const tr = song.tracks[0]; autoCompose(tr, { orn }); for (const k in autoCompose.last) T[k] += autoCompose.last[k];
+        const ns = [...tr.notes].sort((a, z) => a.s - z.s); const ct = song.tracks[1];
+        const tones = (t) => { const bb = barOf(t); let c = null; for (const x of chordSegs(ct.chords[bb], bb)) if (x.o <= t - barStart(bb)) c = x.c; return new Set(CHORD_Q[c.q].iv.map((v) => (c.r + v) % 12)); };
+        ns.forEach((n, k) => {
+          // 音のとちゅうでコードがかわり、かわった所でコードの外になる＝掛留音
+          const bEnd = barStart(barOf(n.s) + 1);
+          if (n.s + n.l > bEnd && tones(n.s).has(n.p % 12) && !tones(bEnd).has(n.p % 12)) { T.タイでのびた掛留音++; const nx = ns[k + 1]; if (!nx || !(n.p - nx.p >= 1 && n.p - nx.p <= 2) || !tones(nx.s).has(nx.p % 12)) T.解決しない++; return; }
+          const off = n.s - barStart(barOf(n.s));
+          if (!(off === 0 || off === 96) || tones(n.s).has(n.p % 12)) return;
+          T.強い拍のコード外++;
+          const nx = ns[k + 1];
+          if (!nx || Math.abs(nx.p - n.p) > 2 || nx.p === n.p || !tones(nx.s).has(nx.p % 12)) T.解決しない++;
+        });
+      }
+      return T;
+    };
+    out.非和声音_少ない = ornStat(0); out.非和声音_ふつう = ornStat(1); out.非和声音_多い = ornStat(2);
     // 音域の中におさまる（ベースのパートでも）
     loadSong({ v: 2, title: 'b', bars: 8, tracks: [{ type: 'melody', range: 'bass', notes: [] }, { type: 'chord', chords: prog }] });
     let inR = true; for (let i = 0; i < 20; i++) { autoCompose(song.tracks[0], { span: 2, height: 2 }); const [lo, hi] = trackRange(song.tracks[0]); if (song.tracks[0].notes.some((n) => n.p < lo || n.p > hi)) inR = false; }
