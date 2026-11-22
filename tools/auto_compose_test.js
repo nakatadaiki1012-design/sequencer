@@ -111,7 +111,7 @@ const N = +process.argv[3] || 40;
     const stat = (opt, N = 30) => {
       const S = { 音の数: 0, はば: 0, まん中: 0, 休符の拍: 0, 同じリズム: 0, 終わりが長い主音: 0, フレーズ終わりが長い: 0, 最高音が山場: 0, 最高音1か所: 0 };
       for (let i = 0; i < N; i++) {
-        mk(); const tr = song.tracks[0]; autoCompose(tr, opt); const ns = [...tr.notes].sort((a, z) => a.s - z.s);
+        mk(); const tr = song.tracks[0]; autoCompose(tr, { form: 1, ...opt }); const ns = [...tr.notes].sort((a, z) => a.s - z.s);
         const ps = ns.map((n) => n.p); const hi = Math.max(...ps), lo = Math.min(...ps);
         S.音の数 += ns.length; S.はば += hi - lo; S.まん中 += (hi + lo) / 2;
         S.休符の拍 += (totalTicks() - ns.reduce((a, n) => a + n.l, 0)) / 48;
@@ -120,7 +120,7 @@ const N = +process.argv[3] || 40;
         const L = ns[ns.length - 1]; if (L.p % 12 === song.key && L.l >= 96) S.終わりが長い主音++;
         // 2小節ごとのフレーズのおわり（弱起をのぞく）に、2拍以上の音がある
         let ok = 0; for (let b0 = 1; b0 < 16; b0 += 2) if (ns.some((n) => n.s >= barStart(b0) && n.s < barStart(b0 + 1) && n.l >= 96)) ok++; S.フレーズ終わりが長い += ok / 8;
-        const top = ns.filter((n) => n.p === hi); const inN = top.every((n) => [4, 5, 12, 13].includes(barOf(n.s)));
+        const top = ns.filter((n) => n.p === hi); const inN = top.every((n) => (opt.form === 2 ? [6, 7, 14, 15] : [4, 5, 12, 13]).includes(barOf(n.s)));
         if (inN) S.最高音が山場++;
         if (new Set(top.map((n) => Math.floor(barOf(n.s) / 8))).size <= 2 && top.length <= 4) S.最高音1か所++;
       }
@@ -135,6 +135,19 @@ const N = +process.argv[3] || 40;
     out.低め = stat({ height: 0 }); out.高め = stat({ height: 2 });
     out.くり返し自由 = stat({ motif: 0 }); out.くり返ししっかり = stat({ motif: 2 });
     out.やさしい = stat({ style: 'easy' }); out.ジャズ = stat({ style: 'jazz' });
+    out.形_問いと答え = stat({ form: 2 });
+    // 形：センテンス＝3〜4小節目が1〜2小節目と同じリズム、5・6小節目がモチーフの1小節目の断片。ピリオド＝5小節目が1小節目と同じ、4小節目は主音で終わらない、8小節目は主音
+    { const F = { センテンス_くり返し: 0, センテンス_断片: 0, ピリオド_もどる: 0, ピリオド_前半は主音でない: 0, ピリオド_後半は主音: 0 }; const N = 40;
+      const rhy = (ns, b0) => ns.filter((n) => n.s >= barStart(b0) && n.s < barStart(b0 + 1)).map((n) => (n.s - barStart(b0)) + ':' + n.l).join(' ');
+      const lastIn = (ns, b0) => ns.filter((n) => n.s < barStart(b0 + 1) && n.l >= 72).pop();
+      for (let i = 0; i < N; i++) {
+        mk(); let tr = song.tracks[0]; autoCompose(tr, { form: 1, motif: 2, rests: 0, orn: 0 }); let ns = [...tr.notes].sort((a, z) => a.s - z.s);
+        if (rhy(ns, 0) === rhy(ns, 2)) F.センテンス_くり返し++; if (rhy(ns, 0) === rhy(ns, 4)) F.センテンス_断片++;
+        mk(); tr = song.tracks[0]; autoCompose(tr, { form: 2, motif: 2, rests: 0, orn: 0 }); ns = [...tr.notes].sort((a, z) => a.s - z.s);
+        if (rhy(ns, 0) === rhy(ns, 4)) F.ピリオド_もどる++;
+        const h = lastIn(ns, 3), k = lastIn(ns, 7); if (h && h.p % 12 !== song.key) F.ピリオド_前半は主音でない++; if (k && k.p % 12 === song.key) F.ピリオド_後半は主音++;
+      }
+      for (const k in F) F[k] = Math.round((F[k] / N) * 100) + '%'; out.形 = F; }
     // 非和声音：設定ごとに使った数（16小節×40回）と、強い拍のコードの外の音がかならず となりのコードの音へ解決しているか
     const ornStat = (orn) => {
       const T = { pass: 0, accp: 0, app: 0, sus: 0, esc: 0, ant: 0, bad: 0, 強い拍のコード外: 0, 解決しない: 0, タイでのびた掛留音: 0 };

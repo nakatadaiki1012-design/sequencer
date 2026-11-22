@@ -3660,7 +3660,7 @@ function chordScale(c, keyPcs) {
 // ・旋律：となりの音へ進むのを基本に、大きくとんだら反対向きにもどる。増4度・7度のとびはしない。さいごは主音
 // リズムを先に決めてから、きまりをやぶるほど点が高くなる「減点」をつけ、曲全体で減点がいちばん少ない音のならびをえらぶ
 // おまかせ作曲の設定（前にえらんだものをおぼえておく）
-const AUTO_DEFAULT = { style: 'auto', density: 1, rests: 1, span: 1, height: 1, motif: 1, orn: 1 };
+const AUTO_DEFAULT = { style: 'auto', density: 1, rests: 1, span: 1, height: 1, motif: 1, orn: 1, form: 0 };
 function autoOpts() {
   try { const o = JSON.parse(lsGet('otsumiki-auto', '') || '{}'); const r = { ...AUTO_DEFAULT }; for (const k in r) if (k === 'style' ? ['auto', 'easy', 'pop', 'jazz'].includes(o[k]) : [0, 1, 2].includes(o[k])) r[k] = o[k]; return r; } catch (e) { return { ...AUTO_DEFAULT }; }
 }
@@ -3718,9 +3718,15 @@ function autoCompose(tr, opt) {
   // うしろから want 以上をまとめて、1つの長い音にする
   const endLong = (r, want) => { r = r.slice(); let got = 0; while (r.length && got < want) got += r.pop(); r.push(got); return r; };
   const units = [];
-  for (let b0 = 0; b0 < song.bars; b0 += 2) units.push({ b0, nb: Math.min(2, song.bars - b0), role: ['M', 'M2', 'N', 'K'][Math.floor((b0 % 8) / 2)] });
+  /* 8小節の形（楽節）。古典の作曲法の2つの型：
+     ・センテンス：モチーフ(M) → くり返し(M2) → 発展(N：モチーフを半分に切って たたみかけ、山場へ) → しめくくり(K)
+     ・ピリオド　：前半＝モチーフ(M) → 対比(H：半終止で「問い」) ／ 後半＝モチーフ(M) → しめくくり(K：山場をへて完全終止で「答え」) */
+  const form = opt.form === 0 ? (rnd() < 0.5 ? 1 : 2) : opt.form; // 1 センテンス・2 ピリオド
+  for (let b0 = 0; b0 < song.bars; b0 += 2) units.push({ b0, nb: Math.min(2, song.bars - b0), role: (form === 2 ? ['M', 'H', 'M', 'K'] : ['M', 'M2', 'N', 'K'])[Math.floor((b0 % 8) / 2)] });
   units[units.length - 1].role = 'K';
   units[units.length - 1].final = true;
+  // 山場（いちばん高い音）を置くフレーズ：センテンスは「発展」、ピリオドは後半の「しめくくり」
+  for (const u of units) u.climb = form === 2 ? u.role === 'K' && units.length > 2 : u.role === 'N';
   const motifR = {}; // モチーフのリズム（小節の長さごとにおぼえる）
   const barRhythm = (kind, j, b) => {
     const key = kind + ':' + j + ':' + barLen(b) + ':' + beatAt(b);
@@ -3739,9 +3745,10 @@ function autoCompose(tr, opt) {
       let r;
       if (u.role === 'K' && lastBar) r = u.final || nb <= 2 ? [bl] : endLong(barRhythm('M', 0, b), Math.max(2 * beat, bl / 2));
       else {
-        const kind = u.role === 'N' ? 'N' : 'M';
+        const kind = u.role === 'N' ? 'N' : u.role === 'H' ? 'H' : 'M';
         // 「くり返し」が ふつう のときは、ときどき2小節目だけ変える
-        r = u.role === 'M2' && j === 1 && opt.motif === 1 && rnd() < 0.3 ? genBar(b) : barRhythm(kind, u.role === 'K' ? 0 : j, b);
+        // 発展（N）：モチーフのはじめの1小節を「断片」にして、2回たたみかける（フラグメンテーション）
+        r = u.role === 'N' && opt.motif > 0 ? barRhythm('M', 0, b) : u.role === 'M2' && j === 1 && opt.motif === 1 && rnd() < 0.3 ? genBar(b) : barRhythm(kind, u.role === 'K' ? 0 : j, b);
         if (lastBar) r = endLong(r, nb <= 2 ? beat : Math.min(2 * beat + cut, bl - beat));
       }
       const its = r.map((d) => ({ d, b }));
@@ -3862,7 +3869,7 @@ function autoCompose(tr, opt) {
   const DIS = new Set([1, 2, 6, 10, 11]);
   // 旋律の形（りんかく）：モチーフの形を決めて、くり返しでは同じ形を少し高さをかえて使う（反復・ゼクエンツ）。
   // 「変化」のフレーズでいちばん高い音（山場）へのぼり、「しめくくり」で下りて終わる
-  const hasN = units.some((u) => u.role === 'N');
+  const hasN = units.some((u) => u.climb);
   const genContour = () => {
     const c = [0];
     let dir = rnd() < 0.7 ? 1 : -1;
@@ -3880,6 +3887,7 @@ function autoCompose(tr, opt) {
     return c;
   };
   const contM = genContour();
+  const contH = genContour().map((v) => -v * 0.8); // 対比のフレーズは、モチーフと逆の向きの形に
   const seq = pickW([[1, 3], [2, 2], [-1, 1.5], [0, 1]]); // くり返しのとき、何段ずらすか
   const wT = [0.2, 0.4, 0.55][opt.motif];
   const AMP = (1.7 * (HI - LO)) / 14; // 音域が広いほど、形の上下も大きく
@@ -3891,11 +3899,24 @@ function autoCompose(tr, opt) {
     const ui = Math.min(sl.u, units.length - 1);
     const k = Math.max(0, sl.k), cnt = Math.max(1, uCount[ui]);
     let t, w = wT;
-    if (u.role === 'N') { const peakAt = Math.max(1, Math.round(cnt * 0.7)); t = k <= peakAt ? centre + ((topP + 1 - centre) * k) / peakAt : topP - (k - peakAt) * 2; w = k === peakAt ? 0.7 : 0.4; } // 山場へのぼる
-    else if (u.role === 'K') { const half = Math.ceil(cnt / 2); t = k < half ? base + AMP * contM[k] : base - ((k - half) * AMP) / 1.7; w = k < half ? wT : 0.25; } // 思い出して、下りて終わる
+    if (u.climb && u.role === 'K') {
+      // ピリオドの答え：はじめに山場へのぼり、そこから下りて主音へ（旋律は山なり、フレーズの終わりは下がる）
+      const peakAt = Math.max(1, Math.round(cnt * 0.35));
+      t = k <= peakAt ? centre + 1 + ((topP - centre) * k) / peakAt : topP - ((k - peakAt) * (topP - centre + 3)) / Math.max(1, cnt - 1 - peakAt);
+      w = k === peakAt ? 0.7 : 0.35;
+    } else if (u.role === 'N') {
+      // 発展：モチーフの断片を、小節ごとに1段高くして山場へ（ゼクエンツ）。断片がなければ、まっすぐのぼる
+      const peakAt = Math.max(1, Math.round(cnt * 0.7));
+      const lin = k <= peakAt ? centre + ((topP + 1 - centre) * k) / peakAt : topP - (k - peakAt) * 2;
+      if (opt.motif > 0) { const h = Math.ceil(cnt / 2), kk = k % h, st = k < h ? 0 : 1; t = (lin + base + 2 + AMP * (contM[kk] + st * 2)) / 2; } else t = lin;
+      w = k === peakAt ? 0.7 : 0.4;
+    } else if (u.role === 'K') { const half = Math.ceil(cnt / 2); t = k < half ? base + AMP * contM[k] : base - ((k - half) * AMP) / 1.7; w = k < half ? wT : 0.25; } // 思い出して、下りて終わる
+    else if (u.role === 'H') t = base + 1 + AMP * contH[k]; // 対比：モチーフとちがう形
     else t = base + AMP * (contM[k] + (u.role === 'M2' ? seq : 0));
+    // フレーズの終わりは少し下がる（終わりに向かって下がるのが旋律のくせ）
+    if (!u.climb && k >= cnt - 2 && cnt >= 4) t -= (k - (cnt - 3)) * 0.8;
     if (sl.pick) { t -= 2; w = 0.2; } // 弱起は下から入る
-    return { t: clamp(t, LO + 1, u.role === 'N' ? HI : HI - 3), w, role: u.role, final: !!u.final };
+    return { t: clamp(t, LO + 1, u.climb ? HI : HI - 3), w, role: u.role, final: !!u.final, climb: !!u.climb };
   };
   const S = slots.map((sl, i) => {
     const K = pcsAtBar(sl.b);
@@ -3918,9 +3939,16 @@ function autoCompose(tr, opt) {
     const un = [], nct = [], tone = [], pen = [];
     cand.forEach((p, k) => {
       let c = Math.random() * 0.6 + Math.abs(p - tg.t) * tg.w;
-      if (hasN && tg.role !== 'N' && p > HI - 4) c += p > HI - 3 ? 4 : 1; // いちばん高い音は、山場のためにとっておく
+      if (hasN && !tg.climb && p > HI - 4) c += p > HI - 3 ? 4 : 1; // いちばん高い音は、山場のためにとっておく
       // とちゅうのしめくくり（半終止）：主音で終わると「おしまい」に聞こえるので、主和音でなければ主音をさける
-      if (sl.endU && tg.role === 'K' && !tg.final && p % 12 === K.key && !(ch && ch.root === K.key)) c += 2.5;
+      // フレーズの終わりの音：安定した音（主音・3度・5度）で終わると落ちつき、不安定な音（2・4・6・7度）で終わると先へ進みたくなる
+      if (sl.endU && !tg.final && K.steps.length === 7) {
+        const dg = K.steps.indexOf((p - K.key + 120) % 12); // 音階の何番目か（0＝主音）
+        const tonicCh = ch && ch.root === K.key;
+        if (tg.role === 'H') c += dg === 0 ? 4 : dg === 1 || dg === 4 || dg === 6 ? -1 : 0.5; // 半終止：2度・5度・7度で「問い」にする
+        else if (tg.role === 'K') c += form === 2 ? (dg === 0 ? -2 : tonicCh ? 4 : 1) : dg === 0 && !tonicCh ? 2.5 : 0; // ピリオドの区切りは主音で答える
+        else if (dg === 0 && !tonicCh) c += 1.5; // とちゅうで主音に落ちつくと、そこで終わって聞こえる
+      }
       const inCh = !ch || ch.pcs.has(p % 12);
       const kd = chr[k] ? 3 : cs ? cs.kind.get(p % 12) : inCh ? 0 : 2; // 0 コードの音・1 テンション・2 アボイド・3 音階の外
       let bad = !inCh, pn = 0; // pn＝コードの外の音であることの減点（倚音・掛留音として正しく解決すれば、あとで返す）
@@ -3987,6 +4015,18 @@ function autoCompose(tr, opt) {
       if (ad >= 2 && (A.nct[j] || B.nct[k])) c += 3; // コードの外の音へはとばない
       if (ad === 2 && A.tone[j] && B.tone[k]) c -= 1; // 7th のコードは、コードの音を3度でつなぐ（アルペジオ）のもジャズらしい
       if (A.lt >= 0 && a % 12 === A.lt && b !== a + 1) c += 2.5; // 導音は主音へ
+      // 不安定な音は、となりの安定した音へ進みたがる（4度→3度、6度→5度、2度→主音、7度→主音）
+      if (B.K.steps.length === 7 && !A.chr[j] && !B.chr[k]) {
+        const da = B.K.steps.indexOf((a - B.K.key + 120) % 12), db = B.K.steps.indexOf((b - B.K.key + 120) % 12);
+        if (da >= 0 && db >= 0) {
+          const dn = b < a && sem <= 2, up = b > a && sem <= 2;
+          if ((da === 3 && db === 2 && dn) || (da === 5 && db === 4 && dn) || (da === 1 && db === 0 && dn) || (da === 6 && db === 0 && up)) c -= 0.5;
+          else if ((da === 3 || da === 6) && ad >= 2) c += 0.8; // 4度・7度（いちばん不安定）からとぶのは、ひかえる
+        }
+      }
+      // 旋律のくせ（統計）：となりへ進むときは下がることが多く、大きくとぶときは上がることが多い（とんで上がり、順に下りる）
+      if (ad === 1 && b > a) c += 0.15;
+      else if (ad >= 3 && b < a) c += 0.6;
       // クロマチック・アプローチ：半音となりのコードの音（またはテンション）へ、かならずすべりこむ。入るときも、となりから
       if (A.chr[j]) c += sem === 1 && !B.chr[k] && !B.nct[k] ? 0 : 30;
       if (B.chr[k]) c += A.chr[j] ? 30 : sem <= 2 && sem > 0 ? 0 : 8;
@@ -4036,7 +4076,13 @@ function autoCompose(tr, opt) {
       if (kd === 'bad') c += 9;
       else if (kd !== 'pass') c += ORN ? ORN[kd] - A.pen[j] * (kd === 'esc' || kd === 'ant' ? 0 : 1) : 9; // 正しく使えていれば、強い拍の減点を返す
     }
-    if (a1 >= 3) { if (!(d2 !== 0 && sign(d2) === -sign(d1) && a2 <= 2)) c += 3; if (sign(d2) === sign(d1) && a2 >= 2) c += 3; }
+    if (a1 >= 3) {
+      // 大きくとんだあと：音域のまん中から遠ざかるとびなら、反対向きにもどる（まん中へもどる性質）。
+      // まん中へ近づくとびなら、そのまま同じ向きへ進んでもよい
+      const away = Math.abs(a - centre) > Math.abs(x - centre) && Math.abs(a - centre) > 2;
+      if (away) { if (!(d2 !== 0 && sign(d2) === -sign(d1) && a2 <= 2)) c += 3; } else if (a2 > 2) c += 1.5;
+      if (sign(d2) === sign(d1) && a2 >= 2) c += 3;
+    } else if (style !== 'pop' && d1 === -1 && d2 === -1) c -= 0.25; // となりへ下がったら、そのまま下がりやすい
     else if (a1 === 2 && a2 >= 3 && sign(d1) === sign(d2)) c += 2;
     if (x === a && a === b) c += style === 'pop' ? 3 : 5;
     else if (x === b && a !== b) c += 0.5;
@@ -4112,6 +4158,7 @@ function autoDialog(tr) {
     ${sel('span', '音域のはば', [[0, 'せまい（6度くらい）'], [1, 'ふつう（1オクターブと少し）'], [2, '広い（1オクターブ半）']], 'いちばん低い音からいちばん高い音までのはば')}
     ${sel('height', '音の高さ', [[0, '低め'], [1, 'ふつう'], [2, '高め']], 'そのパートの音域の中で、どのあたりを使うか')}
     ${sel('orn', 'かざりの音（非和声音）', [[0, '少ない（経過音・刺繍音だけ）'], [1, 'ふつう'], [2, '多い（倚音・掛留音もよく使う）']], 'コードの外の音の使い方。倚音＝強い拍でにごらせて、となりの音へ解決する。掛留音＝前の音をのこして、下へ解決する。逸音・先取音も使います')}
+    ${sel('form', '形（楽節）', [[0, 'おまかせ'], [1, 'くり返して発展（モチーフ→くり返し→たたみかけ→終わり）'], [2, '問いと答え（前半は問い、後半は答え）']], '8小節の組み立て方。くり返して発展＝モチーフをくり返し、短く切ってたたみかけて山場へ。問いと答え＝前半は「続く」感じで終わり、後半は同じ出だしから主音で終わる')}
     ${sel('motif', 'くり返し', [[0, '自由（毎回ちがうリズム）'], [1, 'ふつう'], [2, 'しっかり（同じ形をくり返す）']], '同じリズムや形をくり返すと、おぼえやすいメロディになります')}
     </div>
     <div class="btnrow" style="margin-top:12px"><button class="mini" id="auPlay">${I('play')}聞く</button><span class="grow"></span><button class="mini" id="auNo">とじる</button><button class="mini accent" id="auGo">${I('spark')}<span>作る</span></button></div>`;
