@@ -7010,6 +7010,8 @@ function scLyric() {
 function lyrOpen(t) {
   document.querySelector('#scoreEditView .scpos')?.remove();
   const tr = track();
+  // 歌詞を打っているとちゅうで、コードやリズムのトラックに切りかわったときは、とじる
+  if (!tr || tr.type !== 'melody') return lyrClose();
   const top = lyrTop(tr, t);
   if (!top) return lyrClose();
   ui.sc.lyr = { t, tid: tr.id, v: (ui.sc.lyr && ui.sc.lyr.tid === tr.id && ui.sc.lyr.v) || 1 };
