@@ -3099,9 +3099,10 @@ let ovDrag = null;
 function ovBarW() {
   const room = $('#ovWrap').clientWidth - OV_LW - 10;
   const mode = typeof layout === 'object' && layout.ovMode;
-  if (mode === 'fit') return Math.max(3, room / Math.max(1, song.bars));
-  if (mode === 'big') return Math.max(120, Math.min(220, room / Math.min(song.bars, 6)));
-  return Math.max(34, Math.min(90, room / Math.min(song.bars, 16)));
+  const f = (typeof layout === 'object' && layout.ovbz) || 1; // ↔ ボタンで決めた倍率
+  if (mode === 'fit') return Math.max(3, (room / Math.max(1, song.bars)) * f);
+  if (mode === 'big') return Math.max(24, Math.max(120, Math.min(220, room / Math.min(song.bars, 6))) * f);
+  return Math.max(6, Math.max(34, Math.min(90, room / Math.min(song.bars, 16))) * f);
 }
 function ovRows() { return [...song.tracks.map((t, i) => ({ kind: 'track', i })), { kind: 'rule' }]; }
 function resizeOverview() {
@@ -4856,7 +4857,8 @@ function trackDragStart(ev, i, card, fromGrip) {
       list.appendChild(ghost);
     }
     e.preventDefault();
-    card.style.transform = `translateY(${dy}px)`;
+    const zf = parseFloat(list.style.zoom) || 1;
+    card.style.transform = `translateY(${dy / zf}px)`;
     // どこに入るか：ほかのカードのまん中より上か下か
     const cs = cards();
     const lr = list.getBoundingClientRect();
@@ -4869,7 +4871,7 @@ function trackDragStart(ev, i, card, fromGrip) {
       else if (to === 0 && k === 0) lineY = r.top;
     });
     if (to > i) to = Math.min(to, cs.length - 1);
-    ghost.style.top = lineY - lr.top + list.scrollTop - 2 + 'px';
+    ghost.style.top = (lineY - lr.top) / zf + list.scrollTop - 2 + 'px';
     // リストのはしでは、自動でスクロール
     if (e.clientY < lr.top + 24) list.scrollTop -= 8; else if (e.clientY > lr.bottom - 24) list.scrollTop += 8;
   };
@@ -8513,6 +8515,8 @@ function applyLayout() {
   if (side && !floatOn('tracks')) side.style.width = !phone && layout.tw ? layout.tw + 'px' : '';
   if (!phone) OV_RH = layout.ovrh || 20;
   if (side && !floatOn('tracks')) side.classList.toggle('narrow', !phone && layout.tw != null && layout.tw < 150);
+  const tl = $('#trackList');
+  if (tl) tl.style.zoom = !phone && layout.tz && layout.tz !== 1 ? String(layout.tz) : '';
   const ca = $('.canvas-area');
   if (ca) ca.classList.toggle('folded', !phone && !!layout.ovHide);
   const fb = $('#ovFold');
@@ -8652,6 +8656,7 @@ function splitterDrag(el, onMove, onReset) {
 }
 function initSplitters() {
   initFloats();
+  initPanelZoom();
   applyLayout();
   splitterDrag($('#splitTracks'), (m) => {
     const side = $('.main > .tracks');
@@ -8674,6 +8679,7 @@ function initSplitters() {
   if (fb) fb.onclick = () => { layout.ovHide = !layout.ovHide; applyLayout(); saveLayout(); relayoutAll(); };
   $$('#ovMode button').forEach((b) => (b.onclick = () => {
     layout.ovMode = b.dataset.m === 'normal' ? undefined : b.dataset.m;
+    delete layout.ovbz;
     if (layout.ovHide) layout.ovHide = false;
     applyLayout(); saveLayout(); relayoutAll();
     toast(b.dataset.m === 'fit' ? '曲の地図：曲ぜんぶを、つめて表示' : b.dataset.m === 'big' ? '曲の地図：大きく表示（横にスクロール）' : '曲の地図：ふつうの大きさ');
@@ -8684,6 +8690,64 @@ function initSplitters() {
     layout.sph = Math.round(clamp(m.st - m.dy, 80, innerHeight * 0.8));
     sp.style.maxHeight = sp.style.height = layout.sph + 'px';
   }, () => { delete layout.sph; });
+}
+/* ---------- トラック欄・曲の地図・マス目の大きさを、横とたてで別々に変える（ボタン・Ctrl＋ホイール） ---------- */
+function zoomToast(what, v) { toast(`${what}：${Math.round(v * 100)}%`); }
+function trackZoom(axis, dir) {
+  const side = $('.main > .tracks');
+  if (axis === 'x') {
+    const w0 = layout.tw || side.getBoundingClientRect().width || 262;
+    layout.tw = Math.round(clamp(w0 * (dir > 0 ? 1.15 : 1 / 1.15), 64, Math.min(560, innerWidth * 0.5)));
+    applyLayout(); saveLayout(); relayoutAll();
+    toast(`トラック欄のはば：${layout.tw}px`);
+  } else {
+    layout.tz = Math.round(clamp((layout.tz || 1) * (dir > 0 ? 1.12 : 1 / 1.12), 0.6, 1.8) * 100) / 100;
+    if (Math.abs(layout.tz - 1) < 0.03) delete layout.tz;
+    applyLayout(); saveLayout();
+    zoomToast('トラックの大きさ', layout.tz || 1);
+  }
+}
+function ovZoom(axis, dir) {
+  if (layout.ovHide) layout.ovHide = false;
+  if (axis === 'x') {
+    layout.ovbz = Math.round(clamp((layout.ovbz || 1) * (dir > 0 ? 1.25 : 1 / 1.25), 0.25, 6) * 100) / 100;
+    if (Math.abs(layout.ovbz - 1) < 0.03) delete layout.ovbz;
+    applyLayout(); saveLayout(); relayoutAll();
+    zoomToast('曲の地図の横', layout.ovbz || 1);
+  } else {
+    const v = clamp(Math.round(OV_RH * (dir > 0 ? 1.2 : 1 / 1.2)), 8, 56);
+    layout.ovrh = v === OV_RH ? clamp(v + dir, 8, 56) : v;
+    OV_RH = layout.ovrh;
+    applyLayout(); saveLayout(); relayoutAll();
+    toast(`曲の地図のたて：1パート ${layout.ovrh}px`);
+  }
+}
+function gridZoom(axis, dir) {
+  const a = zoomAnchor();
+  if (axis === 'x') { const base = Math.max(ui.zoom, ppt() * TPQ); applyZoom(base * (dir > 0 ? 1.25 : 1 / 1.25), ui.rh, a); }
+  else applyZoom(ui.zoom, ui.rh * (dir > 0 ? 1.15 : 1 / 1.15), a);
+  saveZoom();
+}
+function initPanelZoom() {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('#zxIn', () => gridZoom('x', 1)); on('#zxOut', () => gridZoom('x', -1));
+  on('#zyIn', () => gridZoom('y', 1)); on('#zyOut', () => gridZoom('y', -1));
+  on('#ovxIn', () => ovZoom('x', 1)); on('#ovxOut', () => ovZoom('x', -1));
+  on('#ovyIn', () => ovZoom('y', 1)); on('#ovyOut', () => ovZoom('y', -1));
+  on('#txIn', () => trackZoom('x', 1)); on('#txOut', () => trackZoom('x', -1));
+  on('#tyIn', () => trackZoom('y', 1)); on('#tyOut', () => trackZoom('y', -1));
+  // Ctrl（Mac は ⌘）＋ホイール：横の大きさ。Shift もおすと たて
+  const wheel = (el, fn) => el && el.addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const now = performance.now();
+    if (now - (el._zt || 0) < 90) return; // トラックパッドで速くなりすぎないように
+    el._zt = now;
+    const d = e.deltaY || e.deltaX;
+    if (d) fn(e.shiftKey ? 'y' : 'x', d < 0 ? 1 : -1);
+  }, { passive: false });
+  wheel($('#ovWrap'), ovZoom);
+  wheel($('#trackList'), (ax, dir) => trackZoom(ax === 'x' ? 'y' : 'x', dir)); // トラック欄はたて（大きさ）がふつう、Shift ではば
 }
 function renderChips() {
   const box = $('#trackChips');
@@ -9931,7 +9995,7 @@ function init() {
   }, { passive: false });
   // 曲の地図の上では、ホイールで横に動く
   $('#ovScroller').addEventListener('wheel', (e) => {
-    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.ctrlKey) return;
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.ctrlKey || e.metaKey) return;
     const o = $('#ovScroller');
     if (o.scrollWidth <= o.clientWidth) return;
     e.preventDefault();

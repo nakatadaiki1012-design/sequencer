@@ -1622,3 +1622,18 @@ body.phone .pad .pic { width: 36px; height: 36px; }
 body.phone #dlgAuto .autogrid { grid-template-columns: 1fr; }
 #dlgAuto .btnrow { display: flex; gap: 8px; align-items: center; }
 #dlgAuto .btnrow .grow { flex: 1; }
+/* 横（↔）とたて（↕）の大きさのボタン：マス目・曲の地図・トラック欄 */
+.zoombox .zax { display: inline-flex; align-items: center; gap: 0; padding: 0 2px 0 6px; border-right: 1px solid var(--border); }
+.zoombox .zax i { font-style: normal; font-size: 12px; color: var(--muted); margin-right: 1px; }
+.zoombox .zax button { width: 26px; height: 26px; font-size: 14px; }
+.zoombox.ovzoom { right: 8px; bottom: 6px; padding: 1px; }
+.zoombox.ovzoom .zax:last-child, .zoombox.tzoom .zax:last-child { border-right: 0; }
+.zoombox.ovzoom .zax button { width: 22px; height: 22px; font-size: 13px; }
+.zoombox.tzoom { position: sticky; bottom: 0; right: auto; margin: 6px auto 0; width: max-content; padding: 1px; }
+.zoombox.tzoom .zax button { width: 24px; height: 24px; font-size: 13px; }
+.tracks.narrow .zoombox.tzoom { flex-direction: column; }
+.tracks.narrow .zoombox.tzoom .zax { border-right: 0; }
+.canvas-area.folded .ovzoom { display: none; }
+body.phone .zoombox.tzoom, body.phone .zoombox.ovzoom { display: none; }
+body.phone .zoombox .zax { display: none; }
+body.present .zoombox { display: none !important; }
