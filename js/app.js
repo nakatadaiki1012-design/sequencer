@@ -5559,6 +5559,9 @@ function scoreOpts(trackIds, withDrums) {
     partTracks.splice(0, partTracks.length, ...idx.map((x) => x.t));
   }
   const chordTr = song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean));
+  // 楽譜のパートがみな同じ移調楽器（トランペットだけ、など）のときは、コードネームもその楽器の調で書く（MuseScore・パート譜と同じ）
+  const pTr = parts.filter((p) => !p.perc).map((p) => p.transpose || 0);
+  const chordShift = pTr.length && pTr[0] % 12 && pTr.every((x) => x === pTr[0]) ? pTr[0] : 0;
   const solfa = S.solfa;
   const nameOf = solfa === 'none' ? null : (m) => {
     const pc = ((m % 12) + 12) % 12;
@@ -5576,7 +5579,7 @@ function scoreOpts(trackIds, withDrums) {
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
-    ...chordOptsFor(chordTr, 0),
+    ...chordOptsFor(chordTr, chordShift), chordShift,
     nameOf, perLine: +S.perLine || 0, scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
@@ -5611,6 +5614,7 @@ function lyricsText(tr, v) { const k = lyKey(v); return tr.notes.filter((n) => n
 // MuseScore（.mscz）で書き出す
 function exportMscz() {
   const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
+  if (o.chordShift) Object.assign(o, chordOptsFor(song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean)), 0)); // 書き出しは実音のコード（書き出す側で移調する）
   o.chords = o.chordObjs;
   o.parts = o.parts.filter((p) => !p.slash); // スラッシュはコードネームだけ（音は書き出さない）
   o.parts = o.parts.flatMap((p) => (p.clef === 'grand' ? [
@@ -5854,6 +5858,7 @@ async function exportPng() {
 }
 function exportMusicXML() {
   const o = scoreOpts([...(scoreSel || new Set(song.tracks.filter((t) => t.type === 'melody').map((t) => t.id)))], true);
+  if (o.chordShift) Object.assign(o, chordOptsFor(song.tracks.find((t) => t.type === 'chord' && t.chords.some(Boolean)), 0)); // 書き出しは実音のコード（書き出す側で移調する）
   o.chords = o.chordObjs;
   // 大譜表の伴奏は、右手（ト音記号）と左手（ヘ音記号）の2つのパートに分けて書き出す
   o.parts = o.parts.filter((p) => !p.slash); // スラッシュはコードネームだけ（音は書き出さない）

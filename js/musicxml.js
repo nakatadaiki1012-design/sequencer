@@ -402,7 +402,8 @@ const MusicXMLImport = (() => {
           if (root) {
             const st = STEP[txt(root, 'root-step').toUpperCase()];
             if (st != null) {
-              const r = (((st + Math.round(num(txt(root, 'root-alter'), 0))) % 12) + 12) % 12;
+              // 移調楽器のパートのコードネームは「書く音」：鳴る音になおす
+              const r = (((st + Math.round(num(txt(root, 'root-alter'), 0)) + tpNow) % 12) + 24) % 12;
               const t = at() + (kid(el, 'offset') ? toT(txt(el, 'offset')) : 0);
               M.items.push({ kind: 'harm', t, r, q: HARM_TEXT[(kid(el, 'kind') && kid(el, 'kind').getAttribute('text')) || ''] || HARM[txt(el, 'kind')] || 'M' });
             }
@@ -1054,12 +1055,18 @@ const MusicXMLImport = (() => {
     };
 
     // ---- 段ごとに音を読む ----
+    const concertPitch = txt(kid(score, 'Style'), 'concertPitch') === '1';
+    const keyStaffEl = staffEls.find((e) => { const inf = staffInfo[e.getAttribute('id')]; return inf && !inf.part.perc && !inf.part.trans; }) || staffEls[0];
     const tracks = [];
     const drumTracks = new Map();
     for (const stEl of staffEls) {
       const info = staffInfo[stEl.getAttribute('id')] || { part: { name: 'パート', prg: null, perc: false, staves: [stEl.getAttribute('id')] }, idx: 0 };
       const part = info.part;
       const isFirstStaff = stEl === staffEls[0];
+      // 調号は、移調しない楽器の段から読む（なければ最初の段から、実音になおして）
+      const isKeyStaff = stEl === keyStaffEl;
+      // 移調楽器の段の調号・コードネームは「書く音」で入っている（実音で表示して保存した楽譜はそのまま）。実音にもどす半音の数
+      const wSh = !part.perc && part.trans && !concertPitch ? part.trans : 0;
       const notes = [];
       const dyn = [];
       const hairpins = [];
@@ -1111,11 +1118,12 @@ const MusicXMLImport = (() => {
               if (m2) curClef = m2;
               continue;
             }
-            if (tag === 'KeySig' && isFirstStaff) {
+            if (tag === 'KeySig' && isKeyStaff) {
               if (txt(el, 'visible') === '0' && mi > 0) continue; // 見えない調号は、変わり目にしない
-              const k = Math.round(num(txt(el, 'concertKey') || txt(el, 'accidental') || txt(el, 'key'), 0));
+              const ck = txt(el, 'concertKey');
+              const k = Math.round(num(ck || txt(el, 'accidental') || txt(el, 'key'), 0));
               const minor = txt(el, 'mode') === 'minor';
-              const tonic = ((((k * 7) % 12) + 12) % 12 + (minor ? 9 : 0)) % 12;
+              const tonic = ((((k * 7) % 12) + 12) % 12 + (minor ? 9 : 0) - (ck ? 0 : wSh) + 24) % 12;
               if (mi === 0 && key0 == null) key0 = { key: tonic, minor };
               else if (mi > 0) {
                 // 同じ調の書き直しは、変わり目にしない
@@ -1139,7 +1147,7 @@ const MusicXMLImport = (() => {
               const r = txt(el, 'root');
               if (r !== '') {
                 hasHarm = true;
-                const c = { r: tpcPc(r), q: HQ(txt(el, 'name')) };
+                const c = { r: (tpcPc(r) - wSh + 24) % 12, q: HQ(txt(el, 'name')) };
                 if (!chords[mi]) chords[mi] = c; else if (pos > mStart) addChordAt(chords[mi], absT(pos) - absT(mStart), c);
               }
               continue;

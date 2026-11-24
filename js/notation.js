@@ -1948,11 +1948,13 @@ const Notation = (() => {
         if (pi === 0 && chords && chords[b]) {
           const c = chords[b];
           const rootPref = (r) => ([1, 3, 6, 8, 10].includes(((r % 12) + 12) % 12) ? (kc > 0 || (r % 12 === 6 && kc >= 0) ? 1 : -1) : 0);
-          const sp = spellPref(c.r + 60, kc, rootPref(c.r));
+          // 移調楽器のパートでは、コードネームもその楽器の調で（MusicXML のコードネームは「書く音」）
+          const tR = (r) => (((r + (p.perc ? 0 : tr)) % 12) + 12) % 12;
+          const sp = spellPref(tR(c.r) + 60, kc, rootPref(tR(c.r)));
           x.push(`<harmony><root><root-step>${sp.step}</root-step>${sp.acc ? `<root-alter>${sp.acc}</root-alter>` : ''}</root>${hk(c.q)}</harmony>`);
           const more = c.segs ? c.segs.filter((sg) => sg.o > 0) : c.h && c.hAt ? [{ o: c.hAt, r: c.h.r, q: c.h.q }] : [];
           for (const sg of more) {
-            const sh = spellPref(sg.r + 60, kc, rootPref(sg.r));
+            const sh = spellPref(tR(sg.r) + 60, kc, rootPref(tR(sg.r)));
             x.push(`<harmony><root><root-step>${sh.step}</root-step>${sh.acc ? `<root-alter>${sh.acc}</root-alter>` : ''}</root>${hk(sg.q)}<offset>${sg.o}</offset></harmony>`);
           }
         }
@@ -2141,5 +2143,5 @@ const Notation = (() => {
     });
   }
 
-  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, pageCounts, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
+  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, pageCounts, single, hit, keyCount, buildEvents, spell, spellPref, spellLine, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
 })();
