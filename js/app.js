@@ -2357,7 +2357,9 @@ function updateDynLane(tr, X, k, t0, t1) {
     $('#editorWrap').appendChild(lane);
     lane.addEventListener('pointerdown', dynLaneDown);
   }
-  if (!dynLaneOn(tr)) { lane.hidden = true; return; }
+  const on = dynLaneOn(tr);
+  $('#editorWrap').classList.toggle('dynon', on); // 大きさのボタンを、強弱のレーンの上へ
+  if (!on) { lane.hidden = true; return; }
   lane.hidden = false;
   lane.style.left = LW + 'px';
   const key = [version, tr.id, Math.round(X(0)), k, t0, t1].join('|');

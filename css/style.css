@@ -1637,3 +1637,4 @@ body.phone #dlgAuto .autogrid { grid-template-columns: 1fr; }
 body.phone .zoombox.tzoom, body.phone .zoombox.ovzoom { display: none; }
 body.phone .zoombox .zax { display: none; }
 body.present .zoombox { display: none !important; }
+.editorwrap.dynon .zoombox { bottom: 38px; }
