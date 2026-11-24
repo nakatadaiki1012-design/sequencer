@@ -333,6 +333,7 @@ const Notation = (() => {
     const { bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
     let parts = opts.parts;
     const meta = opts.meta || {};
+    const PART = !!opts.partMode; // パート譜（1つのパートだけを、演奏する人のために組む）
     const BLANK = new Set(opts.blankBars || []); // 穴うめ：音符を書かない小節
     // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
     const FING = opts.finger ? FINGERING[opts.finger] : null;
@@ -588,9 +589,10 @@ const Notation = (() => {
       }
     }
     // 長い休みをまとめる（パート譜）：休みだけの小節が2つ以上つづいたら、1つの小節に「太い線と数字」
+    // パート譜では、コードネームがあっても休みはまとめる（休んでいる人にコードはいらない）
     if (opts.mmRest) {
       const quiet = (b) => staves.every((st) => !st.notes.concat(st.notes2).some((n) => n.s < bS(b + 1) && n.s + n.l > bS(b)) && !(st.part.dyn || []).some((d) => d.t >= bS(b) && d.t < bS(b + 1)) && !(st.part.texts || []).some((t) => t.t >= bS(b) && t.t < bS(b + 1)));
-      const plain = (b) => !barInfo[b].keyChg && !barInfo[b].mChg && !(opts.rehearsal && opts.rehearsal[b]) && !(opts.tempos && opts.tempos[b]) && !(opts.words && opts.words[b]) && !(rep.start || []).includes(b) && !rep.volta[b] && !(chords && chords[b]) && !['segno', 'coda'].some((k) => hasJ(k) && J[k] === b);
+      const plain = (b) => !barInfo[b].keyChg && !barInfo[b].mChg && !(opts.rehearsal && opts.rehearsal[b]) && !(opts.tempos && opts.tempos[b]) && !(opts.words && opts.words[b]) && !(rep.start || []).includes(b) && !rep.volta[b] && !(!PART && chords && chords[b]) && !['segno', 'coda'].some((k) => hasJ(k) && J[k] === b);
       const breakAfter = (b) => (rep.end || []).includes(b) || ['fine', 'tocoda', 'dc', 'ds'].some((k) => hasJ(k) && J[k] === b);
       for (let r0 = pickup ? 1 : 0; r0 < bars; r0++) {
         if (!quiet(r0) || (r0 > 0 && breakAfter(r0 - 1) && false)) continue;
@@ -631,6 +633,14 @@ const Notation = (() => {
           let bad = fill > 1 ? (fill - 1) * (fill - 1) * 900 : lastLine ? (fill < 0.6 ? (0.6 - fill) * (0.6 - fill) * 150 : 0) : (1 - fill) * (1 - fill) * 100; // さいごの段が短くなりすぎるなら、前の段から小節を回して、つり合わせる
           if (j - i === 1 && n > 1 && !barInfo[a + i].mm) bad += lastLine ? 24 : 6; // 1小節だけの段（とくに、さいごの段）は、なるべくつくらない
           bad += 12; // 段の数はなるべく少なく
+          if (PART) {
+            // パート譜：練習番号（リハーサル記号）や長い休みのあとは、段の頭から始めると読みやすい。4小節ごとの区切りもそろえる
+            const nb = a + j; // 次の段のはじめの小節
+            if (j < n && opts.rehearsal && opts.rehearsal[nb]) bad -= 9;
+            if (j < n && nb > 0 && barInfo[nb - 1].hide) bad -= 3; // 長い休みのすぐあと
+            const cnt = j - i;
+            if (cnt >= 2 && !barInfo[a + i].mm) bad -= cnt % 4 === 0 ? 3 : cnt % 2 === 0 ? 1 : 0;
+          }
           if (best[i] + bad < best[j]) { best[j] = best[i] + bad; from[j] = i; }
         }
       }
@@ -661,7 +671,16 @@ const Notation = (() => {
     const anyVolta = Object.keys(rep.volta || {}).length > 0;
     const anyReh = !!(opts.rehearsal && Object.keys(opts.rehearsal).some((k) => +k < bars));
     const topRow = chordRow + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0) + (anyReh ? 22 : 0);
-    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 + (st.lyrN - 1) * LYR_GAP : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
+    // パート譜：コードネームやリハーサル記号のない段では、そのぶんの場所をとらない（1ページにたくさんの段が入る）
+    const topRowOf = (line) => {
+      if (!PART) return topRow;
+      const [b0, b1] = lines[line];
+      let ch = false, rh = false;
+      for (let b = b0; b < b1; b++) { if (barInfo[b].hide) continue; if (chords && chords[b] && !barInfo[b].mm) ch = true; if (opts.rehearsal && opts.rehearsal[b] != null && opts.rehearsal[b] !== '') rh = true; }
+      return (ch ? 16 : 0) + (anyVolta ? 16 : 0) + (anyJump ? 18 : 0) + (opts.marks ? 16 : 0) + (rh ? 28 : 0);
+    };
+    const chordRowOf = (line) => { if (!PART) return chordRow; const [b0, b1] = lines[line]; for (let b = b0; b < b1; b++) if (!barInfo[b].hide && !barInfo[b].mm && chords && chords[b]) return 16; return 0; };
+    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : PART ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 + (st.lyrN - 1) * LYR_GAP : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below;
     const dynRoom = (st) => (st.dynAbove ? 18 : 0); // 上に強弱を書くぶん
     // 空の段をかくす（フルスコア）：2段目からは、その段で音のないパートを書かない
     const busy = (st, a, z) => st.notes.concat(st.notes2).some((n) => n.s < z && n.s + n.l > a) || (st.part.dyn || []).some((d) => d.t >= a && d.t < z);
@@ -685,7 +704,7 @@ const Notation = (() => {
         st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0) + st.belowX;
       }
     };
-    const sysHOf = (line) => { fitLine(line); return topRow + vis[line].reduce((a, s) => a + staffH(s), 0) + 16; };
+    const sysHOf = (line) => { fitLine(line); return topRowOf(line) + vis[line].reduce((a, s) => a + staffH(s), 0) + (PART ? 8 : 16); };
     // 大きな曲：opts.window＝[はじめの小節, おわりの小節) にかかる段だけを書く（画面を軽くする）
     const W = WIN;
     // 大きな曲を画面で書くとき：部品の数をへらす（ぼう・加線・連桁などを、段ごとに1つの図形にまとめる）。
@@ -784,13 +803,15 @@ const Notation = (() => {
     }
     // 臨時記号は段ごと・小節ごとに覚える
     layout.title = title;
+    layout.partHeader = opts.partHeader || '';
     layout.barNat = barInfo.map((x) => Math.round(x.nat));
     layout.window = W ? [lines.find((_, i) => inWin(i))[0], lines.filter((_, i) => inWin(i)).pop()[1]] : null;
     lines.forEach(([b0, b1], line) => {
       if (!inWin(line)) return;
       if (line === 0) layout.headSvg = o.slice(2).join(''); // 曲名・作曲者・テンポなど（1ページ目の上）
       const oStart = o.length;
-      const sysTop = top + lineTop[line] + topRow;
+      const topRowL = topRowOf(line), chordRowL = chordRowOf(line);
+      const sysTop = top + lineTop[line] + topRowL;
       const VS = vis[line];
       fitLine(line);
       const hx = left + headW(line === 0);
@@ -834,7 +855,7 @@ const Notation = (() => {
         const hit = sysCache.m.get(line);
         if (hit && hit.sig === sysSig) { for (const q of hit.strs) o.push(q); layout.systems.push(hit.sys); return; }
       }
-      const sys = { y0: sysTop - topRow, y1: sysTop + sysHOf(line) - topRow, bars: [], staves: [] };
+      const sys = { y0: sysTop - topRowL, y1: sysTop + sysHOf(line) - topRowL, bars: [], staves: [] };
       // 小節の x 位置
       let x = hx;
       for (let bb = b0; bb < b1; bb++) {
@@ -866,13 +887,13 @@ const Notation = (() => {
           if (!v) continue;
           const prev = rep.volta[B.b - 1];
           const next = rep.volta[B.b + 1];
-          const y = sysTop - chordRow - 6;
+          const y = sysTop - chordRowL - 6;
           o.push(`<path d="M${B.x0 + 2} ${prev === v && B.b !== b0 ? y : y + 12} V${y} H${B.x1 - 4}${next !== v ? ` V${y + 12}` : ''}" fill="none" stroke="#222"/>`);
           if (prev !== v || B.b === b0) o.push(`<text x="${B.x0 + 6}" y="${y + 11}" font-size="11" fill="#111">${v}.</text>`);
         }
       }
       if (anyJump) {
-        const jy = sysTop - chordRow - (anyVolta ? 16 : 0) - 3;
+        const jy = sysTop - chordRowL - (anyVolta ? 16 : 0) - 3;
         const al = hasJ('fine') ? ' al Fine' : hasJ('coda') ? ' al Coda' : '';
         for (const B of sys.bars) {
           if (hasJ('segno') && J.segno === B.b) o.push(G('segno', B.x0 + 3, jy + 1, 'fill="#111"', 5.5));
@@ -1272,7 +1293,7 @@ const Notation = (() => {
           if (isEnd) o.push(`<circle cx="${ex - 11}" cy="${yOf(5)}" r="1.8" fill="#222"/><circle cx="${ex - 11}" cy="${yOf(3)}" r="1.8" fill="#222"/><line x1="${ex - 7}" x2="${ex - 7}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 4}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
           else if (bEnd === bars - 1 || (hasJ('fine') && J.fine === bEnd)) o.push(`<line x1="${ex - 5}" x2="${ex - 5}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 3}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
           else o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
-          if (si === 0 && chords && chords[bb]) {
+          if (si === 0 && chords && chords[bb] && !(PART && barInfo[bb].mm)) {
             const co = opts.chordObjs && opts.chordObjs[bb];
             const parts = String(chords[bb]).split('・');
             if (co && co.segs && co.segs.length > 1) {
@@ -1291,7 +1312,7 @@ const Notation = (() => {
           // リハーサル記号（四角でかこんだ文字）：段のいちばん上
           if (si === 0 && anyReh && opts.rehearsal[bb] != null && opts.rehearsal[bb] !== '') {
             const t = String(opts.rehearsal[bb]);
-            const ry = sys.y0 + 4;
+            const ry = sys.y0 + (PART ? 1 : 4); // パート譜では、下のコードネームにふれないよう少し上に
             const rw = textW(t) * 1.15 + 10;
             const rx = B.x0 + (bb === b0 ? 0 : -2);
             o.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="18" fill="#fff" stroke="#111" stroke-width="1.3"/><text x="${rx + rw / 2}" y="${ry + 14}" font-size="14" font-weight="bold" text-anchor="middle" fill="#111" class="reh">${esc(t)}</text>`);
@@ -2038,6 +2059,22 @@ const Notation = (() => {
   // ratio = ページの高さ ÷ はば（A4・よはく12mm で 273/186）
   // ページに分ける：段をページにつめ、ページの中で段の間を同じだけあけて、下までそろえる（さいごのページは、つめすぎのときだけ）
   // 2ページ目からは、上に小さく曲名とページ番号（外がわのすみ）
+  // 何ページになるか・ページごとの段の数（入るだけ入れたとき）
+  function pageCounts(layout, ratio = 273 / 186) {
+    if (!layout || !layout.systems.length) return [0];
+    const PH = layout.width * ratio;
+    const sys = layout.systems;
+    const out = [];
+    let i = 0;
+    while (i < sys.length) {
+      const room = PH - 34 - (out.length === 0 ? sys[0].y0 : 46);
+      let j = i, h = 0;
+      while (j < sys.length && (j === i || h + (sys[j].y1 - sys[j].y0) <= room)) { h += sys[j].y1 - sys[j].y0; j++; }
+      out.push(j - i);
+      i = j;
+    }
+    return out;
+  }
   function paginate(svg, layout, ratio = 273 / 186) {
     if (!layout || !layout.systems.length) return [svg];
     const W = layout.width;
@@ -2048,28 +2085,49 @@ const Notation = (() => {
     const top0 = sys[0].y0; // 1ページ目：曲名などの下から
     const TOPn = 46; // 2ページ目から：上の見出しの下から
     const BOT = 34;
-    const pages = [];
-    let i = 0;
-    while (i < sys.length) {
-      const first = pages.length === 0;
-      const yTop = first ? top0 : TOPn;
-      const room = PH - BOT - yTop;
-      let j = i;
-      let h = 0;
-      while (j < sys.length && (j === i || h + (sys[j].y1 - sys[j].y0) <= room)) { h += sys[j].y1 - sys[j].y0; j++; }
-      pages.push({ a: i, z: j, yTop, room, h });
-      i = j;
+    let pages = [];
+    const fillPages = (cap) => {
+      // cap：1ページに入れる段の数の上限（ならすとき）。なければ、入るだけ入れる
+      const out = [];
+      let i = 0;
+      while (i < sys.length) {
+        const first = out.length === 0;
+        const yTop = first ? top0 : TOPn;
+        const room = PH - BOT - yTop;
+        let j = i;
+        let h = 0;
+        while (j < sys.length && (j === i || (h + (sys[j].y1 - sys[j].y0) <= room && (!cap || j - i < cap)))) { h += sys[j].y1 - sys[j].y0; j++; }
+        out.push({ a: i, z: j, yTop, room, h });
+        i = j;
+      }
+      return out;
+    };
+    pages = fillPages(0);
+    // パート譜：さいごのページに1〜2段だけ残るのはさける。同じページ数のまま、段の数をならす
+    if (layout.partHeader && pages.length > 1) {
+      const lastN = pages[pages.length - 1].z - pages[pages.length - 1].a;
+      const fullN = Math.max(...pages.map((pg) => pg.z - pg.a));
+      if (lastN < Math.max(3, fullN * 0.45)) {
+        for (let cap = Math.ceil(sys.length / pages.length); cap < fullN; cap++) {
+          const tryP = fillPages(cap);
+          if (tryP.length === pages.length) { pages = tryP; break; }
+        }
+      }
     }
     if (pages.length === 1) return [svg];
     const SERIF = "'Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
     const esc2 = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    let prevGap = 0;
     return pages.map((pg, k) => {
       const n = pg.z - pg.a;
       const last = k === pages.length - 1;
       const extra = Math.max(0, pg.room - pg.h);
       // 段と段のあいだに、あまりを同じだけ足す（あけすぎない。さいごのページは7割以上うまっているときだけ）
       const fillOk = !last || pg.h > pg.room * 0.7;
-      const gap = n > 1 && fillOk ? Math.min(extra / (n - 1), 90) : 0;
+      let gap = n > 1 && fillOk ? Math.min(extra / (n - 1), 90) : 0;
+      // パート譜：さいごのページも、前のページと同じあき方にそろえる（入るなら）。1ページだけのときも、少しあける
+      if (layout.partHeader && n > 1 && !fillOk) gap = Math.min(extra / (n - 1), k > 0 ? prevGap : 24);
+      prevGap = gap;
       let y = pg.yTop;
       const body = [];
       for (let q = pg.a; q < pg.z; q++) {
@@ -2078,10 +2136,10 @@ const Notation = (() => {
         y += S.y1 - S.y0 + gap;
       }
       const odd = (k + 1) % 2 === 1;
-      const head = k === 0 ? layout.headSvg || '' : `<text x="${W / 2}" y="24" text-anchor="middle" font-size="11" fill="#444" font-family="${SERIF}">${esc2(layout.title)}</text><text x="${odd ? W - 16 : 16}" y="24" text-anchor="${odd ? 'end' : 'start'}" font-size="12" fill="#222" font-family="${SERIF}">${k + 1}</text>`;
+      const head = k === 0 ? layout.headSvg || '' : `<text x="${W / 2}" y="24" text-anchor="middle" font-size="11" fill="#444" font-family="${SERIF}">${esc2(layout.title)}${layout.partHeader ? '　―　' + esc2(layout.partHeader) : ''}</text><text x="${odd ? W - 16 : 16}" y="24" text-anchor="${odd ? 'end' : 'start'}" font-size="12" fill="#222" font-family="${SERIF}">${k + 1}</text>`;
       return `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 0 ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect width="${W}" height="${PH}" fill="#fff"/>${head}${body.join('')}</svg>`;
     });
   }
 
-  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
+  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, pageCounts, single, hit, keyCount, buildEvents, spell, spellPref, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
 })();

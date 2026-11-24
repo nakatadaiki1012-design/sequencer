@@ -5576,10 +5576,19 @@ function scoreOpts(trackIds, withDrums) {
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
-    chords: chordTr ? Array.from({ length: song.bars }, (_, b) => chordLabel(chordTr.chords[b])) : null,
-    chordObjs: chordTr ? Array.from({ length: song.bars }, (_, b) => { const c = chordTr.chords[b]; if (!c) return null; const segs = chordSegs(c, b).map((x) => ({ o: x.o, r: x.c.r, q: x.c.q, name: chordName(x.c) })); return { ...c, segs, ...(c.h && !c.x ? { hAt: chordHalf(b) } : {}) }; }) : null,
+    ...chordOptsFor(chordTr, 0),
     nameOf, perLine: +S.perLine || 0, scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
+  };
+}
+// 楽譜に書くコードネーム。shift＝移調楽器のパート譜で、その楽器の調に合わせて上げる半音の数（in B♭ なら 2）
+function chordOptsFor(chordTr, shift) {
+  if (!chordTr) return { chords: null, chordObjs: null };
+  const sh = ((shift % 12) + 12) % 12;
+  const mv = (c) => (c && sh ? { ...c, r: (c.r + sh) % 12, ...(c.h ? { h: { ...c.h, r: (c.h.r + sh) % 12 } } : {}), ...(Array.isArray(c.x) ? { x: c.x.map((x) => (x && Number.isInteger(x.r) ? { ...x, r: (x.r + sh) % 12 } : x)) } : {}) } : c);
+  return {
+    chords: Array.from({ length: song.bars }, (_, b) => chordLabel(mv(chordTr.chords[b]))),
+    chordObjs: Array.from({ length: song.bars }, (_, b) => { const c = mv(chordTr.chords[b]); if (!c) return null; const segs = chordSegs(c, b).map((x) => ({ o: x.o, r: x.c.r, q: x.c.q, name: chordName(x.c) })); return { ...c, segs, ...(c.h && !c.x ? { hAt: chordHalf(b) } : {}) }; }),
   };
 }
 // 歌詞の文字列を、音の始まりごとに1つずつ入れる
@@ -5769,11 +5778,36 @@ function printParts() {
   const pages = [];
   for (const id of ids) {
     const t = song.tracks.find((x) => x.id === id);
+    // パート譜は、演奏する人のための楽譜。フルスコア用の設定（小さな五線・手で入れた改行・実音）は引きつがない
+    const S0 = scoreSettings();
+    const keepConcert = S0.concert;
+    S0.concert = false; // 移調楽器は、その楽器の調で書く
     const o = scoreOpts([id], true);
+    S0.concert = keepConcert;
     o.partHeader = t.name;
-    o.mmRest = scoreSettings().mmRest !== false; // 長い休みは1つにまとめる（MuseScore のパート譜と同じ）
-    const svg = Notation.render(o);
-    const pg = Notation.paginate(svg, Notation.lastLayout);
+    o.partMode = true;
+    o.breaks = []; // 改行は、このパートに合わせて自動で決める
+    o.perLine = 0;
+    o.scale = 1; // 五線は、読みやすいふつうの大きさ
+    o.hideEmpty = false;
+    if (S0.orch) { o.chords = null; o.chordObjs = null; } // オーケストラ・吹奏楽のパート譜に、コードネームは書かない
+    else if (o.chords && o.parts[0] && (o.parts[0].transpose || 0) % 12) {
+      // 移調楽器（クラリネット・ホルンなど）：コードネームも、その楽器の調に合わせる
+      const ct = song.tracks.find((x) => x.type === 'chord' && x.chords.some(Boolean));
+      Object.assign(o, chordOptsFor(ct, o.parts[0].transpose));
+    }
+    o.mmRest = S0.mmRest !== false; // 長い休みは1つにまとめる（MuseScore のパート譜と同じ）
+    let svg = Notation.render(o);
+    let lay = Notation.lastLayout;
+    // さいごのページに1〜2段だけはみ出すときは、少しつめて組みなおし、ページを1枚へらす
+    const cnt = Notation.pageCounts(lay);
+    if (cnt.length > 1 && cnt[cnt.length - 1] <= 2) {
+      for (const f of [0.93, 0.86]) {
+        const svg2 = Notation.render({ ...o, spacing: (o.spacing || 1) * f });
+        if (Notation.pageCounts(Notation.lastLayout).length < cnt.length) { svg = svg2; lay = Notation.lastLayout; break; }
+      }
+    }
+    const pg = Notation.paginate(svg, lay);
     pages.push(...(pg.length ? pg : [svg]));
   }
   const keep = scorePages;
