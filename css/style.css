@@ -1650,3 +1650,65 @@ body.phone .zcross.gzoom button { width: 36px; height: 36px; font-size: 16px; }
 body.phone .zoombox.tzoom, body.phone .zoombox.ovzoom { display: none; }
 body.present .zoombox { display: none !important; }
 .editorwrap.dynon .zoombox { bottom: 38px; }
+
+/* ---------- いろいろな楽譜ソフトのいいところ（js/pro.js） ---------- */
+/* 文字で入れる（ポップオーバー） */
+.popin { position: fixed; z-index: 70; width: min(380px, calc(100vw - 12px)); padding: 8px 10px 10px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 6px; }
+.popin[hidden] { display: none; }
+.popin .pihead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.popin input { font-size: 16px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg, #fff); color: var(--text); }
+.popin .pihint { font-size: 13px; min-height: 1.4em; }
+.popin .pik { display: inline-block; padding: 0 6px; margin-right: 4px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; }
+.popin .piex { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 機能をさがす */
+.cmddlg { width: min(520px, 94vw); padding: 12px; }
+.cmddlg input { width: 100%; font-size: 17px; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--accent); background: var(--panel); color: var(--text); box-sizing: border-box; }
+.cmddlg ul { list-style: none; margin: 8px 0 4px; padding: 0; max-height: 50vh; overflow: auto; }
+.cmddlg li { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.cmddlg li.on, .cmddlg li:hover { background: var(--accent-soft); color: var(--accent-text); }
+/* テンキー */
+.keypad { position: fixed; right: 16px; bottom: 90px; z-index: 40; padding: 6px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+.keypad[hidden] { display: none; }
+.keypad .kphead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 13px; }
+.keypad .kpgrid { display: grid; grid-template-columns: repeat(4, 54px); grid-auto-rows: 42px; gap: 3px;
+  grid-template-areas: "kDivide kMultiply kSubtract ." "k7 k8 k9 kAdd" "k4 k5 k6 kAdd" "k1 k2 k3 kEnter" "k0 k0 kDecimal kEnter"; }
+.keypad .kpb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; padding: 0; font-size: 11px; line-height: 1.1; }
+.keypad .kpb i { font-style: normal; font-size: 10px; color: var(--muted); }
+.keypad .kpb span { font-size: 12px; font-weight: 600; }
+.keypad .kpb.on { background: var(--grad); color: #fff; border-color: transparent; }
+.keypad .kpb.on i { color: #fff; }
+.keypad .kpb:hover { background: var(--accent-soft); }
+body.phone .keypad { display: none; }
+/* 鍵盤・指板のパネル */
+.instpanel { flex: none; border-top: 1px solid var(--border); background: var(--panel); padding: 4px 8px 6px; display: flex; flex-direction: column; gap: 4px; }
+.instpanel[hidden] { display: none; }
+.instpanel .iphead { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.instpanel .iphead .grow { flex: 1; }
+.instpanel .iphead .grp { display: inline-flex; gap: 2px; }
+.instpanel .ipdur { min-width: 28px; }
+.pkb { position: relative; display: grid; grid-template-columns: repeat(var(--w), 1fr); height: 92px; user-select: none; touch-action: manipulation; }
+.pkb .pw { position: relative; border: 1px solid #999; border-radius: 0 0 5px 5px; background: #fff; margin: 0 -0.5px; cursor: pointer; padding: 0; }
+.pkb .pw i { position: absolute; left: 0; right: 0; bottom: 3px; font-style: normal; font-size: 10px; color: #666; text-align: center; }
+.pkb .pb { position: absolute; top: 0; height: 58%; width: calc(100% / var(--w) * 0.62); left: calc(100% / var(--w) * var(--x) - 100% / var(--w) * 0.31); background: #222; border: 0; border-radius: 0 0 4px 4px; z-index: 1; cursor: pointer; padding: 0; }
+.pkb .pw:active, .pkb .pb:active { filter: brightness(.85); }
+.pkb .lit { background: var(--accent) !important; box-shadow: 0 0 10px var(--accent); }
+.fretb { display: flex; flex-direction: column; gap: 0; user-select: none; touch-action: manipulation; }
+.fretb .frow { display: grid; grid-template-columns: 28px 22px repeat(15, 1fr); align-items: center; height: 17px; position: relative; }
+.fretb .frow b { font-size: 10px; color: var(--muted); font-weight: 600; text-align: right; padding-right: 4px; }
+.fretb .frow::after { content: ''; position: absolute; left: 50px; right: 0; top: 50%; border-top: 1.2px solid #888; pointer-events: none; }
+.fretb .fr { height: 17px; border: 0; border-right: 1.5px solid #bbb; background: transparent; cursor: pointer; padding: 0; position: relative; z-index: 1; }
+.fretb .fr.open { border-right: 4px solid #555; }
+.fretb .fr:hover { background: var(--accent-soft); }
+.fretb .fr.lit::before { content: ''; position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.fretb .fnum { height: 13px; }
+.fretb .fnum::after { display: none; }
+.fretb .fnum i { font-style: normal; font-size: 9.5px; color: var(--muted); text-align: center; }
+body.phone .pkb { height: 76px; }
+body.present .instpanel, body.present .keypad { display: none !important; }
+@media print { .instpanel, .keypad, .popin { display: none !important; } }
+/* コメント */
+.cmtlist { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; }
+.cmtlist li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-radius: 8px; background: #fff8d6; color: #3d3000; border: 1px solid #f0d36a; }
+.cmtlist li p { margin: 0; flex: 1 1 100%; white-space: pre-wrap; }
+.cmtlist li .grow { flex: 1; }
+.scoreeditview .cmt:hover rect { fill: #ffd43b; }

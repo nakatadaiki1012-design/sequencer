@@ -83,6 +83,25 @@ const Notation = (() => {
     }
     return out;
   }
+  // ギターのコード図（shape：{ f: 6本の弦のフレット（-1＝弾かない）, base: いちばん上のフレット }）。x,y＝図の左上
+  const DIAG_H = 48;
+  function diagramSvg(x, y, shape) {
+    const gw = 5;
+    const gh = 6.5;
+    const W = gw * 5;
+    const o = [];
+    const top = y + 7;
+    for (let i = 0; i < 6; i++) o.push(`<line x1="${x + i * gw}" x2="${x + i * gw}" y1="${top}" y2="${top + gh * 4}" stroke="#222" stroke-width="0.6"/>`);
+    for (let j = 0; j <= 4; j++) o.push(`<line x1="${x}" x2="${x + W}" y1="${top + j * gh}" y2="${top + j * gh}" stroke="#222" stroke-width="${j === 0 && shape.base === 1 ? 2 : 0.6}"/>`);
+    if (shape.base > 1) o.push(`<text x="${x - 2}" y="${top + gh * 0.8}" font-size="6.5" text-anchor="end" fill="#222">${shape.base}fr</text>`);
+    shape.f.forEach((f, i) => {
+      const cx = x + i * gw;
+      if (f < 0) o.push(`<text x="${cx}" y="${top - 1.5}" font-size="6" text-anchor="middle" fill="#222">×</text>`);
+      else if (f === 0) o.push(`<circle cx="${cx}" cy="${top - 3}" r="1.6" fill="none" stroke="#222" stroke-width="0.6"/>`);
+      else o.push(`<circle cx="${cx}" cy="${top + (f - shape.base + 0.5) * gh}" r="2.1" fill="#111"/>`);
+    });
+    return `<g class="cdiag">${o.join('')}</g>`;
+  }
   const CLEF_BASE = { treble: 30, treble8: 23, alto: 24, bass: 18 };
   const ACC_G = { 1: 'accidentalSharp', '-1': 'accidentalFlat', 0: 'accidentalNatural', 2: 'accidentalDoubleSharp', '-2': 'accidentalDoubleFlat' };
   const DYN_G = { p: 'dynamicPiano', m: 'dynamicMezzo', f: 'dynamicForte', s: 'dynamicSforzando', z: 'dynamicZ', r: 'dynamicRinforzando' };
@@ -493,6 +512,8 @@ const Notation = (() => {
       st.textRoom = st.sub === 0 && (st.part.texts || []).length ? 16 : 0;
       st.above += stack * 11 + st.textRoom;
       st.aboveX = stack * 11 + st.textRoom;
+      // ギターのコード図：いちばん上の段の上に、コードネームと五線の間をあける
+      if (opts.diagrams && opts.chordShape && st === staves[0] && opts.chordObjs && opts.chordObjs.some(Boolean)) { st.above += DIAG_H; st.aboveX += DIAG_H; st.diagH = DIAG_H; }
       st.belowX = 0;
       st.below = Math.max(0, -2 - lo) * (SP / 2) + (lo < -1 ? 6 : 0);
       // ピアノのペダル（Ped. ＊）：大譜表は下の段の下、ふつうは五線の下
@@ -1322,6 +1343,11 @@ const Notation = (() => {
           else o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
           if (si === 0 && chords && chords[bb] && !(PART && barInfo[bb].mm)) {
             const co = opts.chordObjs && opts.chordObjs[bb];
+            if (opts.diagrams && opts.chordShape && co && st === staves[0]) {
+              const yN = stTop - 2.9 * SP - dynRoom(st) - st.above;
+              const segs = co.segs && co.segs.length ? co.segs : [{ o: 0, r: co.r, q: co.q }];
+              for (const sg of segs) { const sh = opts.chordShape(sg.r, sg.q); if (sh) o.push(diagramSvg((sg.o ? xAt(bb, sg.o) : B.xs[0]) - 2, yN + 4, sh)); }
+            }
             const parts = String(chords[bb]).split('・');
             if (co && co.segs && co.segs.length > 1) {
               for (const sg of co.segs) o.push(`<text x="${(sg.o ? xAt(bb, sg.o) : B.xs[0]) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13.5" font-weight="bold" fill="${edit ? '#c2410c' : '#111'}" class="chd" data-b="${bb}" data-o="${sg.o}">${esc(sg.name)}</text>`);
@@ -1329,6 +1355,11 @@ const Notation = (() => {
               o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13.5" font-weight="bold" fill="${edit ? '#c2410c' : '#111'}" class="chd" data-b="${bb}" data-h="1">${esc(parts[0])}</text>`);
               o.push(`<text x="${xAt(bb, co.hAt) - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13.5" font-weight="bold" fill="${edit ? '#c2410c' : '#111'}" class="chd" data-b="${bb}" data-h="2">${esc(parts[1])}</text>`);
             } else o.push(`<text x="${B.xs[0] - 4}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above}" font-size="13.5" font-weight="bold" fill="${edit ? '#c2410c' : '#111'}" class="chd" data-b="${bb}">${esc(chords[bb])}</text>`);
+          }
+          // コメントの印（編集の画面だけ。印刷には出ない）：小節の右上に、ふせん
+          if (si === 0 && edit && opts.comments && !barInfo[bb].hide) {
+            const nC = opts.comments.filter((c) => c.b === bb).length;
+            if (nC) { const cx = B.x1 - 16; const cy = stTop - 2.9 * SP - dynRoom(st) - st.above - 12; o.push(`<g class="cmt" data-b="${bb}" style="cursor:pointer"><title>コメント ${nC}件（おすと読めます）</title><rect x="${cx - 2}" y="${cy - 9}" width="${nC > 1 ? 22 : 16}" height="13" rx="3" fill="#ffe066" stroke="#e0a800" stroke-width="0.8"/><path d="M${cx + 2} ${cy + 4}l2 4l2-4z" fill="#ffe066" stroke="#e0a800" stroke-width="0.8"/><text x="${cx + (nC > 1 ? 9 : 6)}" y="${cy + 0.5}" font-size="8.5" text-anchor="middle" fill="#7a5b00">${nC > 1 ? '…' + nC : '…'}</text></g>`); }
           }
           // 対位法のチェックの印（赤＝まちがい、オレンジ＝注意）
           if (si === 0 && opts.marks && opts.marks[bb]) {
@@ -1458,7 +1489,7 @@ const Notation = (() => {
             if (q.e <= bS(b0) || q.s >= bS(b1)) continue;
             const up = q.k > 0;
             if (up ? !st.ottUp : !st.ottDn) continue;
-            const y = up ? stTop - st.above + st.textRoom + 11 : stTop + 4 * SP + st.below - (st.hasPed ? 16 : 0) - 4;
+            const y = up ? stTop - st.above + (st.diagH || 0) + st.textRoom + 11 : stTop + 4 * SP + st.below - (st.hasPed ? 16 : 0) - 4;
             const xa = q.s >= bS(b0) ? ox(q.s) - 6 : sys.bars[0].xs[0] - 8;
             const lastStart = Math.max(q.s, ...st.notes.filter((n) => n.s >= q.s && n.s < q.e).map((n) => n.s));
             const xz = q.e <= bS(b1) ? ox(lastStart) + 11 : xEnd - 4; // おわりのかぎは、さいごの符頭の右に
@@ -1474,7 +1505,7 @@ const Notation = (() => {
         // トリルの波線：「tr～～～～」
         if (st.trl) {
           const tx = (t) => { if (t >= bS(b1) || t >= bS(bars)) return xEnd - 6; const bb = barOfT(t); if (bb < b0) return sys.bars[0].xs[0]; return xAt(bb, t - bS(bb)); }; // 段の外（切れ目）は、段のはし
-          const y = stTop - st.above + st.textRoom + (st.ottUp ? 18 : 0) + ((st.part.trills || []).some((q) => q.a != null) ? 23 : 13);
+          const y = stTop - st.above + (st.diagH || 0) + st.textRoom + (st.ottUp ? 18 : 0) + ((st.part.trills || []).some((q) => q.a != null) ? 23 : 13);
           for (const q of st.part.trills) {
             if (q.e <= bS(b0) || q.s >= bS(b1)) continue;
             const xa = q.s >= bS(b0) ? tx(q.s) - 5 : sys.bars[0].xs[0] - 8;
@@ -1510,7 +1541,10 @@ const Notation = (() => {
             // 加線・装飾記号より上、コード名などより上。リハーサル記号にはかからない
             const tyA = stTop - 2 * SP - st.above - dynRoom(st) + 12;
             const tyB = stTop - 2.9 * SP - dynRoom(st) - st.above - (si === 0 && chords && chords[bb2] ? 15 : 0) - (si === 0 && opts.words && opts.words[bb2] ? 15 : 0) - (si === 0 && opts.marks && opts.marks[bb2] ? 15 : 0);
-            const ty = Math.max(si === 0 ? sys.y0 + (anyReh ? 24 : 0) + 12 : -1e9, Math.min(tyA, tyB));
+            // 上がつまっていて（段のいちばん上）コード名にかかるときは、コード名の下（ことばの場所）に。コード図があれば、その下
+            const lim = si === 0 ? sys.y0 + (anyReh ? 24 : 0) + 12 : -1e9;
+            const tyA2 = tyA + (st.diagH || 0);
+            const ty = st.diagH ? Math.max(lim, tyB < lim ? tyA2 : tyB) : tyB < lim ? Math.max(lim, tyA) : Math.min(tyA, tyB);
             o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="12.5" fill="#111" class="stxt">${esc(tx2.x)}</text>`);
           }
         }

@@ -143,6 +143,11 @@
           <button id="btnStems"><svg class="i"><use href="#i-layers"/></svg>パートごと（WAV を ZIP に）</button>
           <button id="btnMidi"><svg class="i"><use href="#i-piano"/></svg>MIDIファイル</button>
           <button id="btnScoreMenu" hidden></button>
+          <div class="ddh">道具</div>
+          <button id="btnCmdMenu"><svg class="i"><use href="#i-tool"/></svg>機能を名前でさがす（Ctrl+/）</button>
+          <button id="btnArrange"><svg class="i"><use href="#i-layers"/></svg>自動で編曲（いくつかの楽器に）</button>
+          <button id="btnInstPanel"><svg class="i"><use href="#i-keys"/></svg>鍵盤・指板のパネル</button>
+          <button id="btnComments"><svg class="i"><use href="#i-pencil"/></svg>コメントの一覧</button>
           <div class="ddh">授業・発表</div>
           <button id="btnPresent"><svg class="i"><use href="#i-screen"/></svg>発表モード（全画面）</button>
           <button id="btnCp"><svg class="i"><use href="#i-layers"/></svg>対位法れんしゅう（2つのメロディ）</button>
@@ -537,6 +542,7 @@
   <script src="js/insticons.js"></script>
   <script src="js/mp3.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/pro.js"></script>
   <script>
     // オフラインでも速く開けるように（http(s) で開いたときだけ）
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

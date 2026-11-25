@@ -242,6 +242,11 @@ function sanitizeSong(s) {
   out.rehearsal = {};
   for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < MAX_BARS && v) out.rehearsal[b] = v; }
   if (!Object.keys(out.rehearsal).length) delete out.rehearsal;
+  // 楽譜のコメント（小節ごとのメモ）
+  if (s.comments != null) {
+    out.comments = (Array.isArray(s.comments) ? s.comments : []).filter((c) => c && Number.isInteger(c.b) && c.b >= 0 && c.b < MAX_BARS && typeof c.x === 'string' && c.x.trim()).slice(0, 500).map((c) => ({ b: c.b, x: c.x.slice(0, 300), ...(typeof c.who === 'string' && c.who ? { who: c.who.slice(0, 20) } : {}), ...(Number.isFinite(c.at) ? { at: c.at } : {}) }));
+    if (!out.comments.length) delete out.comments;
+  }
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
   out.tracks = s.tracks.filter((t) => t && typeof t === 'object' && ['melody', 'drum', 'chord'].includes(t.type)).map((t) => {
@@ -1707,6 +1712,7 @@ function animBody() {
   if (!LOW_POWER || (animN = (animN + 1) % 3) === 0) drawViz();
   if (document.body.classList.contains('present')) karaoke(pos);
   if (ui.view === 'score') highlightScore(pos);
+  if (typeof proFrame === 'function') proFrame(pos);
 }
 function liveVolume(tr) {
   if (player.graph && player.graph.outs[tr.id]) player.graph.outs[tr.id].gain.setTargetAtTime(tr.vol, actx.currentTime, 0.02);
@@ -1925,6 +1931,7 @@ function drawPlayhead(px, W, H) {
 }
 function draw(playPos, fromAnim) {
   if (playPos === undefined) playPos = playheadTick();
+  if (!fromAnim && typeof instPanelLight === 'function' && instPanelOn) setTimeout(() => instPanelLight(), 0);
   const tr = track();
   if (!tr) return;
   const sc = $('#scroller');
@@ -3467,7 +3474,9 @@ function ovUp() {
 function selectTrack(i, redraw = true) {
   if (refSong) setTimeout(updateCompare, 0);
   if (i !== cur) { nsel.clear(); updateSelBar(); }
+  const trChanged = i !== cur;
   cur = i;
+  if (trChanged && typeof proView === 'function') setTimeout(proView, 0);
   if (ui.sel.t !== i) ui.sel = { ...ui.sel, t: i };
   ui.selBar = ui.sel.b0;
   renderTracks();
@@ -5702,6 +5711,7 @@ function scoreOpts(trackIds, withDrums) {
     finger: S.finger || '',
     blankBars: parseBars(S.blank),
     ...chordOptsFor(chordTr, chordShift), chordShift,
+    diagrams: !!(S.diagrams && chordTr), chordShape: typeof guitarShape === 'function' ? guitarShape : null,
     nameOf, perLine: +S.perLine || 0, scale: +S.scale, width: 780, spacing: +S.spacing || 1, breaks: Array.isArray(S.breaks) ? S.breaks : [],
     pickup: song.pickup, repeats: song.repeats, rehearsal: song.rehearsal || null,
   };
@@ -6094,6 +6104,7 @@ function setView(v) {
     renderScoreEdit();
   } else { resizeEditor(); draw(); gridShowCursor(); }
   renderPhonePad();
+  if (typeof proView === 'function') proView();
   if (v === 'score') tourFirstTime('score');
 }
 function scoreEditIds() {
@@ -6130,6 +6141,7 @@ function renderScoreEditNow() {
     o.window = [ui.sc.win, Math.min(song.bars, ui.sc.win + win)];
   } else ui.sc.win = null;
   // 段ごとの絵のとりおき用：曲・楽譜の設定・画面のようすが同じかどうかの目じるし
+  o.comments = song.comments || null;
   o.cacheSalt = [song.key, song.scale, document.body.classList.contains('kids') ? 1 : 0, ui.sc.input ? 1 : 0, ui.sc.voice || 1, JSON.stringify(song.score || 0), document.documentElement.dataset.theme || '', isPhone ? 1 : 0].join('|');
   const keepTop = box.scrollTop;
   const svgHtml = Notation.render(o);
@@ -6201,6 +6213,7 @@ function renderScoreEditNow() {
   scoreElems = [...box.querySelectorAll('.nh')].map((el) => ({ el, s: +el.dataset.s, e: +el.dataset.e, pi: +el.dataset.pi, on: el.classList.contains('playing') })); // のこした段の音符は、光ったままのことがある
   scPosShow(box);
   box.classList.toggle('mode-input', !!ui.sc.input);
+  if (typeof instPanelLight === 'function' && instPanelOn) instPanelLight();
   box.classList.toggle('mode-select', !ui.sc.input);
   $('#scGhost')?.remove();
   // 指で使うとき：音を1つえらんだら「ここから範囲でえらぶ」ボタンを出す（さいごの音をタップすると、その間を全部えらぶ）
@@ -7652,6 +7665,15 @@ function renderScorePal() {
       <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
+  // いろいろな楽譜ソフトのいいところ：文字で入れる（Dorico）・鍵盤パネル（Flat・カトカトーン）・テンキー（Finale・Sibelius）・コード図・コメント（Flat）
+  if (typeof popoverOpen === 'function') {
+    pal.querySelectorAll('.prow')[1].insertAdjacentHTML('beforeend', `<span class="grp progrp"><button class="mini" id="scPopB" title="文字で記号を入れる：mf・cresc・Am7・♩=120・3/4・key G・[A] など（Ctrl+E）">Aa 文字で</button><button class="mini ${instPanelOn ? 'on' : ''}" id="scKbB" title="鍵盤・指板のパネル：おすと音が入る・鳴っている音が光る">${I('keys')}<span>鍵盤</span></button><button class="mini ${keypadOn ? 'on' : ''}" id="scKpB" title="テンキーで入力（数字のキーで長さ・♯♭・休符・タイ）">テンキー</button>${chordTrackOf() ? `<button class="mini ${scoreSettings().diagrams ? 'on' : ''}" id="scDiaB" title="コードネームの上に、ギターのコード図（印刷にも出ます）">コード図</button>` : ''}<button class="mini" id="scCmtB" title="いまの小節にコメント（メモ）を書く。印刷には出ません">💬 コメント</button></span>`);
+    $('#scPopB').onclick = () => popoverOpen();
+    $('#scKbB').onclick = () => { instPanelToggle(); renderScorePal(); };
+    $('#scKpB').onclick = () => { keypadToggle(); renderScorePal(); };
+    if ($('#scDiaB')) $('#scDiaB').onclick = () => chordDiagramToggle();
+    $('#scCmtB').onclick = () => commentAdd();
+  }
   // ギター・ウクレレ・ベース：TAB譜を出す・出さない（五線とTABは同じ音。どちらで入れても直しても、両方かわる）
   if (track() && track().type === 'melody' && TAB_INST[track().inst]) {
     const cur = (scoreSettings().tab || {})[track().id] || '';
@@ -7880,6 +7902,9 @@ function scoreClick(e) {
     const hi = +hpe.dataset.i;
     if (track().hairpins && track().hairpins[hi]) { dynPop(track(), track().hairpins[hi].s, e.clientX, e.clientY, { hp: hi }); return; }
   }
+  // コメントの印：そのコメントを出す
+  const cmt = e.target.closest && e.target.closest('.cmt');
+  if (cmt) { commentOpen(+cmt.dataset.b); return; }
   // 曲名・作詞・作曲をおすと、その場で書きかえるパネル
   const ttl = e.target.closest && e.target.closest('.sctitle');
   if (ttl) { titleEdit(ttl.classList.contains('scadd') ? 'credit' : null); return; }
