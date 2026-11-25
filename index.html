@@ -175,9 +175,12 @@
         </details>
       </div>
       <div id="trackList"></div>
-      <div class="zoombox tzoom" title="トラック欄の大きさ（Ctrl＋ホイールでも）">
-        <span class="zax" title="横の大きさ（トラック欄のはば）"><i aria-hidden="true">↔</i><button id="txOut" aria-label="トラック欄のはばをせまく">－</button><button id="txIn" aria-label="トラック欄のはばを広く">＋</button></span>
-        <span class="zax" title="たての大きさ（1つのトラックの大きさ）"><i aria-hidden="true">↕</i><button id="tyOut" aria-label="トラックを小さく表示">－</button><button id="tyIn" aria-label="トラックを大きく表示">＋</button></span>
+      <div class="zoombox zcross tzoom" title="トラック欄の大きさ（Ctrl＋ホイールでも）。上下＝たて、左右＝横" role="group" aria-label="トラック欄の大きさ">
+        <button id="tyIn" class="zu" aria-label="トラックを大きく表示" title="たてを大きく">＋</button>
+        <button id="txOut" class="zl" aria-label="トラック欄のはばをせまく" title="はばをせまく">－</button>
+        <span class="zc" aria-hidden="true"></span>
+        <button id="txIn" class="zr" aria-label="トラック欄のはばを広く" title="はばを広く">＋</button>
+        <button id="tyOut" class="zd" aria-label="トラックを小さく表示" title="たてを小さく">－</button>
       </div>
     </aside>
     <div id="splitTracks" class="splitter spv" role="separator" aria-orientation="vertical" aria-label="トラックのはばを変える" title="ドラッグで、トラックのはばを変える（ダブルクリックで元にもどす）" tabindex="0"></div>
@@ -196,9 +199,12 @@
         <div id="ovWrap" class="ovwrap">
           <canvas id="ov" role="img" aria-label="曲の地図（たて＝トラック、横＝小節）"></canvas>
           <div id="ovScroller" class="ovscroller"><div id="ovSpacer"></div></div>
-          <div class="zoombox ovzoom" title="曲の地図の大きさ（Ctrl＋ホイールでも。Shift もおすと たて）">
-            <span class="zax" title="横の大きさ（1小節のはば）"><i aria-hidden="true">↔</i><button id="ovxOut" aria-label="曲の地図の横を小さく">－</button><button id="ovxIn" aria-label="曲の地図の横を大きく">＋</button></span>
-            <span class="zax" title="たての大きさ（1つのパートの高さ）"><i aria-hidden="true">↕</i><button id="ovyOut" aria-label="曲の地図のたてを小さく">－</button><button id="ovyIn" aria-label="曲の地図のたてを大きく">＋</button></span>
+          <div class="zoombox zcross ovzoom" title="曲の地図の大きさ（Ctrl＋ホイールでも。Shift もおすと たて）。上下＝たて、左右＝横" role="group" aria-label="曲の地図の大きさ">
+            <button id="ovyIn" class="zu" aria-label="曲の地図のたてを大きく" title="たてを大きく">＋</button>
+            <button id="ovxOut" class="zl" aria-label="曲の地図の横を小さく" title="横を小さく">－</button>
+            <span class="zc" aria-hidden="true"></span>
+            <button id="ovxIn" class="zr" aria-label="曲の地図の横を大きく" title="横を大きく">＋</button>
+            <button id="ovyOut" class="zd" aria-label="曲の地図のたてを小さく" title="たてを小さく">－</button>
           </div>
           <div id="ovTrash" class="ovtrash"><svg class="i"><use href="#i-trash"/></svg>ここに落とすと消す</div>
         </div>
@@ -229,12 +235,14 @@
       <div id="editorWrap" class="editorwrap">
         <canvas id="cv" role="img" aria-label="オトグラフ（音を置くマス目）"></canvas>
         <div id="scroller" class="scroller"><div id="spacer"></div></div>
-        <div class="zoombox" title="マス目の大きさ（2本指でつまむ・ひろげる、Ctrl＋ホイールでも）">
-          <span class="zax" title="横の大きさ（時間の方向）"><i aria-hidden="true">↔</i><button id="zxOut" aria-label="横を小さく">－</button><button id="zxIn" aria-label="横を大きく">＋</button></span>
-          <span class="zax" title="たての大きさ（音の高さの方向）"><i aria-hidden="true">↕</i><button id="zyOut" aria-label="たてを小さく">－</button><button id="zyIn" aria-label="たてを大きく">＋</button></span>
-          <button id="zOut" aria-label="小さく" title="ぜんぶ小さく">－</button>
-          <button id="zFit" aria-label="ぴったり（曲全体）" title="曲全体がちょうど入る大きさ（もう一度おすと元にもどる）"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
-          <button id="zIn" aria-label="大きく" title="ぜんぶ大きく">＋</button>
+        <div class="zoombox zcross gzoom" title="マス目の大きさ（2本指でつまむ・ひろげる、Ctrl＋ホイールでも）。上下＝たて（音の高さ）、左右＝横（時間）、まん中＝曲全体" role="group" aria-label="マス目の大きさ">
+          <button id="zOut" class="zall" aria-label="小さく" title="ぜんぶ小さく">－</button>
+          <button id="zyIn" class="zu" aria-label="たてを大きく" title="たてを大きく">＋</button>
+          <button id="zxOut" class="zl" aria-label="横を小さく" title="横を小さく">－</button>
+          <button id="zFit" class="zc" aria-label="ぴったり（曲全体）" title="曲全体がちょうど入る大きさ（もう一度おすと元にもどる）"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg></button>
+          <button id="zxIn" class="zr" aria-label="横を大きく" title="横を大きく">＋</button>
+          <button id="zyOut" class="zd" aria-label="たてを小さく" title="たてを小さく">－</button>
+          <button id="zIn" class="zall" aria-label="大きく" title="ぜんぶ大きく">＋</button>
         </div>
         <div id="zoomHud" class="zoomhud" aria-live="polite"></div>
         <div id="countHud" class="counthud" aria-live="assertive"></div>

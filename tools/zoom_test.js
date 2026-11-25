@@ -36,7 +36,7 @@ const OUT = process.argv[2] || '.';
     const k0 = await p.evaluate(() => ui.zoom);
     await p.keyboard.press('-'); await p.keyboard.press('-');
     r['PC キー − で小さく'] = `${k0} → ${await p.evaluate(() => ui.zoom)}`;
-    await p.click('#zIn'); await p.waitForTimeout(200);
+    await p.click('#zxIn'); await p.waitForTimeout(200);
     const saved = await p.evaluate(() => ({ zoom: ui.zoom, rh: ui.rh }));
     await p.waitForTimeout(600);
     await p.reload(); await p.waitForTimeout(900);

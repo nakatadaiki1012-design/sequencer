@@ -1629,18 +1629,24 @@ body.phone #dlgAuto .autogrid { grid-template-columns: 1fr; }
 #dlgAuto .btnrow { display: flex; gap: 8px; align-items: center; }
 #dlgAuto .btnrow .grow { flex: 1; }
 /* 横（↔）とたて（↕）の大きさのボタン：マス目・曲の地図・トラック欄 */
-.zoombox .zax { display: inline-flex; align-items: center; gap: 0; padding: 0 2px 0 6px; border-right: 1px solid var(--border); }
-.zoombox .zax i { font-style: normal; font-size: 12px; color: var(--muted); margin-right: 1px; }
-.zoombox .zax button { width: 26px; height: 26px; font-size: 14px; }
+.zoombox.zcross { display: grid; grid-template-columns: repeat(3, auto); grid-template-areas: ". u ." "l c r" ". d ."; gap: 0; padding: 2px; border-radius: 14px; place-items: center; }
+.zcross .zu { grid-area: u; } .zcross .zl { grid-area: l; } .zcross .zc { grid-area: c; } .zcross .zr { grid-area: r; } .zcross .zd { grid-area: d; }
+.zcross .zall { display: none; }
+.zcross button { width: 24px; height: 24px; font-size: 14px; }
+.zcross span.zc { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+/* 上下は「たて」、左右は「横」：矢印のような色のちがいで分かりやすく */
+.zcross .zu, .zcross .zd { color: var(--accent-text); }
 .zoombox.ovzoom { right: 8px; bottom: 6px; padding: 1px; }
-.zoombox.ovzoom .zax:last-child, .zoombox.tzoom .zax:last-child { border-right: 0; }
-.zoombox.ovzoom .zax button { width: 22px; height: 22px; font-size: 13px; }
+.zoombox.ovzoom button { width: 20px; height: 20px; font-size: 12px; }
+.zoombox.ovzoom span.zc { width: 8px; height: 8px; }
 .zoombox.tzoom { position: sticky; bottom: 0; right: auto; margin: 6px auto 0; width: max-content; padding: 1px; }
-.zoombox.tzoom .zax button { width: 24px; height: 24px; font-size: 13px; }
-.tracks.narrow .zoombox.tzoom { flex-direction: column; }
-.tracks.narrow .zoombox.tzoom .zax { border-right: 0; }
+.zoombox.tzoom button { width: 22px; height: 22px; font-size: 13px; }
+/* スマホ：十字はしまって、－・ぴったり・＋ の1列（2本指でつまんでも変えられる） */
+body.phone .zoombox.zcross.gzoom { display: flex; border-radius: 999px; }
+body.phone .zcross.gzoom .zu, body.phone .zcross.gzoom .zl, body.phone .zcross.gzoom .zr, body.phone .zcross.gzoom .zd { display: none; }
+body.phone .zcross.gzoom .zall { display: grid; }
+body.phone .zcross.gzoom button { width: 36px; height: 36px; font-size: 16px; }
 .canvas-area.folded .ovzoom { display: none; }
 body.phone .zoombox.tzoom, body.phone .zoombox.ovzoom { display: none; }
-body.phone .zoombox .zax { display: none; }
 body.present .zoombox { display: none !important; }
 .editorwrap.dynon .zoombox { bottom: 38px; }
