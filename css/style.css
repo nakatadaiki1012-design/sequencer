@@ -1712,3 +1712,4 @@ body.present .instpanel, body.present .keypad { display: none !important; }
 .cmtlist li p { margin: 0; flex: 1 1 100%; white-space: pre-wrap; }
 .cmtlist li .grow { flex: 1; }
 .scoreeditview .cmt:hover rect { fill: #ffd43b; }
+body.phone #btnCmd { display: none; } /* スマホは「メニュー → 機能を名前でさがす」から */
