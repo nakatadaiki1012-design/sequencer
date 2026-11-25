@@ -30,24 +30,28 @@ const Notation = (() => {
   // 弦の開放の音（低い弦から）
   const TUNING = { guitar: [40, 45, 50, 55, 59, 64], ukulele: [67, 60, 64, 69], bass: [28, 33, 38, 43] };
   // 和音のそれぞれの音を、どの弦の何フレットで弾くか（手の位置 pos の近くを、えらぶ）
-  function fretsFor(pitches, tun, pos) {
+  //   fix：{ 音の高さ: 弦 }（自分でえらんだ弦。その弦で弾く）
+  function fretsFor(pitches, tun, pos, fix) {
     // 和音ぜんぶで、いちばん弾きやすい組み合わせをさがす（開放弦は楽、手のはばは4フレットまで、手の位置の近く）
     const ps = pitches.slice().sort((a, b) => b - a).slice(0, tun.length);
+    const fx = (p) => (fix && fix[p] != null && fix[p] < tun.length && p - tun[fix[p]] >= 0 && p - tun[fix[p]] <= 24 ? fix[p] : null);
     let best = null;
     const pick = [];
     const go = (i, used) => {
       if (i === ps.length) {
         const fr = pick.map((q) => q.f).filter((f) => f > 0);
         const span = fr.length ? Math.max(...fr) - Math.min(...fr) : 0;
-        if (span > 4) return;
+        if (span > 4 && !fix) return;
         const cost = pick.reduce((a, q) => a + (q.f === 0 ? 0 : 1 + Math.abs(q.f - pos) * 0.8 + Math.max(0, q.f - 7) * 0.3), 0) + span * 0.3;
         if (!best || cost < best.cost) best = { cost, list: pick.slice() };
         return;
       }
+      const want = fx(ps[i]);
       tun.forEach((o, si) => {
         if (used & (1 << si)) return;
+        if (want != null && si !== want) return;
         const f = ps[i] - o;
-        if (f < 0 || f > 20) return;
+        if (f < 0 || f > (want != null ? 24 : 20)) return;
         pick.push({ si, f });
         go(i + 1, used | (1 << si));
         pick.pop();
@@ -60,8 +64,22 @@ const Notation = (() => {
     const out = [];
     for (const p of ps) {
       let b2 = null;
-      tun.forEach((o, si) => { const f = p - o; if (used.has(si) || f < 0 || f > 20) return; const c = Math.abs(f - pos); if (!b2 || c < b2.c) b2 = { si, f, c }; });
+      const want = fx(p);
+      tun.forEach((o, si) => { const f = p - o; if (used.has(si) || f < 0 || f > 24 || (want != null && si !== want)) return; const c = Math.abs(f - pos) + (f > 20 ? 9 : 0); if (!b2 || c < b2.c) b2 = { si, f, c }; });
       if (b2) { used.add(b2.si); out.push({ si: b2.si, f: b2.f }); }
+    }
+    return out;
+  }
+  // パートの音ぜんぶの弦とフレット（TAB譜と同じえらび方）→ Map「はじまり:高さ」→ { si, f }（書き出し用）
+  function tabFrets(notes, tun, bars, geo, meter) {
+    const out = new Map();
+    let handPos = 2;
+    for (const ev of buildEvents(notes, bars, geo, null, meter).flat()) {
+      if (ev.rest || !ev.first) continue;
+      const fr = fretsFor(ev.pitches, tun, handPos, ev.strs);
+      const nz = fr.filter((q) => q.f > 0);
+      if (nz.length) handPos = nz.reduce((a, q) => a + q.f, 0) / nz.length;
+      for (const q of fr) out.set(ev.src + ':' + (tun[q.si] + q.f), q);
     }
     return out;
   }
@@ -247,12 +265,14 @@ const Notation = (() => {
       const trs = (g.find((n) => n.trs) || {}).trs;
       let nhs = null;
       for (const n of g) if (n.nh) (nhs || (nhs = {}))[n.p] = n.nh;
+      let strs = null;
+      for (const n of g) if (n.str != null) (strs || (strs = {}))[n.p] = n.str;
       // 音符ごとの見た目：ぼうの向き（sd）・色（col）・小さい音符（sm）
       const sd = (g.find((n) => n.sd) || {}).sd || 0;
       const sm = g.some((n) => n.sm);
       let cols = null;
       for (const n of g) if (n.col) (cols || (cols = {}))[n.p] = n.col;
-      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, ly2, ly3, fg, gr, grl: !!gn.grl, tra, trs, nhs, sd, sm, cols, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
+      segs.push({ s, e: end, pitches: [...new Set(g.map((n) => n.p))].sort((a, b) => a - b), art, ly, ly2, ly3, fg, gr, grl: !!gn.grl, tra, trs, nhs, strs, sd, sm, cols, enh, src: s, vel: Math.max(...g.map((n) => n.vel || 1)) });
       t = Math.max(t, end);
     });
     if (t < total) segs.push({ s: t, e: total, pitches: null });
@@ -272,7 +292,7 @@ const Notation = (() => {
           perBar[b].push({ pos: 0, len: bl, rest: true, whole: true, base: 192, abs: s });
         } else {
           decompose(s - a0, be - s, beatOf(m), bl, m, isRest).forEach((p) => {
-            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh, nhs: sg.nhs, sd: sg.sd, sm: sg.sm, cols: sg.cols };
+            const ev = { ...p, rest: isRest, pitches: sg.pitches, abs: a0 + p.pos, src: sg.src, srcEnd: sg.e, vel: sg.vel, enh: sg.enh, nhs: sg.nhs, strs: sg.strs, sd: sg.sd, sm: sg.sm, cols: sg.cols };
             if (!isRest && first) { ev.first = true; ev.syll = syll++; ev.art = sg.art; ev.ly = sg.ly; ev.ly2 = sg.ly2; ev.ly3 = sg.ly3; ev.fg = sg.fg; ev.gr = sg.gr; ev.grl = sg.grl; ev.tra = sg.tra; ev.trs = sg.trs; first = false; }
             perBar[b].push(ev);
           });
@@ -409,7 +429,8 @@ const Notation = (() => {
       // TAB譜（ギター・ウクレレ・ベース）：'both' は五線の下に、'only' はTABだけ
       const tun = p.tab ? TUNING[p.tabTuning] || TUNING.guitar : null;
       if (p.tab !== 'only') staves.push({ ...common, clef, notes, notes2, sub: 0 });
-      if (tun) staves.push({ ...common, clef: 'tab', tab: tun, notes: allO.slice(), notes2: [], sub: p.tab === 'only' ? 0 : 2, tabOf: p.tab !== 'only' });
+      // 弦とフレットは、パートの音ぜんぶで先に決める（書き出し・読みこみと同じ結果になるように）
+      if (tun) staves.push({ ...common, clef: 'tab', tab: tun, frets: tabFrets(p.notes, tun, bars, GEO, meter), notes: allO.slice(), notes2: [], sub: p.tab === 'only' ? 0 : 2, tabOf: p.tab !== 'only' });
     });
     for (const st of staves) {
       // 声部2だけの小節は、ふつうの1声部として書く
@@ -923,11 +944,10 @@ const Notation = (() => {
           const n = st.tab.length;
           const gap = 12;
           const yS = (si2) => stTop + (n - 1 - si2) * gap; // 低い弦が下
-          sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: 'tab', perc: true, baseDn: 30, kc: 0, kcs: st.kcs, tr: 0, tabH: (n - 1) * gap });
+          sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: 'tab', perc: true, baseDn: 30, kc: 0, kcs: st.kcs, tr: 0, tabH: (n - 1) * gap, nStr: n, tabTun: st.tab });
           for (let i = 0; i < n; i++) o.push(`<line x1="${L}" x2="${xEnd}" y1="${stTop + i * gap}" y2="${stTop + i * gap}" stroke="#222" stroke-width="0.9"/>`);
           'TAB'.split('').forEach((c, i) => o.push(`<text x="${L + 12}" y="${stTop + ((n - 1) * gap) / 2 - 11 + i * 12}" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#111" font-family="serif" class="tabclef">${c}</text>`));
           if (staves.length > 1 && st.sub === 0) o.push(`<text x="${L - 6 - brk - grd}" y="${stTop + ((n - 1) * gap) / 2 + 3.5}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
-          let handPos = 2;
           for (const B of sys.bars) {
             const bb = B.b;
             o.push(`<line x1="${B.x1}" x2="${B.x1}" y1="${stTop}" y2="${stTop + (n - 1) * gap}" stroke="#222"/>`);
@@ -935,14 +955,21 @@ const Notation = (() => {
             for (const ev of st.bars[bb]) {
               if (ev.rest || !ev.first || (bb === 0 && pickup && ev.pos < bL(0) - pickup)) continue;
               const x = xAt(bb, ev.pos);
-              const fr = fretsFor(ev.pitches.map((m) => m - st.tr + 12 * st.ottAt(ev.abs)), st.tab, handPos);
-              const nz = fr.filter((q) => q.f > 0);
-              if (nz.length) handPos = nz.reduce((a, q) => a + q.f, 0) / nz.length;
+              const ok = 12 * st.ottAt(ev.abs);
+              const real = (m) => m - st.tr + ok; // 鳴る音（＝トラックの音の高さ）
+              const fr = ev.pitches.map((m) => st.frets.get(ev.src + ':' + real(m))).filter(Boolean);
               for (const q of fr) {
                 const y = yS(q.si);
                 const t = String(q.f);
                 const w = t.length * 6.5 + 3;
-                o.push(`<rect x="${x - w / 2}" y="${y - 6}" width="${w}" height="12" fill="#fff"/><text x="${x}" y="${y + 4}" font-size="11" text-anchor="middle" fill="#111" class="fret">${t}</text>`);
+                const pReal = st.tab[q.si] + q.f;
+                const isSel = edit && edit.sel && st.pi === edit.part && edit.sel.has(ev.src + ':' + pReal);
+                const own = ev.strs && Object.keys(ev.strs).some((m) => real(+m) === pReal);
+                o.push(`<g class="nh tabn" data-pi="${st.pi}" data-s="${ev.src}" data-e="${ev.srcEnd}" data-p="${pReal}" data-str="${q.si}"><rect x="${x - w / 2 - 1}" y="${y - 6.5}" width="${w + 2}" height="13" fill="#fff"/><text x="${x}" y="${y + 4}" font-size="11" text-anchor="middle" fill="${isSel ? SELC : '#111'}"${own && edit ? ' font-weight="bold"' : ''} class="fret">${t}</text></g>`);
+              }
+              if (st.tab.length < ev.pitches.length || fr.length < ev.pitches.length) {
+                // 弦が足りない・弾けない音は、×で知らせる
+                if (edit) o.push(`<text x="${x}" y="${stTop - 4}" font-size="9" text-anchor="middle" fill="#c92a2a" class="tabwarn">×</text>`);
               }
             }
           }
@@ -1792,8 +1819,8 @@ const Notation = (() => {
       if (y < sys.y0 - 10 || y > sys.y1 + 10) continue;
       let best = null;
       for (const st of sys.staves) {
-        const mid = st.top + 2 * SP;
-        const dist = Math.abs(y - mid);
+        const mid = st.clef === 'tab' ? st.top + st.tabH / 2 : st.top + 2 * SP;
+        const dist = st.clef === 'tab' ? Math.max(0, Math.abs(y - mid) - st.tabH / 2) : Math.abs(y - mid);
         if (!best || dist < best.dist) best = { st, dist };
       }
       if (!best) return null;
@@ -1812,7 +1839,9 @@ const Notation = (() => {
         const oct = Math.floor(dn / 7);
         pitch = 12 * (oct + 1) + LETTER_PC[letter] + keyAccOf(st.kcs ? st.kcs[B.b] : st.kc)[letter] - st.tr;
       }
-      return { pi: st.pi, sub: st.sub, bar: B.b, tick: (layout.starts ? layout.starts[B.b] : B.b * layout.barTicks) + pos, pitch, staffPos: posLine, perc: st.perc };
+      // TAB譜：どの弦の上か（0＝いちばん低い弦。線は12ずつ、低い弦が下）
+      const tabStr = st.clef === 'tab' ? Math.max(0, Math.min(st.nStr - 1, Math.round((st.top + st.tabH - y) / 12))) : null;
+      return { pi: st.pi, sub: st.sub, bar: B.b, tick: (layout.starts ? layout.starts[B.b] : B.b * layout.barTicks) + pos, pitch, staffPos: posLine, perc: st.perc, tab: st.clef === 'tab' ? st.tabTun : null, tabStr };
     }
     return null;
   }
@@ -1918,9 +1947,15 @@ const Notation = (() => {
         trlEnd.add(inQ.length ? Math.max(...inQ) : q.s);
       }
       const slurEnds = new Map((p.slurs || []).map((s, i) => [s.e, i + 1]));
+      // TAB譜（ギター・ウクレレ・ベース）：'both'＝五線の下にTAB譜の段（同じ音）、'only'＝TAB譜だけ。音には弦とフレットの番号
+      const tun = !p.perc && p.tab && p.tabTuning && TUNING[p.tabTuning] ? TUNING[p.tabTuning] : null;
+      const tabMode = tun ? p.tab : '';
+      const frets = tun ? tabFrets(p.notes, tun, bars, GEO, meter) : null;
+      const tuneXml = tun ? `<staff-lines>${tun.length}</staff-lines>` + tun.map((o, i) => { const sp = spell(o, 0); return `<staff-tuning line="${i + 1}"><tuning-step>${sp.step}</tuning-step>${sp.acc ? `<tuning-alter>${sp.acc}</tuning-alter>` : ''}<tuning-octave>${sp.oct}</tuning-octave></staff-tuning>`; }).join('') : '';
       x.push(`<part id="P${pi + 1}">`);
       for (let b = 0; b < bars; b++) {
         x.push(`<measure number="${pickup ? b : b + 1}"${pickup && b === 0 ? ' implicit="yes"' : ''}>`);
+        const mStart = x.length;
         if ((rep.start || []).includes(b) || rep.volta[b] && rep.volta[b - 1] !== rep.volta[b]) {
           x.push(`<barline location="left">${(rep.start || []).includes(b) ? '<bar-style>heavy-light</bar-style>' : ''}${rep.volta[b] && rep.volta[b - 1] !== rep.volta[b] ? `<ending number="${rep.volta[b]}" type="start"/>` : ''}${(rep.start || []).includes(b) ? '<repeat direction="forward"/>' : ''}</barline>`);
         }
@@ -1937,8 +1972,12 @@ const Notation = (() => {
           x.push('<attributes><divisions>48</divisions>');
           if (clef !== 'perc') x.push(`<key><fifths>${kc}</fifths><mode>${GEO.keys[0].minor ? 'minor' : 'major'}</mode></key>`);
           x.push(`<time><beats>${mB[0]}</beats><beat-type>${mB[1]}</beat-type></time>`);
+          if (tabMode === 'both') x.push('<staves>2</staves>');
           if (tr) x.push(`<transpose><diatonic>${-Math.round(tr * 7 / 12)}</diatonic><chromatic>${-tr}</chromatic></transpose>`);
-          x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : clef === 'treble8' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>' : clef === 'alto' ? '<clef><sign>C</sign><line>3</line></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
+          if (tabMode === 'only') x.push(`<clef><sign>TAB</sign><line>5</line></clef><staff-details>${tuneXml}</staff-details>`);
+          else if (tabMode === 'both') x.push(`<clef number="1"><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef><clef number="2"><sign>TAB</sign><line>5</line></clef><staff-details number="2">${tuneXml}</staff-details>`);
+          else x.push(clef === 'perc' ? '<clef><sign>percussion</sign></clef>' : clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>' : clef === 'treble8' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>' : clef === 'alto' ? '<clef><sign>C</sign><line>3</line></clef>' : '<clef><sign>G</sign><line>2</line></clef>');
+          if (tabMode === 'both' && clef !== 'treble8') x[x.length - 1] = x[x.length - 1].replace(/<clef number="1">.*?<\/clef>/, clef === 'bass' ? '<clef number="1"><sign>F</sign><line>4</line></clef>' : '<clef number="1"><sign>G</sign><line>2</line></clef>');
           x.push('</attributes>');
           if (pi === 0) x.push(`<direction placement="above"><direction-type>${opts.tempoText ? `<words font-weight="bold">${esc(opts.tempoText)}</words></direction-type><direction-type>` : ''}<metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
         }
@@ -2018,6 +2057,9 @@ const Notation = (() => {
               const fc = String(ev.fg)[ev.pitches.length - 1 - k] || (ev.pitches.length === 1 ? String(ev.fg)[0] : '');
               if (fc) nots += `<technical><fingering>${esc(fc)}</fingering></technical>`;
             }
+            // 弦（1＝いちばん高い弦）とフレット
+            const fq = frets && frets.get(ev.src + ':' + (m - tr));
+            if (fq) nots += `<technical><string>${tun.length - fq.si}</string><fret>${fq.f}</fret></technical>`;
             // 装飾音符（前打音）は、主音符の前に
             if (k === 0 && ev.first && ev.gr != null && !p.perc) {
               const gl = grOf(ev.gr);
@@ -2042,6 +2084,30 @@ const Notation = (() => {
           if (hasJ('tocoda') && J.tocoda === b) words('To Coda', 'tocoda="c1"');
           if (hasJ('dc') && J.dc === b) words('D.C.' + al, 'dacapo="yes"');
           else if (hasJ('ds') && J.ds === b) words('D.S.' + al, 'dalsegno="s1"');
+        }
+        // 五線＋TAB：五線の音に <staff>1</staff>、同じ音を TAB譜の段（staff 2・声部5〜）にもう一度書く
+        if (tabMode === 'both') {
+          const putStaff = (ln, st) => ln.replace(/(<beam|<notations|<lyric|<\/note>)/, `<staff>${st}</staff>$1`);
+          const copy = [];
+          let len = 0;
+          let seenBackup = false;
+          for (let i = mStart; i < x.length; i++) {
+            const ln = x[i];
+            if (ln.startsWith('<backup')) { seenBackup = true; copy.push(ln); continue; }
+            if (ln.startsWith('<forward')) { copy.push(ln); continue; }
+            if (!ln.startsWith('<note')) continue;
+            x[i] = putStaff(ln, 1);
+            if (!seenBackup && !/<chord\/>|<grace/.test(ln)) len += +((/<duration>(\d+)<\/duration>/.exec(ln) || [])[1] || 0);
+            let t = ln.replace(/<lyric[\s\S]*?<\/lyric>/g, '');
+            const nm = /<notations>([\s\S]*?)<\/notations>/.exec(t);
+            if (nm) { const keep = (nm[1].match(/<tied [^>]*\/>|<tuplet [^>]*\/>|<technical><string>\d+<\/string><fret>\d+<\/fret><\/technical>/g) || []).join(''); t = t.replace(nm[0], keep ? `<notations>${keep}</notations>` : ''); }
+            t = t.replace(/<stem>[a-z]+<\/stem>/, '');
+            if (/<voice>\d+<\/voice>/.test(t)) t = t.replace(/<voice>(\d+)<\/voice>/, (_, v) => `<voice>${+v + 4}</voice>`);
+            else if (/<\/duration>/.test(t)) t = t.replace(/(<\/duration>(?:<tie [^>]*\/>)*)/, '$1<voice>5</voice>');
+            else t = t.replace(/(<type>)/, '<voice>5</voice>$1');
+            copy.push(putStaff(t, 2));
+          }
+          if (copy.length && len > 0) { x.push(`<backup><duration>${len}</duration></backup>`); x.push(...copy); }
         }
         const isEnd = (rep.end || []).includes(b);
         const voltaEnd = rep.volta[b] && rep.volta[b + 1] !== rep.volta[b];
@@ -2143,5 +2209,5 @@ const Notation = (() => {
     });
   }
 
-  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, pageCounts, single, hit, keyCount, buildEvents, spell, spellPref, spellLine, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, lastLayout: null };
+  return { clearCache: () => { sysCache.key = null; sysCache.m = new Map(); }, render, paginate, pageCounts, single, hit, keyCount, buildEvents, spell, spellPref, spellLine, splitLyrics, sylOf, tripGroups, NOTE_COLS, musicXML, autoClef, DRUM_POS, TUNING, fretsFor, tabFrets, lastLayout: null };
 })();

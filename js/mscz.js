@@ -36,16 +36,25 @@ const MuseScoreExport = (() => {
     x.push(`<metaTag name="lyricist">${esc((opts.meta || {}).lyricist || '')}</metaTag>`);
     if ((opts.meta || {}).subtitle) x.push(`<metaTag name="subtitle">${esc(opts.meta.subtitle)}</metaTag>`);
     const parts = opts.parts.map((p) => ({ ...p, dyn: (p.dyn || []).map((d) => ({ ...d })), texts: (p.texts || []).map((t) => ({ ...t })) }));
+    // TAB譜（ギター・ウクレレ・ベース）：'both'＝五線と、それにつながった（リンクした）TAB譜の2段、'only'＝TAB譜だけ
+    const tabTun = (p) => (!p.perc && p.tab && p.tabTuning && N.TUNING[p.tabTuning] ? N.TUNING[p.tabTuning] : null);
+    const sids = [];
+    { let id = 1; for (const p of parts) { sids.push(id); id += tabTun(p) && p.tab === 'both' ? 2 : 1; } }
+    const tabType = (n) => `<StaffType group="tablature"><name>tab${n}StrCommon</name><lines>${n}</lines><lineDistance>1.5</lineDistance><timesig>0</timesig><durations>0</durations><durationFontName>MuseScore Tab Modern</durationFontName><durationFontSize>15</durationFontSize><durationFontY>0</durationFontY><fretFontName>MuseScore Tab Sans</fretFontName><fretFontSize>9</fretFontSize><fretFontY>0</fretFontY><symbolRepeat>0</symbolRepeat><linesThrough>0</linesThrough><minimStyle>1</minimStyle><onLines>1</onLines><showRests>0</showRests><stemsDown>1</stemsDown><stemsThrough>0</stemsThrough><upsideDown>0</upsideDown><showTabFingering>0</showTabFingering><useNumbers>1</useNumbers><showBackTied>0</showBackTied></StaffType>`;
     // ---- パート（楽器） ----
     parts.forEach((p, i) => {
       const tr = p.transpose || 0;
+      const tun = tabTun(p);
       x.push('<Part>');
-      x.push(`<Staff id="${i + 1}"><StaffType group="${p.perc ? 'percussion' : 'pitched'}"><name>${p.perc ? 'perc5Line' : 'stdNormal'}</name></StaffType></Staff>`);
+      if (tun && p.tab === 'only') x.push(`<Staff id="${sids[i]}">${tabType(tun.length)}</Staff>`);
+      else x.push(`<Staff id="${sids[i]}"><StaffType group="${p.perc ? 'percussion' : 'pitched'}"><name>${p.perc ? 'perc5Line' : 'stdNormal'}</name></StaffType></Staff>`);
+      if (tun && p.tab === 'both') x.push(`<Staff id="${sids[i] + 1}"><linkedTo>${sids[i]}</linkedTo>${tabType(tun.length)}</Staff>`);
       x.push(`<trackName>${esc(p.name)}</trackName>`);
       x.push('<Instrument>');
       x.push(`<longName>${esc(p.name)}</longName><shortName>${esc(p.short || p.name)}</shortName><trackName>${esc(p.name)}</trackName>`);
       if (tr && !p.perc) x.push(`<transposeDiatonic>${-Math.round((tr * 7) / 12)}</transposeDiatonic><transposeChromatic>${-tr}</transposeChromatic>`);
       if (p.perc) x.push('<useDrumset>1</useDrumset>');
+      if (tun) x.push(`<StringData><frets>24</frets>${tun.map((o) => `<string>${o}</string>`).join('')}</StringData>`);
       x.push(`<Channel>${p.perc ? '<controller ctrl="0" value="1"/>' : ''}<program value="${p.perc ? 0 : p.gm || 0}"/></Channel>`);
       x.push('</Instrument>');
       x.push('</Part>');
@@ -88,7 +97,13 @@ const MuseScoreExport = (() => {
     const partTr = (pi) => (parts[pi] && !parts[pi].perc ? parts[pi].transpose || 0 : 0);
     const harmXml = (c, b, pi) => { const t = partTr(pi); const r = (((c.r + t) % 12) + 12) % 12; const kc = kcOf(b, t); return `<Harmony><root>${tpcOf(N.spellPref(r + 60, kc, [1, 3, 6, 8, 10].includes(r) ? (kc > 0 || (r === 6 && kc >= 0) ? 1 : -1) : 0))}</root>${HNAME[c.q] ? `<name>${HNAME[c.q]}</name>` : ''}</Harmony>`; };
     // ---- 段（音） ----
-    parts.forEach((p, pi) => {
+    // mode：'std'＝ふつう、'main'＝TAB譜がつながっている五線、'link'＝つながったTAB譜（五線と同じ音。コード・歌詞などは五線だけ）、'tab'＝TAB譜だけ
+    const writeStaff = (p, pi, sid, mode) => {
+      const link = mode === 'link';
+      const tabClef = mode === 'link' || mode === 'tab';
+      const LM = mode === 'main' ? '<linkedMain/>' : link ? '<linked><location><staves>-1</staves></location></linked>' : '';
+      const tun = tabTun(p);
+      const frets = tun ? N.tabFrets(p.notes, tun, bars, G, opts.meter) : null;
       let hyOpen = false; // まえの歌詞がハイフンでつづいている
       const hyV = {}; // 2番・3番
       const tr = p.perc ? 0 : p.transpose || 0;
@@ -120,13 +135,14 @@ const MuseScoreExport = (() => {
       for (const pd of p.pedals || []) if (pd.e > pd.s) spans.push({ type: 'Pedal', s: pd.s, e: pd.e });
       for (const q of p.trills || []) if (q.e > q.s) spans.push({ type: 'Trill', s: q.s, e: q.e, a: q.a });
       for (const q of p.ottava || []) if (q.e > q.s) spans.push({ type: 'Ottava', s: q.s, e: q.e, sub: { 1: '8va', '-1': '8vb', 2: '15ma', '-2': '15mb' }[q.k] || '8va' });
+      if (link) spans.length = 0; // スラー・強弱などは五線だけに
       // おわりの位置は、その時に始まる音（なければ曲のおわり）
       const starts1 = new Set(ev1.flat().map((e) => e.abs));
       const endAt = (e) => { for (let t = e; t < bS(bars); t++) if (starts1.has(t)) return t; return bS(bars); };
       const barOf = (t) => { let b = 0; while (b < bars - 1 && G.starts[b + 1] <= t) b++; return b; };
       const loc = (from, to) => { const bf = barOf(from); const bt = barOf(to); const fr = (to - bS(bt)) - (from - bS(bf)); return `<location>${bt !== bf ? `<measures>${bt - bf}</measures>` : ''}${fr ? `<fractions>${frac(fr)}</fractions>` : ''}</location>`; };
-      x.push(`<Staff id="${pi + 1}">`);
-      if (pi === 0) { const M = opts.meta || {}; x.push(`<VBox><height>10</height><Text><style>Title</style><text>${esc(opts.title || '')}</text></Text>${M.subtitle ? `<Text><style>Subtitle</style><text>${esc(M.subtitle)}</text></Text>` : ''}${M.composer ? `<Text><style>Composer</style><text>${esc(M.composer)}</text></Text>` : ''}${M.lyricist ? `<Text><style>Lyricist</style><text>${esc(M.lyricist)}</text></Text>` : ''}</VBox>`); }
+      x.push(`<Staff id="${sid}">`);
+      if (pi === 0 && !link) { const M = opts.meta || {}; x.push(`<VBox><height>10</height><Text><style>Title</style><text>${esc(opts.title || '')}</text></Text>${M.subtitle ? `<Text><style>Subtitle</style><text>${esc(M.subtitle)}</text></Text>` : ''}${M.composer ? `<Text><style>Composer</style><text>${esc(M.composer)}</text></Text>` : ''}${M.lyricist ? `<Text><style>Lyricist</style><text>${esc(M.lyricist)}</text></Text>` : ''}</VBox>`); }
       for (let b = 0; b < bars; b++) {
         const isPick = b === 0 && pickup > 0;
         x.push(isPick ? `<Measure len="${frac(pickup)}">` : '<Measure>');
@@ -143,12 +159,12 @@ const MuseScoreExport = (() => {
         voices.forEach((evs, vi) => {
           x.push('<voice>');
           if (vi === 0) {
-            if (b === 0) x.push(`<Clef><concertClefType>${CLEF[clef] || 'G'}</concertClefType><transposingClefType>${CLEF[clef] || 'G'}</transposingClefType></Clef>`);
-            else if (!p.perc && p.clefChg && p.clefChg[b] && CLEF[p.clefChg[b]]) x.push(`<Clef><concertClefType>${CLEF[p.clefChg[b]]}</concertClefType><transposingClefType>${CLEF[p.clefChg[b]]}</transposingClefType></Clef>`);
+            if (b === 0) x.push(tabClef ? '<Clef><concertClefType>TAB</concertClefType><transposingClefType>TAB</transposingClefType></Clef>' : `<Clef><concertClefType>${CLEF[clef] || 'G'}</concertClefType><transposingClefType>${CLEF[clef] || 'G'}</transposingClefType></Clef>`);
+            else if (!tabClef && !p.perc && p.clefChg && p.clefChg[b] && CLEF[p.clefChg[b]]) x.push(`<Clef><concertClefType>${CLEF[p.clefChg[b]]}</concertClefType><transposingClefType>${CLEF[p.clefChg[b]]}</transposingClefType></Clef>`);
             if (!p.perc && (b === 0 || G.keys[b].key !== G.keys[b - 1].key || G.keys[b].minor !== G.keys[b - 1].minor)) x.push(`<KeySig><accidental>${kcOf(b, tr)}</accidental>${tr ? `<concertKey>${kcOf(b)}</concertKey>` : ''}${G.keys[b].minor ? '<mode>minor</mode>' : ''}</KeySig>`);
             const m = G.meters[b];
             if (b === 0 || String(m) !== String(G.meters[b - 1])) x.push(`<TimeSig><sigN>${m[0]}</sigN><sigD>${m[1]}</sigD></TimeSig>`);
-            if (pi === 0) {
+            if (pi === 0 && !link) {
               const t = b === 0 ? opts.bpm : opts.tempos && opts.tempos[b];
               if (t) x.push(`<Tempo><tempo>${+(t / 60).toFixed(6)}</tempo><followText>1</followText><text>${b === 0 && opts.tempoText ? esc(opts.tempoText) + ' ' : ''}<sym>metNoteQuarterUp</sym> = ${t}</text></Tempo>`);
               if (opts.rehearsal && opts.rehearsal[b]) x.push(`<RehearsalMark><text>${esc(opts.rehearsal[b])}</text></RehearsalMark>`);
@@ -160,7 +176,7 @@ const MuseScoreExport = (() => {
           N.tripGroups(list);
           for (const ev of list) {
             const at = ev.abs;
-            if (vi === 0) {
+            if (vi === 0 && !link) {
               // 小節の頭・とちゅうのコード（いちばん上のパートだけ）
               for (const h of harm) if (h.part === pi && h.at === at) x.push(harmXml(h.c, h.b, pi));
               // 強弱・テキストは、その時に音が始まらなければ次の音の所に
@@ -173,7 +189,7 @@ const MuseScoreExport = (() => {
             // 3連符
             if (ev.trip && !tup) { const g = ev._tg; tup = { g, end: ev.abs + ev.base * 2 }; x.push(`<Tuplet><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>${TYPE[g ? g.total / 2 : ev.base] || TYPE[ev.base] || 'eighth'}</baseNote><Number><style>Tuplet</style><text>3</text></Number></Tuplet>`); }
             const dur = ev.whole ? '<durationType>measure</durationType>' + `<duration>${frac(ev.len)}</duration>` : `${ev.dot ? '<dots>1</dots>' : ''}<durationType>${TYPE[ev.base] || 'quarter'}</durationType>`;
-            if (ev.rest) x.push(`<Rest>${dur}</Rest>`);
+            if (ev.rest) x.push(`<Rest>${LM}${dur}</Rest>`);
             else {
               const A = ev.first ? ev.art || [] : [];
               // MuseScore は 8va の中の音を「書いた高さ」でしまう（鳴らすときに 8va の分を足す）
@@ -186,10 +202,10 @@ const MuseScoreExport = (() => {
                 const kind = gl.length === 1 ? (ev.grl ? 'appoggiatura' : 'acciaccatura') : 'grace16';
                 for (const gp of gl) { const gs = N.spell(gp, kcOf(b)); x.push(`<Chord><${kind}/><durationType>${gl.length > 1 ? '16th' : 'eighth'}</durationType><Note><pitch>${gp - oSh}</pitch><tpc>${tpcOf(gs)}</tpc></Note></Chord>`); }
               }
-              x.push('<Chord>');
+              x.push('<Chord>' + LM);
               x.push(dur);
-              if (ev.first && ev.ly && vi === 0) { const [lt, sy] = N.sylOf(ev.ly, hyOpen); hyOpen = /.-$/.test(ev.ly); x.push(`<Lyrics>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); }
-              if (ev.first && vi === 0) for (const [key, no] of [['ly2', 1], ['ly3', 2]]) { const v = ev[key]; if (v) { const [lt, sy] = N.sylOf(v, hyV[no]); hyV[no] = /.-$/.test(v); x.push(`<Lyrics><no>${no}</no>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); } }
+              if (ev.first && ev.ly && vi === 0 && !link) { const [lt, sy] = N.sylOf(ev.ly, hyOpen); hyOpen = /.-$/.test(ev.ly); x.push(`<Lyrics>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); }
+              if (ev.first && vi === 0 && !link) for (const [key, no] of [['ly2', 1], ['ly3', 2]]) { const v = ev[key]; if (v) { const [lt, sy] = N.sylOf(v, hyV[no]); hyV[no] = /.-$/.test(v); x.push(`<Lyrics><no>${no}</no>${sy !== 'single' ? `<syllabic>${sy}</syllabic>` : ''}<text>${esc(lt)}</text></Lyrics>`); } }
               for (const a of A) if (ART[a]) x.push(`<Articulation><subtype>${ART[a]}</subtype>${a === 'tr' && ev.tra != null ? `<Accidental><subtype>${ACCSUB[ev.tra]}</subtype></Accidental>` : ''}</Articulation>`);
               const TRS = { 1: '8', 2: '16', 3: '32' };
               if (A.includes('trem')) x.push(`<Tremolo><subtype>r${TRS[ev.trs] || '32'}</subtype></Tremolo>`);
@@ -197,18 +213,21 @@ const MuseScoreExport = (() => {
               if (A.includes('arp') && ev.pitches.length > 1) x.push('<Arpeggio><subtype>0</subtype></Arpeggio>');
               ev.pitches.forEach((m, k) => {
                 const pitch = m - oSh;
-                x.push('<Note>');
+                x.push('<Note>' + LM);
                 if (ev.tieEnd && ev._prevAbs != null) x.push(`<Spanner type="Tie"><prev>${loc(at, ev._prevAbs)}</prev></Spanner>`);
                 if (k === ev.pitches.length - 1 && ev.first && A.includes('gliss') && ev._nextNote != null) x.push(`<Spanner type="Glissando"><Glissando><subtype>0</subtype></Glissando><next>${loc(at, ev._nextNote)}</next></Spanner>`);
                 if (k === ev.pitches.length - 1 && ev._glissFrom != null) x.push(`<Spanner type="Glissando"><prev>${loc(at, ev._glissFrom)}</prev></Spanner>`);
                 if (ev.tie && ev._nextAbs != null) x.push(`<Spanner type="Tie"><Tie></Tie><next>${loc(at, ev._nextAbs)}</next></Spanner>`);
-                if (ev.first && ev.fg && !p.perc) { const fc = String(ev.fg)[ev.pitches.length - 1 - k]; if (fc) x.push(`<Fingering><text>${esc(fc)}</text></Fingering>`); }
+                if (ev.first && ev.fg && !p.perc && !tabClef) { const fc = String(ev.fg)[ev.pitches.length - 1 - k]; if (fc) x.push(`<Fingering><text>${esc(fc)}</text></Fingering>`); }
                 const top = k === ev.pitches.length - 1;
                 const spAt = (sh) => { const kc = kcOf(b, sh); const mm = m + sh; return ev.enh ? N.spellPref(mm, kc, ev.enh) : top ? N.spellLine(mm, kc, ev._pv == null ? null : ev._pv + sh, ev._nx == null ? null : ev._nx + sh) : N.spell(mm, kc); };
                 const sp = spAt(0);
                 x.push(`<pitch>${pitch}</pitch><tpc>${tpcOf(sp)}</tpc>`);
                 if (ev.nhs && ev.nhs[m]) x.push(`<head>${ev.nhs[m] === 'x' ? 'cross' : 'diamond'}</head>`);
                 if (tr) x.push(`<tpc2>${tpcOf(spAt(tr))}</tpc2>`);
+                // TAB譜：フレットと弦（MuseScore の弦は 0＝いちばん高い弦）
+                const fq = frets && frets.get(ev.src + ':' + m);
+                if (fq) x.push(`<fret>${fq.f}</fret><string>${tun.length - 1 - fq.si}</string>`);
                 x.push('</Note>');
               });
               x.push('</Chord>');
@@ -221,7 +240,7 @@ const MuseScoreExport = (() => {
           if (vi === 0 && b === bars - 1) for (const sp of spans) if (sp.st != null && !sp.done) { sp.done = true; x.push(`<Spanner type="${sp.type}"><prev>${loc(bS(bars), sp.st)}</prev></Spanner>`); }
           x.push('</voice>');
         });
-        if (pi === 0 && ownEv && ownBars.has(b)) {
+        if (pi === 0 && !link && ownEv && ownBars.has(b)) {
           x.push('<voice>');
           for (const ev of ownEv[b]) {
             if (ev.first) for (const h of harm) if (h.own && h.at === ev.abs) x.push(harmXml(h.c, h.b, 0));
@@ -233,6 +252,11 @@ const MuseScoreExport = (() => {
         x.push('</Measure>');
       }
       x.push('</Staff>');
+    };
+    parts.forEach((p, pi) => {
+      const tun = tabTun(p);
+      if (tun && p.tab === 'both') { writeStaff(p, pi, sids[pi], 'main'); writeStaff(p, pi, sids[pi] + 1, 'link'); }
+      else writeStaff(p, pi, sids[pi], tun && p.tab === 'only' ? 'tab' : 'std');
     });
     x.push('</Score>');
     x.push('</museScore>');

@@ -221,6 +221,8 @@ const MusicXMLImport = (() => {
           if (ky && kid(ky, 'fifths')) M.key = { fifths: kfix(Math.round(num(txt(ky, 'fifths'), 0))), mode: txt(ky, 'mode') };
           for (const c of kids(el, 'clef')) {
             if (txt(c, 'sign') === 'percussion') info.perc = true;
+            // TAB譜の段：その段の音は、ほかの段（五線）と同じなので読まない（TAB譜しかないときは読む）
+            if (txt(c, 'sign') === 'TAB') { info.tabStaff = c.getAttribute('number') || '1'; continue; }
             // 1段目の音部記号（とちゅうの変化も読む）
             if ((c.getAttribute('number') || '1') !== '1') continue;
             const sg = txt(c, 'sign');
@@ -230,6 +232,11 @@ const MusicXMLImport = (() => {
             if (cl) M.clef = cl;
           }
           if (kid(el, 'staves')) info.staves = Math.round(num(txt(el, 'staves'), 1));
+          // 弦の楽器：開放弦の高さ（line 1＝いちばん下の線＝低い弦）
+          for (const sd of kids(el, 'staff-details')) {
+            const tl = kids(sd, 'staff-tuning').map((t) => ({ line: +t.getAttribute('line') || 0, p: (Math.round(num(txt(t, 'tuning-octave'), 4)) + 1) * 12 + (STEP[txt(t, 'tuning-step').toUpperCase()] ?? 0) + Math.round(num(txt(t, 'tuning-alter'), 0)) })).sort((a, b) => a.line - b.line);
+            if (tl.length >= 4 && tl.length <= 8 && !info.tun) info.tun = tl.map((t) => t.p);
+          }
         } else if (tag === 'backup') {
           cur = Math.max(0, cur - toT(txt(el, 'duration')));
         } else if (tag === 'forward') {
@@ -260,6 +267,7 @@ const MusicXMLImport = (() => {
           const unp = kid(el, 'unpitched');
           if (!pitchEl && !unp) continue;
           const n = { kind: 'note', t: start, d: dur, voice: txt(el, 'voice') || '1', staff: txt(el, 'staff') || '1' };
+          if (info.tabStaff && info.staves > 1 && n.staff === info.tabStaff) continue; // 五線＋TAB譜：TAB譜の段は同じ音
           if (pitchEl) {
             info.hasPitched = true;
             const st = STEP[txt(pitchEl, 'step').toUpperCase()];
@@ -323,6 +331,7 @@ const MusicXMLImport = (() => {
                 if (c.localName === 'snap-pizzicato' && !art.includes('snap')) art.push('snap');
                 if (c.localName === 'down-bow' && !art.includes('dnb')) art.push('dnb');
                 if (c.localName === 'fingering') { const f = c.textContent.replace(/[^0-5]/g, '').slice(0, 1); if (f) n.fg = f; }
+                if (c.localName === 'string') { const v = Math.round(num(c.textContent, 0)); if (v > 0) n.strNo = v; }
               }
             }
             if (kid(nt, 'arpeggiate') && !art.includes('arp')) art.push('arp');
@@ -694,6 +703,9 @@ const MusicXMLImport = (() => {
             if (it.fg) n.fg = it.fg;
             if (it.gr != null) n.gr = it.gr;
             for (const k of ['grl', 'tra', 'trs', 'nh']) if (it[k] != null) n[k] = it[k];
+            // 弦（MusicXML は 1＝いちばん高い弦 → ソラノートは 0＝いちばん低い弦）
+            const tunX = p.info.tun;
+            if (tunX && it.strNo && it.strNo <= tunX.length) { const si = tunX.length - it.strNo; const fr = it.p - tunX[si]; if (fr >= 0 && fr <= 24) n.str = si; }
             if (it.dynAttr > 0 && Math.abs(it.dynAttr - 100) > 5) n.vel = Math.min(1.25, Math.max(0.25, Math.round((it.dynAttr / 100) * 4) / 4)); // 音ごとの強さ
             notes.push(n);
           }
@@ -755,6 +767,15 @@ const MusicXMLImport = (() => {
     dyn.sort((a, b) => a.t - b.t);
     // おなじ位置の同じ強弱は1つに
     const dyn2 = dyn.filter((d, k) => d.t < limit && !(k && dyn[k - 1].t === d.t && dyn[k - 1].v === d.v));
+    // 弦：自動でえらぶのと同じなら、おぼえない（自分でえらんだ弦だけのこす）
+    const tunM = p.info.tun;
+    if (tunM && kept.some((n) => n.str != null) && typeof Notation !== 'undefined' && Notation.tabFrets) {
+      const nb = Math.max(1, Math.ceil(limit / 48));
+      const geo = { starts: Array.from({ length: nb + 1 }, (_, i) => Math.min(limit, i * 48)), meters: Array(nb).fill([1, 4]), keys: Array(nb).fill({ key: 0, minor: false }) };
+      const auto = Notation.tabFrets(kept.map((n) => { const { str, ...o } = n; return o; }), tunM, nb, geo, [1, 4]);
+      for (const n of kept) if (n.str != null) { const q = auto.get(n.s + ':' + n.p); if (q && q.si === n.str) delete n.str; }
+    }
+    const tabView = tunM && p.info.tabStaff ? (p.info.staves > 1 ? 'both' : 'only') : '';
     let range = 'soprano';
     if (kept.length) {
       const ps = kept.map((n) => n.p);
@@ -768,6 +789,7 @@ const MusicXMLImport = (() => {
       type: 'melody',
       name: name || 'メロディ',
       inst: guessInst(p.meta.program, p.meta.name),
+      ...(tabView ? { tabView } : {}),
       range,
       notes: kept,
       dyn: dyn2,
@@ -987,8 +1009,19 @@ const MusicXMLImport = (() => {
       for (const c of kids(inst, 'clef')) { const m = { G: 'treble', G8va: 'treble', G15ma: 'treble', G8vb: 'treble8', F: 'bass', F8vb: 'bass', F15mb: 'bass', C3: 'alto' }[c.textContent.trim()]; if (m) iclef[c.getAttribute('staff') || '1'] = m; }
       const drumName = {};
       for (const d of kids(inst, 'Drum')) drumName[d.getAttribute('pitch')] = txt(d, 'name');
-      const part = { name: name.slice(0, 30), prg, perc, staves: [], trans: tc ? -tc : 0, iclef, drumName };
-      staves.forEach((s, i) => { const id = s.getAttribute('id'); staffInfo[id] = { part, idx: i }; part.staves.push(id); });
+      // 弦の楽器（ギターなど）：開放弦の高さ（低い弦から）。TAB譜の段は、五線につながっている（linkedTo）なら読まない（同じ音）
+      const sd = kid(inst, 'StringData');
+      const tun = sd ? kids(sd, 'string').map((e) => Math.round(num(e.textContent, NaN))).filter((v) => Number.isFinite(v)) : [];
+      const part = { name: name.slice(0, 30), prg, perc, staves: [], trans: tc ? -tc : 0, iclef, drumName, tun: tun.length >= 4 && tun.length <= 8 ? tun : null, tabView: '' };
+      const isTab = (st) => (kid(st, 'StaffType') || { getAttribute: () => '' }).getAttribute('group') === 'tablature';
+      const allTab = staves.length > 0 && staves.every(isTab);
+      staves.forEach((st) => {
+        const id = st.getAttribute('id');
+        if (txt(st, 'linkedTo') && staves.length > 1) { staffInfo[id] = { part, idx: 0, skip: true }; if (isTab(st)) part.tabView = 'both'; return; }
+        staffInfo[id] = { part, idx: part.staves.length, tab: isTab(st) };
+        part.staves.push(id);
+      });
+      if (allTab) part.tabView = 'only';
       parts.push(part);
     }
 
@@ -1056,11 +1089,12 @@ const MusicXMLImport = (() => {
 
     // ---- 段ごとに音を読む ----
     const concertPitch = txt(kid(score, 'Style'), 'concertPitch') === '1';
-    const keyStaffEl = staffEls.find((e) => { const inf = staffInfo[e.getAttribute('id')]; return inf && !inf.part.perc && !inf.part.trans; }) || staffEls[0];
+    const keyStaffEl = staffEls.find((e) => { const inf = staffInfo[e.getAttribute('id')]; return inf && !inf.skip && !inf.part.perc && !inf.part.trans; }) || staffEls[0];
     const tracks = [];
     const drumTracks = new Map();
     for (const stEl of staffEls) {
       const info = staffInfo[stEl.getAttribute('id')] || { part: { name: 'パート', prg: null, perc: false, staves: [stEl.getAttribute('id')] }, idx: 0 };
+      if (info.skip) continue; // 五線につながったTAB譜（同じ音）
       const part = info.part;
       const isFirstStaff = stEl === staffEls[0];
       // 調号は、移調しない楽器の段から読む（なければ最初の段から、実音になおして）
@@ -1286,6 +1320,9 @@ const MusicXMLImport = (() => {
                   if (/diamond/i.test(hd)) note.nh = 'diamond'; else if (/^(cross|x)$/i.test(hd)) note.nh = 'x';
                   const fg = kids(n, 'Fingering').map((f) => plain(kid(f, 'text')) || plain(f)).join('').replace(/[^0-5]/g, '').slice(0, 1);
                   if (fg) note.fg = fg;
+                  // TAB譜の弦（MuseScore は 0＝いちばん高い弦 → ソラノートは 0＝いちばん低い弦）
+                  const strEl = kid(n, 'string');
+                  if (part.tun && strEl) { const si = part.tun.length - 1 - Math.round(num(strEl.textContent, -99)); const fr = p - part.tun[si]; if (si >= 0 && si < part.tun.length && fr >= 0 && fr <= 24) note.str = si; }
                   notes.push(note);
                 }
                 const tieNext = kids(n, 'Spanner').some((sp) => sp.getAttribute('type') === 'Tie' && kid(sp, 'next')) || !!kid(n, 'Tie');
@@ -1317,7 +1354,12 @@ const MusicXMLImport = (() => {
       const avg = ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : 64;
       const ic = part.iclef || {};
       const firstClef = clef0 || ic[String(info.idx + 1)] || (!Object.keys(ic).length && part.staves.length === 1 ? 'treble' : null); // 書いていなければト音記号（MuseScore のきまり）
-      tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
+      // 弦：自動でえらぶのと同じなら、おぼえない（自分でえらんだ弦だけのこす）
+      if (part.tun && notes.some((n) => n.str != null) && typeof Notation !== 'undefined' && Notation.tabFrets) {
+        const auto = Notation.tabFrets(notes.map((n) => { const { str, ...o } = n; return o; }), part.tun, nBars, { starts: Array.from({ length: nBars + 1 }, (_, i) => Math.round(T(startDiv[i]))), meters: Array(nBars).fill(meters[0] || [4, 4]), keys: Array(nBars).fill({ key: 0, minor: false }) }, meters[0] || [4, 4]);
+        for (const n of notes) if (n.str != null) { const q = auto.get(n.s + ':' + n.p); if (q && q.si === n.str) delete n.str; }
+      }
+      tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, ...(part.tabView && part.tun ? { tabView: part.tabView } : {}), range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
         ...(firstClef ? { clef: firstClef } : {}), ...(part.trans ? { trans: part.trans } : {}),
         notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(trills.length ? { trills } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
     }

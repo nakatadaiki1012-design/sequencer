@@ -266,6 +266,7 @@ function sanitizeSong(s) {
           if (o.tra != null && ![1, -1, 0].includes(o.tra)) delete o.tra;
           if (o.trs != null && ![1, 2, 3].includes(o.trs)) delete o.trs;
           if (o.nh != null && !['diamond', 'x'].includes(o.nh)) delete o.nh;
+          if (o.str != null && !(Number.isInteger(o.str) && o.str >= 0 && o.str < 8)) delete o.str; // TAB譜で弾く弦（0＝いちばん低い弦）
           return o;
         });
       tr.texts = (Array.isArray(t.texts) ? t.texts : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.x === 'string' && x.x.trim()).map((x) => ({ t: Math.round(+x.t), x: x.x.slice(0, 80) }));
@@ -2465,6 +2466,121 @@ function dynPop(tr, t, cx, cy, focus) {
 }
 function dynPopClose() { const box = $('#dynPop'); if (box) box.hidden = true; }
 
+// TAB譜を出す・出さない（''＝なし・'both'＝五線＋TAB・'only'＝TABだけ）。楽譜の画面・印刷・書き出しの全部に使う
+function setTabMode(tr, v) {
+  if (!tr || !TAB_INST[tr.inst]) return;
+  edit(() => { const S = scoreSettings(); S.tab = { ...(S.tab || {}) }; if (v) S.tab[tr.id] = v; else delete S.tab[tr.id]; }, 'TAB譜');
+  if (ui.view === 'score') { renderScorePal(); renderScoreEdit(); }
+  toast(v === 'both' ? '五線の下にTAB譜を出します。入力モードで弦の上をおすと、フレットの番号で入れられます' : v === 'only' ? 'TAB譜だけで書きます' : 'TAB譜をしまいました');
+}
+/* ---------- TAB譜（ギター・ウクレレ・ベース）：弦をえらぶ・フレットの番号で入れる ----------
+   五線とTABは同じ音（トラックの音）を見ているので、どちらを直しても両方がかわる */
+const TAB_TUN = { guitar: [40, 45, 50, 55, 59, 64], ukulele: [67, 60, 64, 69], bass: [28, 33, 38, 43] };
+const tabTunOf = (tr) => (tr && TAB_INST[tr.inst] ? TAB_TUN[TAB_INST[tr.inst]] : null);
+const strName = (tun, si) => `${tun.length - si}弦`; // 1弦＝いちばん高い弦
+// TAB譜のパネル。mode 'fret'：弦の上をおした → 番号で音を入れる、mode 'str'：数字をおした → その音を弾く弦をかえる
+function tabPop(cx, cy, S) {
+  let box = $('#tabPop');
+  if (!box) { box = document.createElement('div'); box.id = 'tabPop'; box.className = 'dynpop tabpop'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'TAB譜'); document.body.appendChild(box); }
+  ui.tabPop = S;
+  const tr = track();
+  const tun = tabTunOf(tr);
+  if (!tun) return;
+  const render = () => {
+    if (S.mode === 'str') {
+      const n = tr.notes.find((x) => x.s === S.s && x.p === S.p);
+      if (!n) { tabPopClose(); return; }
+      const can = tun.map((o, si) => ({ si, f: n.p - o })).filter((q) => q.f >= 0 && q.f <= 24).sort((a, b) => b.si - a.si);
+      box.innerHTML = `<div class="dphead"><b>${noteName(n.p)} を弾く弦</b><button class="mini close" data-x="close" aria-label="とじる">✕</button></div>
+        <div class="dprow">${can.map((q) => `<button class="mini ${n.str === q.si ? 'on' : ''}" data-si="${q.si}">${strName(tun, q.si)}の <b>${q.f}</b></button>`).join('') || '<span class="muted small">この楽器では弾けない高さです</span>'}</div>
+        <div class="dprow"><button class="mini ${n.str == null ? 'on' : ''}" data-si="">自動（弾きやすい弦）</button><span class="muted small">↑↓ でもかえられます</span></div>`;
+      box.querySelectorAll('[data-si]').forEach((b) => (b.onclick = () => tabSetStr(b.dataset.si === '' ? null : +b.dataset.si)));
+    } else {
+      const fr = Array.from({ length: 13 }, (_, i) => i);
+      box.innerHTML = `<div class="dphead"><b>${strName(tun, S.str)}：フレットの番号</b><button class="mini close" data-x="close" aria-label="とじる">✕</button></div>
+        <div class="dprow tabfrets">${fr.map((f) => `<button class="mini" data-f="${f}" title="${noteName(tun[S.str] + f)}">${f}</button>`).join('')}</div>
+        <div class="dprow"><label class="small"><input type="checkbox" data-chord ${S.chord ? 'checked' : ''}> 和音にする（同じ所に重ねる）</label><button class="mini" data-up="1" title="高い弦へ（↑）">▲弦</button><button class="mini" data-up="-1" title="低い弦へ（↓）">▼弦</button></div>
+        <div class="dprow muted small">${S.buf ? `打っている番号：<b>${S.buf}</b>　` : ''}数字キーでも入れられます（13より上も）。Enter＝決める・Esc＝おわる</div>`;
+      box.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => tabFret(+b.dataset.f)));
+      box.querySelector('[data-chord]').onchange = (e) => { S.chord = e.target.checked; };
+      box.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => tabStrMove(+b.dataset.up)));
+    }
+    box.querySelector('[data-x="close"]').onclick = tabPopClose;
+  };
+  S.render = render;
+  render();
+  box.hidden = false;
+  if (cx != null) {
+    box.style.left = clamp(cx - 20, 4, innerWidth - box.offsetWidth - 4) + 'px';
+    box.style.top = clamp(cy + 18, 4, innerHeight - box.offsetHeight - 4) + 'px';
+  }
+  if (!box._outside) {
+    box._outside = (ev) => { if (box.hidden) return; if (box.contains(ev.target) || (ev.target.closest && ev.target.closest('#scoreEditView'))) return; tabPopClose(); };
+    document.addEventListener('pointerdown', box._outside, true);
+  }
+}
+function tabPopClose() { const box = $('#tabPop'); if (box) box.hidden = true; if (ui.tabPop) { clearTimeout(ui.tabPop.tm); ui.tabPop = null; } }
+// えらんだ音を、その弦で弾く（null＝自動にもどす）
+function tabSetStr(si) {
+  const S = ui.tabPop;
+  const tr = track();
+  if (!S || locked(tr)) return;
+  edit(() => { const n = tr.notes.find((x) => x.s === S.s && x.p === S.p); if (!n) return; if (si == null) delete n.str; else { for (const m of tr.notes) if (m !== n && m.s === n.s && m.str === si) delete m.str; n.str = si; } }, 'TAB譜の弦');
+  renderScoreEdit();
+  S.render();
+}
+// フレットの番号で音を入れる（カーソルの所。入れたらつぎへ進む）
+function tabFret(f) {
+  const S = ui.tabPop;
+  const tr = track();
+  const tun = tabTunOf(tr);
+  if (!S || !tun || locked(tr)) return;
+  clearTimeout(S.tm);
+  S.buf = '';
+  f = clamp(f, 0, 24);
+  const p = tun[S.str] + f;
+  if (p < 21 || p > 108) return;
+  scInsert([p], !!S.chord, S.str);
+  S.render();
+}
+function tabStrMove(d) {
+  const S = ui.tabPop;
+  const tun = tabTunOf(track());
+  if (!S || !tun) return;
+  if (S.mode === 'str') {
+    const n = track().notes.find((x) => x.s === S.s && x.p === S.p);
+    if (!n) return;
+    // いま弾いている弦（自分でえらんでいないときは、楽譜に出ている弦）から、となりの弾ける弦へ
+    const cur = n.str != null ? n.str : S.shown != null ? S.shown : 0;
+    for (let si = cur + d; si >= 0 && si < tun.length; si += d) if (n.p - tun[si] >= 0 && n.p - tun[si] <= 24) { S.shown = si; tabSetStr(si); return; }
+    return;
+  }
+  S.str = clamp(S.str + d, 0, tun.length - 1);
+  S.render();
+}
+// TAB譜のパネルが出ているときのキー
+function tabPopKey(e) {
+  const S = ui.tabPop;
+  if (!S || $('#tabPop')?.hidden) return false;
+  const k = e.key;
+  if (k === 'Escape') { e.preventDefault(); tabPopClose(); return true; }
+  if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); tabStrMove(k === 'ArrowUp' ? 1 : -1); return true; }
+  if (S.mode !== 'fret' || e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (/^[0-9]$/.test(k)) {
+    e.preventDefault();
+    S.buf = (S.buf || '') + k;
+    clearTimeout(S.tm);
+    // 1・2 のあとは、2けたの番号（10〜24）になるかもしれないので少し待つ
+    if (S.buf.length >= 2 || +S.buf > 2) tabFret(+S.buf);
+    else { S.render(); S.tm = setTimeout(() => { if (ui.tabPop === S && S.buf) tabFret(+S.buf); }, 650); }
+    return true;
+  }
+  if (k === 'Enter' && S.buf) { e.preventDefault(); tabFret(+S.buf); return true; }
+  if (k === 'Backspace' && S.buf) { e.preventDefault(); S.buf = S.buf.slice(0, -1); S.render(); return true; }
+  if (k === 'ArrowRight' || k === 'ArrowLeft') return false; // カーソル移動はいつもどおり
+  return false;
+}
+
 /* ============================================================
    エディタの操作（クリック・ドラッグ）
    ============================================================ */
@@ -4586,6 +4702,7 @@ function renderTracksNow() {
           <button data-a="rename" ${tr.locked ? 'disabled' : ''}>${I('pencil')}名前を変える</button>
           <button data-a="up" ${i === 0 ? 'disabled' : ''}>${I('chevron')}上へ</button>
           <button data-a="down" ${i === song.tracks.length - 1 ? 'disabled' : ''}>${I('chevron')}下へ</button>
+          ${tr.type === 'melody' && TAB_INST[tr.inst] ? `<button data-a="tab" title="弦とフレットの番号の楽譜（五線とつながっています）">${I('score')}TAB譜：${{ '': 'なし', both: '五線＋TAB', only: 'TABだけ' }[(scoreSettings().tab || {})[tr.id] || '']} → かえる</button>` : ''}
           ${song.locks.tracks ? '' : `<button data-a="dup">${I('copy')}複製する</button><button data-a="del" class="danger">${I('trash')}削除する</button>`}
         </div></details></div>
       <div class="trow"><button class="instbtn" ${tr.locked ? 'disabled' : ''} title="楽器をえらぶ">${tr.type === 'drum' ? PIC('kit', tr.kit) : PIC('inst', tr.inst)}<span class="instname">${escapeHtml(instLabel)}</span>${badge}${I('chevron')}</button>
@@ -4609,6 +4726,7 @@ function renderTracksNow() {
         if (n != null) edit(() => { const v = n.trim().slice(0, 20); tr.name = v; if (v && !isAutoName({ name: v })) tr.cname = true; else delete tr.cname; }, 'トラック名');
         renderTracks();
       }
+      else if (a === 'tab') { const order = ['', 'both', 'only']; const c = (scoreSettings().tab || {})[tr.id] || ''; setTabMode(tr, order[(order.indexOf(c) + 1) % 3]); renderTracks(); }
       else if (a === 'up') moveTrack(i, -1);
       else if (a === 'down') moveTrack(i, 1);
       else if (a === 'dup') {
@@ -6181,7 +6299,7 @@ function ensureLength(t) {
   // 曲の最後をこえたら小節をふやす（Flat と同じ）
   while (t > totalTicks() && song.bars < MAX_BARS && !song.locks.rules) song.bars++;
 }
-function scInsert(pitches, chordAdd) {
+function scInsert(pitches, chordAdd, str) {
   const tr = scEditable();
   if (!tr) return;
   const last = ui.sc.lastIns;
@@ -6201,7 +6319,12 @@ function scInsert(pitches, chordAdd) {
     }
     ensureLength(t + d);
     if (!chordAdd && !ui.sc.insert) clearRange(tr, t, t + d);
-    for (const p of pitches) if (!tr.notes.some((n) => n.s === t && n.p === p)) tr.notes.push({ s: t, p: clamp(p, 21, 108), l: d, ...(scVoice() === 2 ? { v: 2 } : {}) });
+    for (const p of pitches) {
+      const ex = tr.notes.find((n) => n.s === t && n.p === p);
+      if (!ex) tr.notes.push({ s: t, p: clamp(p, 21, 108), l: d, ...(scVoice() === 2 ? { v: 2 } : {}), ...(str != null ? { str } : {}) });
+      else if (str != null) ex.str = str;
+      if (str != null) for (const n of tr.notes) if (n.s === t && n.p !== p && n.str === str) delete n.str; // 1本の弦で2つの音は弾けない
+    }
     // S をおしてから入れた音：まえの音からここまでスラー
     const sp = ui.sc.slurPend;
     if (sp && !chordAdd && pitches.length && sp.tid === tr.id && t > sp.s) { tr.slurs = (tr.slurs || []).filter((x) => x.e < sp.s || x.s > t); tr.slurs.push({ s: sp.s, e: t }); }
@@ -7516,6 +7639,12 @@ function renderScorePal() {
       <button class="mini ${$('#dlgSym') && $('#dlgSym').open ? 'on' : ''}" id="scPalB" title="記号パレット：スタッカート・トリル・装飾音符・指番号・くり返し・D.C. など（キー F9）">${I('palette')}<span>記号…</span></button>
     </div>
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
+  // ギター・ウクレレ・ベース：TAB譜を出す・出さない（五線とTABは同じ音。どちらで入れても直しても、両方かわる）
+  if (track() && track().type === 'melody' && TAB_INST[track().inst]) {
+    const cur = (scoreSettings().tab || {})[track().id] || '';
+    pal.querySelectorAll('.prow')[1].insertAdjacentHTML('beforeend', `<span class="accrow inline tabrow"><span class="muted small" title="弦とフレットの番号の楽譜。五線とつながっていて、どちらで入れても直しても両方かわります">TAB譜</span><span class="seg" id="scTab"><button class="mini ${cur === '' ? 'on' : ''}" data-t="">なし</button><button class="mini ${cur === 'both' ? 'on' : ''}" data-t="both" title="五線の下にTAB譜">五線＋TAB</button><button class="mini ${cur === 'only' ? 'on' : ''}" data-t="only" title="TAB譜だけ">TABだけ</button></span></span>`);
+    pal.querySelectorAll('#scTab [data-t]').forEach((b) => (b.onclick = () => setTabMode(track(), b.dataset.t)));
+  }
   // コード伴奏：楽譜での書き方をえらぶ（コード名だけ・スラッシュ・ピアノ譜）。コードのトラックをえらんでいるときは、いちばん上に
   const ct = chordTrackOf();
   if (ct) {
@@ -7744,6 +7873,23 @@ function scoreClick(e) {
   const chd = e.target.closest && e.target.closest('.chd');
   if (chd) { chordPick(+chd.dataset.b, +chd.dataset.o || 0); return; }
   const nh = e.target.closest && e.target.closest('.nh, .nhhit');
+  // TAB譜の数字：その音をえらんで、弾く弦をかえるパネル
+  if (nh && nh.classList.contains('tabn')) {
+    const tr = scoreParts[+nh.dataset.pi];
+    if (tr && tr !== track()) selectTrack(song.tracks.indexOf(tr), false);
+    if (track().type !== 'melody') return;
+    const s0 = +nh.dataset.s;
+    const p0 = +nh.dataset.p;
+    if (!track().notes.some((n) => n.s === s0 && n.p === p0)) return;
+    if (e.ctrlKey || e.metaKey) { const k = s0 + ':' + p0; if (ui.sc.sel.has(k)) ui.sc.sel.delete(k); else ui.sc.sel.add(k); } else ui.sc.sel = new Set([s0 + ':' + p0]);
+    ui.sc.cursor = s0;
+    ui.sc.selByInput = false;
+    ui.sc.lastIns = { t: s0, d: track().notes.find((n) => n.s === s0 && n.p === p0).l, p: p0 };
+    preview(track(), p0, 0.3);
+    renderScoreEdit();
+    if (!locked(track())) tabPop(e.clientX, e.clientY, { mode: 'str', s: s0, p: p0, shown: +nh.dataset.str });
+    return;
+  }
   if (nh) {
     const tr = scoreParts[+nh.dataset.pi];
     if (tr && tr !== track()) { selectTrack(song.tracks.indexOf(tr), false); }
@@ -7783,6 +7929,12 @@ function scoreClick(e) {
   ui.sc.cursor = clamp(t, 0, totalTicks());
   // オクターブ記号の中は、書いてある高さ＋オクターブ
   if (h.pitch != null && track().type === 'melody') { const q = (track().ottava || []).find((o2) => t >= o2.s && t < o2.e); if (q) h.pitch = clamp(h.pitch + 12 * q.k, 0, 127); }
+  // TAB譜の弦の上：フレットの番号で音を入れるパネル（入力モードのとき）
+  if (h.tab) {
+    if (ui.sc.input && track().type === 'melody' && !locked(track())) { ui.sc.sel = new Set(); renderScoreEdit(); tabPop(e.clientX, e.clientY, { mode: 'fret', str: h.tabStr, chord: e.shiftKey }); }
+    else { ui.sc.sel = new Set(); renderScoreEdit(); if (!ui.sc.input) toast('TAB譜に音を入れるときは「入力」にして、弦の上をおします'); }
+    return;
+  }
   if (ui.sc.input && h.pitch != null && track().type === 'melody' && !h.perc) {
     if (e.shiftKey && ui.sc.lastIns && ui.sc.lastIns.t === t) scInsert([h.pitch], true);
     else { ui.sc.lastIns = null; scInsert([h.pitch], false); }
@@ -8863,6 +9015,11 @@ function loadSong(s, opts = {}) {
   const base = newSong();
   song = { ...base, ...s, eq: { ...base.eq, ...(s.eq || {}) }, metro: { ...base.metro, ...(s.metro || {}) }, locks: { ...base.locks, ...(s.locks || {}) }, tempos: s.tempos || {} };
   song.tracks = s.tracks.slice(0, MAX_TRACKS).map((t) => ({ ...newTrack(t.type), ...t, id: t.id || uid() }));
+  // 読みこんだ楽譜に TAB譜があった（MuseScore・MusicXML）：楽譜の設定に入れる
+  for (const t of song.tracks) {
+    if (t.tabView === 'both' || t.tabView === 'only') { song.score = { ...(song.score || {}) }; song.score.tab = { ...(song.score.tab || {}), [t.id]: t.tabView }; }
+    delete t.tabView;
+  }
   autoNameTracks();
   song.repeats = { start: [], end: [], volta: {}, ...(s.repeats || {}) };
   song.pickup = s.pickup || 0;
@@ -10022,6 +10179,7 @@ function init() {
     if (e.key === 'Escape' && ui.chd) { chordPickClose(); return; }
     if (e.key === 'Escape') { const op = $$('details.pop[open]'); if (op.length) { op.forEach((d) => (d.open = false)); const s0 = op[0].querySelector('summary'); if (s0) s0.focus(); return; } }
     if (e.key === '?' && !modalOpen()) { e.preventDefault(); openKeys(); return; }
+    if (ui.view === 'score' && !modalOpen() && tabPopKey(e)) return;
     if (ui.view === 'score' && !modalOpen() && scoreKey(e)) return;
     if (ui.view !== 'score' && !modalOpen() && noteKeys(e)) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveToBrowser(); return; }

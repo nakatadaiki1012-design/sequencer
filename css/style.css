@@ -477,6 +477,10 @@ body.phone .scoreside { flex: none; }
 .scoreeditview .nh { cursor: pointer; }
 .scoreeditview .nh:hover { fill: #1971c2; stroke: #1971c2; }
 .scoreeditview .nh.playing, .scoreview .nh.playing { fill: #ff4d4f !important; stroke: #ff4d4f !important; }
+/* TAB譜の数字：うしろの白いわくは白のまま、数字だけ色をかえる */
+.scoreeditview .tabn rect, .scoreview .tabn rect { fill: #fff !important; stroke: none !important; }
+.scoreeditview .tabn:hover text { fill: #1971c2 !important; }
+.scoreeditview .tabn.playing text, .scoreview .tabn.playing text { fill: #ff4d4f !important; }
 @media (prefers-color-scheme: dark) { .scoreeditview { background: #12141b; } }
 body.phone .scorepal .prow { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 body.phone .scorepal .prow.small { display: none; }
@@ -1487,6 +1491,8 @@ body.view-score #chordPalette { display: none !important; }
 .dynpop .dynb { font: italic bold 14px serif; min-width: 34px; }
 .dynpop .dplen { margin-left: 6px; }
 .dynpop .danger { color: #c92a2a; }
+.tabpop .tabfrets button { min-width: 30px; font-variant-numeric: tabular-nums; }
+.tabpop .dprow label { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; }
 
 /* 段組みのパネル */
 .laypop { position: fixed; z-index: 62; width: min(560px, calc(100vw - 8px)); padding: 8px 10px; background: var(--panel); color: var(--text); border: 1.5px solid var(--accent); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; display: flex; flex-direction: column; gap: 7px; }
