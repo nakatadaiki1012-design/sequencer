@@ -2501,7 +2501,7 @@ function tabPop(cx, cy, S) {
         <div class="dprow tabfrets">${fr.map((f) => `<button class="mini" data-f="${f}" title="${noteName(tun[S.str] + f)}">${f}</button>`).join('')}</div>
         <div class="dprow"><label class="small"><input type="checkbox" data-chord ${S.chord ? 'checked' : ''}> 和音にする（同じ所に重ねる）</label><button class="mini" data-up="1" title="高い弦へ（↑）">▲弦</button><button class="mini" data-up="-1" title="低い弦へ（↓）">▼弦</button></div>
         <div class="dprow muted small">${S.buf ? `打っている番号：<b>${S.buf}</b>　` : ''}数字キーでも入れられます（13より上も）。Enter＝決める・Esc＝おわる</div>`;
-      box.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => tabFret(+b.dataset.f)));
+      box.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { ui.sc.byPointer = true; tabFret(+b.dataset.f); }));
       box.querySelector('[data-chord]').onchange = (e) => { S.chord = e.target.checked; };
       box.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => tabStrMove(+b.dataset.up)));
     }
@@ -6159,8 +6159,11 @@ function renderScoreEditNow() {
   box.scrollTop = pageChanged ? 0 : keepTop;
   box._layout = LW0;
   if (nav) box.querySelectorAll('.scwin button').forEach((bt) => (bt.onclick = (e) => { e.stopPropagation(); scoreWinMove(+bt.dataset.w); }));
-  // カーソルが動いたら（入力・←→）、その段が見えるようにスクロールする（自分でスクロールしたときはそのまま）
-  if (ui.sc.cursor !== ui.sc.lastShown) { ui.sc.lastShown = ui.sc.cursor; if (pi >= 0 && !player.on) ui.sc.scrollTo = true; }
+  // カーソルが動いたら（キーでの入力・←→）、カーソルの所が見えるようにスクロールする
+  //   ・マウス・指で楽譜をおして入れたときは動かさない（見ている所に入れたので）
+  //   ・動かすのは、カーソルのパートの段（五線・TAB譜）が画面の外に出たときだけ。少しだけ動かす（段ぜんぶを見せようとして、上に飛ばない）
+  if (ui.sc.cursor !== ui.sc.lastShown) { ui.sc.lastShown = ui.sc.cursor; if (pi >= 0 && !player.on && !ui.sc.byPointer) ui.sc.scrollTo = true; }
+  ui.sc.byPointer = false;
   if (ui.sc.scrollTo) {
     ui.sc.scrollTo = false;
     const L = box._layout;
@@ -6168,19 +6171,29 @@ function renderScoreEditNow() {
     const sys = L && L.systems.find((x) => x.bars.some((bb) => bb.b === cb));
     const svg = box.querySelector('svg');
     if (sys && svg) {
-      const k = svg.getBoundingClientRect().height / L.height;
-      const y0 = sys.y0 * k;
-      const y1 = sys.y1 * k;
-      if (y0 < box.scrollTop) box.scrollTop = Math.max(0, y0 - 12);
-      else if (y1 > box.scrollTop + box.clientHeight) box.scrollTop = Math.max(0, Math.min(y0 - 12, y1 - box.clientHeight + 8));
-      // 横に長いとき（横に1列・段の幅を広げたとき）は、横にもスクロール
+      const sr = svg.getBoundingClientRect();
+      const br = box.getBoundingClientRect();
+      const k = sr.height / L.height;
+      const oy = sr.top - br.top + box.scrollTop; // 楽譜の絵の上の端（ボックスの中で）
+      const mine = sys.staves.filter((q) => q.pi === pi);
+      const hOf = (q) => (q.clef === 'tab' ? q.tabH || 60 : 32);
+      let a = mine.length ? Math.min(...mine.map((q) => q.top)) - 28 : sys.y0;
+      let z = mine.length ? Math.max(...mine.map((q) => q.top + hOf(q))) + 28 : sys.y1;
+      a = oy + a * k;
+      z = oy + z * k;
+      const vh = box.clientHeight;
+      if (a < box.scrollTop) box.scrollTop = Math.max(0, a - 8);
+      else if (z > box.scrollTop + vh) box.scrollTop = Math.max(0, Math.min(a - 8, z - vh + 8));
+      // 横に長いとき（横に1列・段の幅を広げたとき）は、横にもスクロール（はみ出したぶんだけ）
       const B = sys.bars.find((bb) => bb.b === cb);
-      if (B && svg.getBoundingClientRect().width > box.clientWidth + 4) {
-        const kx = svg.getBoundingClientRect().width / L.width;
-        const ox = svg.getBoundingClientRect().left - box.getBoundingClientRect().left + box.scrollLeft;
+      if (B && sr.width > box.clientWidth + 4) {
+        const kx = sr.width / L.width;
+        const ox = sr.left - br.left + box.scrollLeft;
         const xa = B.x0 * kx + ox;
         const xz = B.x1 * kx + ox;
-        if (xa < box.scrollLeft + 20 || xz > box.scrollLeft + box.clientWidth - 20) box.scrollLeft = Math.max(0, xa - box.clientWidth * 0.25);
+        const vw = box.clientWidth;
+        if (xa < box.scrollLeft + 20) box.scrollLeft = Math.max(0, xa - 40);
+        else if (xz > box.scrollLeft + vw - 20) box.scrollLeft = Math.max(0, Math.min(xa - 40, xz - vw + 40));
       }
     }
   }
@@ -7858,6 +7871,7 @@ function scoreClick(e) {
   const r = svg.getBoundingClientRect();
   const x = (e.clientX - r.left) * (L.width / r.width);
   const y = (e.clientY - r.top) * (L.height / r.height);
+  ui.sc.byPointer = true; // おした所を見ているので、楽譜はスクロールしない
   // クレッシェンドをおすと、長さを変えるパネル
   const hpe = e.target.closest && e.target.closest('.hp');
   if (hpe) {
@@ -7936,6 +7950,7 @@ function scoreClick(e) {
     return;
   }
   if (ui.sc.input && h.pitch != null && track().type === 'melody' && !h.perc) {
+    ui.sc.byPointer = true;
     if (e.shiftKey && ui.sc.lastIns && ui.sc.lastIns.t === t) scInsert([h.pitch], true);
     else { ui.sc.lastIns = null; scInsert([h.pitch], false); }
   } else { ui.sc.sel = new Set(); renderScoreEdit(); }
@@ -8015,6 +8030,7 @@ function scDragPitch(e, k) {
 }
 // 楽譜モードのキー操作（使ったら true）
 function scoreKey(e) {
+  ui.sc.byPointer = false;
   const k = e.key;
   const tr = track();
   const ctrl = e.ctrlKey || e.metaKey;
