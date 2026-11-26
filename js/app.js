@@ -247,6 +247,9 @@ function sanitizeSong(s) {
     out.comments = (Array.isArray(s.comments) ? s.comments : []).filter((c) => c && Number.isInteger(c.b) && c.b >= 0 && c.b < MAX_BARS && typeof c.x === 'string' && c.x.trim()).slice(0, 500).map((c) => ({ b: c.b, x: c.x.slice(0, 300), ...(typeof c.who === 'string' && c.who ? { who: c.who.slice(0, 20) } : {}), ...(Number.isFinite(c.at) ? { at: c.at } : {}) }));
     if (!out.comments.length) delete out.comments;
   }
+  // 版のなかま（版の保存と見くらべ）・演奏の表情
+  if (s.vid != null && !(typeof s.vid === 'string' && /^[a-z0-9]{1,40}$/i.test(s.vid))) delete out.vid;
+  if (s.feel != null) { const f = Math.round(Number(s.feel)); if (f === 1 || f === 2) out.feel = f; else delete out.feel; }
   out.title = String(s.title == null ? 'あたらしい曲' : s.title).slice(0, 60);
   const T = s.v >= 2 ? 1 : 0; // migrate のあと
   out.tracks = s.tracks.filter((t) => t && typeof t === 'object' && ['melody', 'drum', 'chord'].includes(t.type)).map((t) => {
@@ -551,13 +554,14 @@ let timeCache = { key: '' };
 let playSpeed = 1;
 function timeTable() {
   const o = playOrder();
-  const key = orderCache.key + geo().key + ':' + playSpeed;
+  const key = orderCache.key + geo().key + ':' + playSpeed + ':' + (song.feel || 0);
   if (timeCache.key === key) return timeCache;
   const start = [0];
   const spt = [];
   const ps = playStarts();
+  const slow = song.feel && typeof feelSlow === 'function' ? feelSlow(o) : null; // 演奏の表情：おわりでゆっくり
   for (let k = 0; k < o.length; k++) {
-    spt.push(60 / (bpmAt(o[k]) * TPQ * playSpeed));
+    spt.push((60 / (bpmAt(o[k]) * TPQ * playSpeed)) * (slow ? slow[k] : 1));
     start.push(start[k] + spt[k] * (ps[k + 1] - ps[k]));
   }
   timeCache = { key, start, spt, n: o.length };
@@ -1057,7 +1061,7 @@ function eventListBuild(key) {
       for (const n of tr.notes) {
         if (n.s >= total || skip.has(n)) continue;
         const x = ex(n);
-        const v = clamp(x.v * (n.vel || 1), 0.05, 1.3);
+        const v = clamp(x.v * (n.vel || 1) * (song.feel && typeof feelVel === 'function' ? feelVel(n) : 1), 0.05, 1.3);
         // ペダルをふんでいる間は、音がのびる
         const pd = peds.find((q) => n.s >= q.s && n.s < q.e);
         const l = Math.min(pd ? Math.max(n.l, pd.e - n.s) : n.l, total - n.s);
@@ -1067,7 +1071,7 @@ function eventListBuild(key) {
         const ctx = { trillSpan: trills.find((q) => n.s >= q.s && n.s < q.e) || null, partner: pt ? pt.p : null, partnerL: pt ? pt.l : 0 };
         for (const o of ornamentNotes(n, l, arpAt.get(n), gTo, ctx)) put(n.s + o.dt, chg && instAt(tr, n.s) !== tr.inst ? { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1, inst: instAt(tr, n.s) } : { tr, kind: 'note', p: o.p, l: o.l, v: v * (o.vf || 1), lf: o.last ? x.lf : 1 });
       }
-    } else if (tr.type === 'chord') for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v });
+    } else if (tr.type === 'chord') { const af = song.feel && typeof feelAccomp === 'function' ? feelAccomp() : 1; for (const n of chordEvents(tr)) put(n.s, { tr, kind: 'note', p: n.p, l: n.l, v: n.v * af }); }
     else for (const id in tr.grid) for (const s in tr.grid[id]) if (+s < total) put(+s, { tr, kind: 'drum', id, v: tr.grid[id][s] === 2 ? 1 : 0.6 });
   }
   // ちがうパートが同じ楽器・同じ高さ・同じときに鳴らす音（オーケストラの重ね）は1つにまとめる（スマホでも音がとぎれないように）
@@ -2212,6 +2216,7 @@ function draw(playPos, fromAnim) {
   }
   if (song.task && song.tracks[song.task.tr] === tr) taskMarks(g2, X, rh, sy, rowIndex.size);
   if (refSong && tr.type === 'melody') compareMarks(g2, tr, X, rowIndex, rh, sy, k);
+  if (tr.type === 'melody' && typeof practiceMarks === 'function') practiceMarks(g2, tr, X, rowIndex, rh, sy, k);
   if (cpOn() && tr.id === song.cp.cpId) cpMarks(g2, X, rowIndex, rh, sy, k);
   if (rubber && tr.type !== 'chord') {
     const ta = Math.min(rubber.t0, rubber.t1);
@@ -6214,6 +6219,7 @@ function renderScoreEditNow() {
   scPosShow(box);
   box.classList.toggle('mode-input', !!ui.sc.input);
   if (typeof instPanelLight === 'function' && instPanelOn) instPanelLight();
+  if (typeof proAfterScore === 'function') proAfterScore(box);
   box.classList.toggle('mode-select', !ui.sc.input);
   $('#scGhost')?.remove();
   // 指で使うとき：音を1つえらんだら「ここから範囲でえらぶ」ボタンを出す（さいごの音をタップすると、その間を全部えらぶ）
@@ -7667,12 +7673,14 @@ function renderScorePal() {
     <div class="prow small"><span id="scStatus" class="hint"></span><span class="hint">キー：A〜G 音名／1〜6 長さ／. 付点／T 3連／0 休符／R くり返し／↑↓ 高さ／←→ となり／Shift 和音・はんい／Delete 消す／? ぜんぶ</span></div>`;
   // いろいろな楽譜ソフトのいいところ：文字で入れる（Dorico）・鍵盤パネル（Flat・カトカトーン）・テンキー（Finale・Sibelius）・コード図・コメント（Flat）
   if (typeof popoverOpen === 'function') {
-    pal.querySelectorAll('.prow')[1].insertAdjacentHTML('beforeend', `<span class="grp progrp"><button class="mini" id="scPopB" title="文字で記号を入れる：mf・cresc・Am7・♩=120・3/4・key G・[A] など（Ctrl+E）">Aa 文字で</button><button class="mini ${instPanelOn ? 'on' : ''}" id="scKbB" title="鍵盤・指板のパネル：おすと音が入る・鳴っている音が光る">${I('keys')}<span>鍵盤</span></button><button class="mini ${keypadOn ? 'on' : ''}" id="scKpB" title="テンキーで入力（数字のキーで長さ・♯♭・休符・タイ）">テンキー</button>${chordTrackOf() ? `<button class="mini ${scoreSettings().diagrams ? 'on' : ''}" id="scDiaB" title="コードネームの上に、ギターのコード図（印刷にも出ます）">コード図</button>` : ''}<button class="mini" id="scCmtB" title="いまの小節にコメント（メモ）を書く。印刷には出ません">💬 コメント</button></span>`);
+    pal.querySelectorAll('.prow')[1].insertAdjacentHTML('beforeend', `<span class="grp progrp"><button class="mini" id="scPopB" title="文字で記号を入れる：mf・cresc・Am7・♩=120・3/4・key G・[A] など（Ctrl+E）">Aa 文字で</button><button class="mini ${instPanelOn ? 'on' : ''}" id="scKbB" title="鍵盤・指板のパネル：おすと音が入る・鳴っている音が光る">${I('keys')}<span>鍵盤</span></button><button class="mini ${keypadOn ? 'on' : ''}" id="scKpB" title="テンキーで入力（数字のキーで長さ・♯♭・休符・タイ）">テンキー</button>${chordTrackOf() ? `<button class="mini ${scoreSettings().diagrams ? 'on' : ''}" id="scDiaB" title="コードネームの上に、ギターのコード図（印刷にも出ます）">コード図</button>` : ''}<button class="mini" id="scCmtB" title="いまの小節にコメント（メモ）を書く。印刷には出ません">💬 コメント</button>${typeof singToggle === 'function' ? `<button class="mini ${singOn ? 'on' : ''}" id="scMicB" title="歌って入力：マイクに向かって歌うと、その高さの音符が入ります">🎤 歌って</button><button class="mini" id="scIdeaB" title="アイデア帳：フレーズやリズムをしまう・貼る">💡 アイデア</button>` : ''}</span>`);
     $('#scPopB').onclick = () => popoverOpen();
     $('#scKbB').onclick = () => { instPanelToggle(); renderScorePal(); };
     $('#scKpB').onclick = () => { keypadToggle(); renderScorePal(); };
     if ($('#scDiaB')) $('#scDiaB').onclick = () => chordDiagramToggle();
     $('#scCmtB').onclick = () => commentAdd();
+    if ($('#scMicB')) $('#scMicB').onclick = () => singToggle();
+    if ($('#scIdeaB')) $('#scIdeaB').onclick = () => ideasOpen();
   }
   // ギター・ウクレレ・ベース：TAB譜を出す・出さない（五線とTABは同じ音。どちらで入れても直しても、両方かわる）
   if (track() && track().type === 'melody' && TAB_INST[track().inst]) {
@@ -9391,6 +9399,13 @@ function updateCompare() {
   if (!refSong) { bar.hidden = true; return; }
   bar.hidden = false;
   const c = compareTrack(cur);
+  if (refSong._ver) {
+    // 前の版との見くらべ
+    const ch = typeof verChangedBars === 'function' ? verChangedBars(refSong) : [];
+    $('#cmpText').innerHTML = `「${escapeHtml(refSong._ver)}」とくらべて${c ? `　<span class="add">足した音 ${c.wrong.size}</span>　<span class="miss">消した音 ${c.missing.length}</span>${c.len ? `　長さを変えた ${c.len}` : ''}` : ''}　${ch.length ? `変わった小節：${barsText(ch.slice(0, 40))}${ch.length > 40 ? '…' : ''}` : '変わっていません'}`;
+    $('#cmpBar').classList.remove('perfect');
+    return;
+  }
   if (!c) { $('#cmpText').textContent = 'このトラックには、くらべるお手本がありません'; return; }
   const pct = c.total ? Math.round((c.ok / c.total) * 100) : 100;
   $('#cmpText').innerHTML = `<b>${pct}%</b> あっている音 ${c.ok}/${c.total}　<span class="miss">たりない ${c.missing.length}</span>　<span class="bad">ちがう ${c.wrong.size}</span>${c.len ? `　長さがちがう ${c.len}` : ''}`;
@@ -9410,6 +9425,14 @@ function compareMarks(g2, tr, X, rowIndex, rh, sy, k) {
     g2.stroke();
   }
   g2.setLineDash([]);
+  if (refSong._ver) {
+    // 前の版との見くらべ：足した音は青のふち（まちがいではない）
+    g2.strokeStyle = '#1c7ed6';
+    g2.lineWidth = 2.5;
+    for (const n of c.wrong) { const ri = rowIndex.get(n.p); if (ri == null) continue; roundRect(g2, X(n.s) + 1, RH + ri * rh - sy + 1, Math.max(4, n.l * k - 2), rh - 2, 5); g2.stroke(); }
+    g2.restore();
+    return;
+  }
   g2.strokeStyle = '#e03131';
   g2.lineWidth = 2.5;
   for (const n of c.wrong) {

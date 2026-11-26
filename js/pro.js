@@ -199,7 +199,7 @@ function cmdList() {
     ['ショートカット一覧', 'keys shortcut キー', () => openKeys()],
     ['使い方', 'help ヘルプ', clickId('btnHelp')],
   ];
-  return L.map(([n, k, run]) => ({ n, k, run }));
+  return L.map(([n, k, run]) => ({ n, k, run })).concat(typeof pro2Cmds === 'function' ? pro2Cmds() : []);
 }
 // ひらがな・カタカナを同じにして、くらべる
 const kanaFold = (s) => String(s).toLowerCase().replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)).replace(/\s+/g, '');

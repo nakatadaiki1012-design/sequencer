@@ -148,6 +148,11 @@
           <button id="btnArrange"><svg class="i"><use href="#i-layers"/></svg>自動で編曲（いくつかの楽器に）</button>
           <button id="btnInstPanel"><svg class="i"><use href="#i-keys"/></svg>鍵盤・指板のパネル</button>
           <button id="btnComments"><svg class="i"><use href="#i-pencil"/></svg>コメントの一覧</button>
+          <button id="btnVersions"><svg class="i"><use href="#i-clock"/></svg>版の保存と見くらべ</button>
+          <button id="btnIdeas"><svg class="i"><use href="#i-file"/></svg>アイデア帳（フレーズ・リズム）</button>
+          <button id="btnReduce"><svg class="i"><use href="#i-keys"/></svg>ピアノ譜にまとめる</button>
+          <button id="btnSing"><svg class="i"><use href="#i-tool"/></svg>歌って入力（マイク）</button>
+          <button id="btnPractice2"><svg class="i"><use href="#i-turtle"/></svg>弾いて練習（採点）</button>
           <div class="ddh">授業・発表</div>
           <button id="btnPresent"><svg class="i"><use href="#i-screen"/></svg>発表モード（全画面）</button>
           <button id="btnCp"><svg class="i"><use href="#i-layers"/></svg>対位法れんしゅう（2つのメロディ）</button>
@@ -455,6 +460,12 @@
       <li><b>細かく</b>：<kbd>Alt</kbd> をおしながらドラッグすると、マス目より細かく動かしたり、のばしたりできます。</li>
       <li><b>録音</b>：再生ボタンのとなりの <b>●</b>。カウントのあと、パソコンのキーボード・MIDI鍵盤・画面の鍵盤でひくと、そのまま音が入ります。</li>
       <li><b>練習</b>：上のバーの「練習」で、はじめる前のカウントと、ゆっくり再生（曲の速さは変わりません）。</li>
+      <li><b>演奏の表情</b>：「練習」の中の「ほんのり」「たっぷり」で、人が弾いたような再生に（フレーズの山へ向かって少し強く、曲のおわりで少しゆっくり）。</li>
+      <li><b>弾いて練習</b>：「練習」→「弾いて練習」。再生にあわせて弾く（歌う）と、マイクで聞いて、合った音は緑・ちがう音は赤。おわると何％合ったかと、ちがった小節が出ます。</li>
+      <li><b>歌って入力</b>：楽譜の画面の「🎤 歌って」。入力モードで「ラー」と歌うと、えらんだ長さの音符が入ります。録音（●）しながら歌うと、リズムもそのまま入ります。</li>
+      <li><b>版の保存</b>：メニュー →「版の保存と見くらべ」。名前をつけて残し、あとで見くらべる（足した音は青）・その版にもどすができます。10分ごとに自動でも残ります。</li>
+      <li><b>アイデア帳</b>：音をえらんで「💡 アイデア」→「えらんだ音をしまう」。どの曲にも貼れます（いまの調に合わせて移調）。</li>
+      <li><b>ピアノ譜にまとめる</b>：メニューから。いくつかのパートを、右手・左手の1つのピアノ譜にまとめます。</li>
     </ul>
     <h4>コード・音のまとめ</h4>
     <ul>
@@ -543,6 +554,7 @@
   <script src="js/mp3.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pro.js"></script>
+  <script src="js/pro2.js"></script>
   <script>
     // オフラインでも速く開けるように（http(s) で開いたときだけ）
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

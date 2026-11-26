@@ -1713,3 +1713,22 @@ body.present .instpanel, body.present .keypad { display: none !important; }
 .cmtlist li .grow { flex: 1; }
 .scoreeditview .cmt:hover rect { fill: #ffd43b; }
 body.phone #btnCmd { display: none; } /* スマホは「メニュー → 機能を名前でさがす」から */
+
+/* ---------- いいところ その2：版・アイデア帳・マイク・練習 ---------- */
+.verlist li { align-items: center; gap: 6px; }
+.verlist .vinfo { min-width: 0; overflow-wrap: anywhere; }
+.verlist li.dim { opacity: 0.55; }
+.verlist .tag { background: var(--accent); color: #fff; border-radius: 6px; padding: 0 5px; font-size: 11px; }
+.redlist { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0; max-height: 30vh; overflow: auto; }
+.cmpbar .add { color: #1c7ed6; font-weight: bold; }
+.michud { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: calc(100vw - 24px); background: var(--panel, #fff); color: var(--text, #111); border: 2px solid var(--accent); border-radius: 14px; padding: 8px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2); }
+.michud .mnote { font-size: 22px; font-weight: bold; min-width: 3.5em; text-align: center; }
+.michud .mgoal { font-size: 14px; color: var(--muted); min-width: 5.5em; }
+.michud .mlv { width: 60px; height: 8px; border-radius: 4px; background: rgba(128, 128, 128, 0.25); overflow: hidden; }
+.michud .mlv i { display: block; height: 100%; width: 0; background: #2f9e44; }
+.michud .moct { font-size: 12px; min-width: 2.5em; text-align: center; }
+.michud .mhint { flex-basis: 100%; text-align: center; }
+.prpct b { font-size: 34px; color: var(--accent); }
+.scoreeditview .nh.pk-ok { fill: #2f9e44 !important; }
+.scoreeditview .nh.pk-ng { fill: #e03131 !important; }
+.scoreeditview .nh.vd-add { fill: #1c7ed6 !important; }
