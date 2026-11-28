@@ -991,13 +991,13 @@ const Notation = (() => {
     };
     const inWin = (line) => !W || (lines[line][0] >= W[0] && lines[line][1] <= W[1]);
     // フルスコア：1ページに1段しか入らないとき、五線の間を広げて、ページの下までそろえる（下が大きく空かないように）
-    if (opts.fillPage && !W && lines.length > 1) {
+    if (opts.fillPage && (!W || W[0] === 0) && lines.length > 1) { // はじめの数ページだけを書くときも、同じように
       const PH = width * (opts.pageRatio || 273 / 186);
       const top0 = 70 + (meta.nameLine ? 24 : 0) + (meta.subtitle ? 18 : 0);
       const hs = lines.map((_, i) => sysHS(i));
       let i = 0;
       let page = 0;
-      while (i < lines.length) {
+      while (i < lines.length && inWin(i)) {
         const room = PH - 34 - (page === 0 ? top0 : 46) - 6;
         let j = i;
         let h = 0;

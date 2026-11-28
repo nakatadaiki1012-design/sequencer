@@ -1766,3 +1766,6 @@ dialog h3 .dlgx:hover { background: var(--hover, rgba(0,0,0,.06)); }
 .lypop .lyrow b { min-width: 3.2em; text-align: center; }
 .lypop .lyarrows { display: inline-flex; gap: 4px; }
 .lypop .mini { min-width: 32px; min-height: 32px; }
+/* 大きな楽譜を組みなおしているあいだ：前の楽譜をうすく残す */
+#scoreView.busy { opacity: .55; transition: opacity .15s; }
+#scoreView .scbusy { color: var(--accent, #7c3aed); }

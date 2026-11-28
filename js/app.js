@@ -5824,31 +5824,8 @@ const pIW = (P) => P.w - 2 * pMargin(); // よはくの内がわのはば
 const pageRatio = (P) => (P.h - 2 * pMargin()) / pIW(P);
 // 五線の高さ（mm）：楽譜のはば（OUTW/scale）が、紙のはば（よはくの内がわ）になる
 const staffMmOf = (o, P) => (32 * (+o.scale || 1) * pIW(P)) / (o.width || 780);
-// 1段がページに入る、いちばん大きな五線の大きさ（scale）。段の高さ（楽譜の単位）は、五線の大きさではほとんど変わらないので、1回組んだ地図から計算できる
-function fitScaleOf(L, OUTW, P, scaleNow) {
-  if (!L || !L.systems.length) return scaleNow;
-  const top0 = L.systems[0].y0;
-  let need = 0;
-  L.systems.forEach((sy, i) => { need = Math.max(need, (sy.y1 - sy.y0) + 34 + (i === 0 ? top0 : 46)); });
-  // ページの高さ（単位）＝ (OUTW/scale)・比 ≧ need → scale ≦ OUTW・比 / need
-  return (OUTW * pageRatio(P)) / need;
-}
-function fitToPaper(o, P, targetMm, L0) {
-  const OUTW = o.width || 780;
-  o.pageRatio = pageRatio(P);
-  const want = targetMm ? (targetMm * OUTW) / (32 * pIW(P)) : +o.scale || 1;
-  let scale = Math.min(want, L0 ? fitScaleOf(L0, OUTW, P, want) * 0.99 : want);
-  let svg = '';
-  for (let it = 0; it < 3; it++) {
-    o.scale = scale;
-    svg = Notation.render(o);
-    const f = fitScaleOf(Notation.lastLayout, OUTW, P, scale);
-    if (scale <= f * 1.0005) break;
-    scale = f * 0.99; // 段の組み方が変わって、少しはみ出した：もう一度
-  }
-  return { svg, mm: staffMmOf(o, P), scale };
-}
-function scoreSvg(trackIds) {
+// 印刷の楽譜の設定と、用紙・五線の大きさの決め方（組むのは ScoreFit.run：画面でも、裏の作業でも同じ）
+function scorePlan(trackIds) {
   const o = combineParts(scoreOpts(trackIds, true));
   const S0 = scoreSettings();
   o.hideEmpty = !!S0.orch && S0.hideEmpty !== false; // フルスコアは、休んでいる段をかくす（2段目から）
@@ -5862,26 +5839,43 @@ function scoreSvg(trackIds) {
   // 用紙：自動のときは A4。大きなオーケストラで五線が小さくなりすぎる（3mm未満）なら、B4・A3 に
   const papers = S0.paper && PAPERS[S0.paper] ? [PAPERS[S0.paper]] : big ? [PAPERS.a4, PAPERS.b4, PAPERS.a3] : [PAPERS.a4];
   // 五線の大きさのめやす：ふつうの楽譜 7mm、フルスコア 6mm（入らなければ、入るだけ小さく）
-  const target = auto ? (big ? 6 : 7) : null;
-  if (!auto) o.scale = +S0.size || 1;
-  // まず1回組んで段の高さを見て、どの用紙なら五線が 3mm 以上になるかを計算で決める（何度も組みなおさない）
-  let L0 = null;
-  let P = papers[0];
-  if (papers.length > 1 || auto) {
-    o.scale = (target * (o.width || 780)) / (32 * pIW(papers[0])) || 1;
-    o.pageRatio = pageRatio(papers[0]);
-    Notation.render(o);
-    L0 = Notation.lastLayout;
-    for (const Q of papers) {
-      P = Q;
-      const mm = (32 * Math.min((target * (o.width || 780)) / (32 * pIW(Q)), fitScaleOf(L0, o.width || 780, Q, 1)) * pIW(Q)) / (o.width || 780);
-      if (mm >= 3) break;
-    }
+  return { o, a: { papers, target: auto ? (big ? 6 : 7) : null, auto, size: S0.size, margin: pMargin() } };
+}
+function scoreSvg(trackIds) {
+  const { o, a } = scorePlan(trackIds);
+  const r = ScoreFit.run(o, a);
+  printPaper = a.papers[r.paperIdx];
+  printFit = { paper: printPaper.n, mm: r.mm };
+  return r.svg;
+}
+// 大きな楽譜は、楽譜全体を裏の作業（Web Worker）で組む。そのあいだ画面は止まらない
+let scoreWorker = null;
+let scoreWorkerBusy = false;
+let scoreJobId = 0;
+let scoreFullP = null; // 楽譜全体ができるまでの約束（印刷・書き出しは、これを待つ）
+let scorePreviewBars = 40; // すぐ見せる（はじめの数ページの）小節の数。全体ができたら、はじめの4ページぶんになおす
+function scoreFullAsync(o, a) {
+  // 関数（ドレミの名前・コード図）があると、裏の作業にはわたせない：そのときは画面で組む
+  let canWorker = typeof Worker !== 'undefined';
+  // 使わない関数は外す（コード図を書かないときの chordShape など）。使う関数（ドレミの名前・コード図）があるときだけ、画面で組む
+  if (canWorker) {
+    const need = (k) => (k === 'nameOf' ? !!o.nameOf : k === 'chordShape' ? !!(o.diagrams && o.chordShape) : true);
+    const fnKeys = Object.keys(o).filter((k) => typeof o[k] === 'function');
+    if (fnKeys.some(need)) canWorker = false;
+    else { o = { ...o }; for (const k of fnKeys) delete o[k]; }
   }
-  const r = fitToPaper(o, P, target, L0);
-  printPaper = P;
-  printFit = { paper: printPaper.n, mm: r ? r.mm : 0 };
-  return r ? r.svg : Notation.render(o);
+  if (canWorker) { try { structuredClone({ o, a }); } catch (e) { canWorker = false; } }
+  if (!canWorker) return new Promise((res) => setTimeout(() => { const r = ScoreFit.run(o, a); const L = Notation.lastLayout; res({ svg: r.svg, pages: Notation.paginate(r.svg, L, ScoreFit.ratio(a.papers[r.paperIdx], a.margin)), layout: L, paperIdx: r.paperIdx, mm: r.mm, counts: Notation.pageCounts(L, ScoreFit.ratio(a.papers[r.paperIdx], a.margin)) }); }, 30));
+  // 前の作業がまだなら、すてて新しく（設定を続けて変えたとき、古い楽譜を待たない）
+  if (scoreWorker && scoreWorkerBusy) { scoreWorker.terminate(); scoreWorker = null; }
+  if (!scoreWorker) scoreWorker = new Worker('js/scoreworker.js');
+  const id = ++scoreJobId;
+  scoreWorkerBusy = true;
+  return new Promise((res, rej) => {
+    scoreWorker.onmessage = (e) => { if (e.data.id !== id) return; scoreWorkerBusy = false; if (e.data.error) rej(new Error(e.data.error)); else res(e.data); };
+    scoreWorker.onerror = (e) => { scoreWorkerBusy = false; rej(new Error(e.message || 'worker')); };
+    scoreWorker.postMessage({ id, o, a });
+  });
 }
 let scoreSel = null;
 let scoreLayoutL = null; // 楽譜をつくる画面の楽譜の地図（おした段・小節をさがす）
@@ -5953,23 +5947,52 @@ function openScore() {
     const ids = [...scoreSel];
     if (!ids.length) { scoreFull = ''; scorePages = []; $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">パートを選んでください</p>'; return; }
     const big = song.bars * ids.length > 2400;
-    const build = () => {
+    const SHOW = 4;
+    const view = $('#scoreView');
+    const showPages = (pages, full, note) => {
+      view.classList.remove('busy');
+      view.innerHTML = pages.length > 1 ? pages.slice(0, SHOW).map((pg) => `<div class="pagebox">${pg}</div>`).join('') + note : full + note;
+    };
+    const fitInfo = (txt) => { const fi = $('#scFitInfo'); if (fi) fi.textContent = txt; };
+    if (!big) {
       scoreFull = scoreSvg(ids);
       scoreLayoutL = Notation.lastLayout;
-      // 印刷するときと同じ、A4 のページに分けて見せる（とても長い曲は、はじめの数ページだけ見せる。印刷には全部出る）
+      // 印刷するときと同じ、ページに分けて見せる（とても長い曲は、はじめの数ページだけ見せる。印刷には全部出る）
       scorePages = Notation.paginate(scoreFull, Notation.lastLayout, pageRatio(printPaper));
-      const fi = $('#scFitInfo');
-      if (fi && printFit) fi.textContent = `${printFit.paper}・五線の高さ ${printFit.mm.toFixed(1)}mm・${scorePages.length || 1}ページ`;
-      const SHOW = 4;
-      const more = scorePages.length > SHOW ? `<p class="muted scmore">全${scorePages.length}ページ。ここでは、はじめの${SHOW}ページだけを見せています（印刷・PDF・画像には全部出ます）</p>` : '';
-      $('#scoreView').innerHTML = scorePages.length > 1 ? scorePages.slice(0, SHOW).map((pg) => `<div class="pagebox">${pg}</div>`).join('') + more : scoreFull;
-    };
-    scoreLayoutL = Notation.lastLayout;
-    if (!big) return build();
-    // 大きな曲は時間がかかるので、先に「作っています」を出してから作る
-    $('#scoreView').innerHTML = '<p class="muted" style="padding:12px">楽譜を作っています…（大きな曲なので、少し時間がかかります）</p>';
+      scoreFullP = null;
+      if (printFit) fitInfo(`${printFit.paper}・五線の高さ ${printFit.mm.toFixed(1)}mm・${scorePages.length || 1}ページ`);
+      showPages(scorePages, scoreFull, scorePages.length > SHOW ? `<p class="muted scmore">全${scorePages.length}ページ。ここでは、はじめの${SHOW}ページだけを見せています（印刷・PDF・画像には全部出ます）</p>` : '');
+      return;
+    }
+    // 大きな曲：はじめの数ページぶんだけを、すぐ組んで見せる（前の楽譜は、うすくして残しておく）。楽譜全体は、裏で組む
+    view.classList.add('busy');
     clearTimeout(upd.timer);
-    upd.timer = setTimeout(build, 30);
+    upd.timer = setTimeout(() => {
+      const { o, a } = scorePlan(ids);
+      const ow = { ...o, window: [0, Math.min(song.bars, scorePreviewBars)] };
+      const r = ScoreFit.run(ow, a);
+      const P = a.papers[r.paperIdx];
+      const fast = Notation.paginate(r.svg, Notation.lastLayout, ScoreFit.ratio(P, a.margin));
+      scoreLayoutL = Notation.lastLayout;
+      printPaper = P;
+      scoreFull = '';
+      scorePages = [];
+      showPages(fast.slice(0, SHOW), r.svg, '<p class="muted scmore scbusy">楽譜全体を組んでいます…（このあいだも、楽譜をおして調整できます。印刷・PDFは、組みおわってから出ます）</p>');
+      fitInfo(`${P.n}・五線の高さ ${r.mm.toFixed(1)}mm・（全体を組んでいます…）`);
+      const job = scoreFullAsync(o, a).then((res) => {
+        if (scoreFullP !== job) return; // もっと新しい設定で組みなおしている
+        scoreFull = res.svg;
+        scorePages = res.pages;
+        scoreLayoutL = res.layout;
+        printPaper = a.papers[res.paperIdx];
+        printFit = { paper: printPaper.n, mm: res.mm };
+        // つぎにすぐ見せる小節の数：はじめの4ページに入る小節
+        if (res.counts && res.layout.systems.length) { const nSys = res.counts.slice(0, SHOW).reduce((x, y) => x + y, 0); const sy = res.layout.systems[Math.min(nSys, res.layout.systems.length) - 1]; if (sy && sy.bars.length) scorePreviewBars = Math.max(8, sy.bars[sy.bars.length - 1].b + 2); }
+        fitInfo(`${printFit.paper}・五線の高さ ${printFit.mm.toFixed(1)}mm・${scorePages.length || 1}ページ`);
+        showPages(scorePages, scoreFull, scorePages.length > SHOW ? `<p class="muted scmore">全${scorePages.length}ページ。ここでは、はじめの${SHOW}ページだけを見せています（印刷・PDF・画像には全部出ます）</p>` : '');
+      }).catch((err) => { if (scoreFullP === job) fitInfo('楽譜全体を組めませんでした：' + err.message); });
+      scoreFullP = job;
+    }, 20);
   };
   scoreUpd = upd;
   side.querySelectorAll('[data-s]').forEach((el) => {
@@ -6004,9 +6027,18 @@ function autosaveSoon() {
   autosaveTimer = setTimeout(() => { try { localStorage.setItem('otsumiki-autosave', snapshot()); } catch (e) { /* 何もしない */ } }, 400);
 }
 function printScore() {
-  const pages = scorePages.length ? scorePages : [scoreFull || $('#scoreView').innerHTML];
   const w = window.open('', '_blank');
   if (!w) return alert('ポップアップがブロックされました。ブラウザの設定で許可してください');
+  // 大きな楽譜を裏で組んでいるときは、できるのを待ってから
+  if (!scorePages.length && !scoreFull && scoreFullP) {
+    w.document.write('<!doctype html><meta charset="utf-8"><p style="font:16px sans-serif;padding:24px">楽譜全体を組んでいます…できたら、印刷の画面が出ます。</p>');
+    scoreFullP.then(() => { w.document.open(); printScoreTo(w); }).catch((e) => { w.document.body.textContent = '楽譜を組めませんでした：' + e.message; });
+    return;
+  }
+  printScoreTo(w);
+}
+function printScoreTo(w) {
+  const pages = scorePages.length ? scorePages : [scoreFull || $('#scoreView').innerHTML];
   // 1ページに1枚ずつ。段のとちゅうで切れないように、ページを分けてあります
   w.document.write(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(song.title)}</title><link rel="stylesheet" href="${new URL('fonts/serif.css', location.href)}"><style>@page{size:${printPaper.css};margin:${pMargin()}mm}body{margin:0}.pg{break-after:page;page-break-after:always}.pg:last-child{break-after:auto;page-break-after:auto}svg{display:block;width:100%;height:auto}.pg svg.page{width:auto;height:${printPaper.h - 2 * pMargin() - 5}mm;margin:0 auto}</style>${pages.map((pg) => `<div class="pg">${pg}</div>`).join('')}<script>onload=()=>{const go=()=>setTimeout(()=>print(),200);(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(go,go)}<\/script>`);
   w.document.close();
@@ -6079,6 +6111,7 @@ async function embedSerifFont(svgEl) {
   } catch (e) { /* 字体が読めなければ、そのまま */ }
 }
 async function exportPng() {
+  if (!scoreFull && scoreFullP) { toast('楽譜全体を組んでいます…できたら画像にします'); try { await scoreFullP; } catch (e) { return; } }
   if (!scoreFull) return;
   const holder = document.createElement('div');
   holder.innerHTML = scoreFull;
@@ -10248,7 +10281,7 @@ function init() {
   $('#btnPngScore').onclick = exportPng;
   $('#btnXmlScore').onclick = exportMusicXML;
   $('#btnMsczScore').onclick = exportMscz;
-  $('#btnSvgScore').onclick = () => download(new Blob([scoreFull], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg');
+  $('#btnSvgScore').onclick = async () => { if (!scoreFull && scoreFullP) { toast('楽譜全体を組んでいます…'); try { await scoreFullP; } catch (e) { return; } } download(new Blob([scoreFull], { type: 'image/svg+xml' }), safeName() + '_楽譜.svg'); };
   $('#btnScorePanel').onchange = (e) => { ui.showScore = e.target.checked; renderScorePanel(); };
   $('#ghost').onchange = (e) => { ui.ghost = e.target.checked; draw(); };
   $('#dragMode').onchange = (e) => { ui.dragMode = e.target.value; };
