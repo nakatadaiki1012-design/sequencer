@@ -120,6 +120,41 @@ const { chromium } = require('playwright');
       const dots = [...svg3.querySelectorAll('path')].filter((e) => e.getAttribute('d') === dA || e.getAttribute('d') === dB).map(cy);
       out['2声部のスタッカート：音符の外がわ（上と下）'] = dots.length === 2 && Math.min(...dots) < Math.min(...hs) - 15 && Math.max(...dots) > Math.max(...hs) + 15;
     }
+    // ---- 4d. スタッカートは線と線のあいだ・タイのふくらみ・2声部の臨時記号と2度の音・付点と旗 ----
+    {
+      const rx = (e) => e.getBoundingClientRect();
+      // スタッカート：五線の中に来るときは、間（線と線のあいだ）のまん中
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 1, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 64, l: 48, art: ['stac'] }, { s: 48, p: 65, l: 48, art: ['stac'] }, { s: 96, p: 72, l: 48, art: ['stac'] }, { s: 144, p: 74, l: 48, art: ['stac'] }] }] }, { own: true });
+      let sv = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const lines = [...sv.querySelectorAll('line')].filter((l) => +l.getAttribute('x2') - +l.getAttribute('x1') > 300).map((l) => +l.getAttribute('y1')).sort((x, y) => x - y).slice(0, 5);
+      const dA = Glyphs.g.articStaccatoAbove.d; const dB = Glyphs.g.articStaccatoBelow.d;
+      const svgTop = rx(sv).top; const vb = sv.viewBox.baseVal; const k = vb.height / rx(sv).height;
+      const dotsY = [...sv.querySelectorAll('path')].filter((e) => e.getAttribute('d') === dA || e.getAttribute('d') === dB).map((e) => { const r = rx(e); return ((r.top + r.bottom) / 2 - svgTop) * k + vb.y; });
+      const inSt = dotsY.filter((y) => y > lines[0] - 1 && y < lines[4] + 1);
+      out['スタッカート：五線の中では線にかからない'] = lines.length === 5 && inSt.length > 0 && inSt.every((y) => lines.every((ly) => Math.abs(y - ly) > 1.6)) ? 'OK ' + inSt.length : JSON.stringify({ lines, dotsY });
+      // タイ：長いタイは、はっきりふくらむ
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 2, key: 0, tracks: [{ type: 'melody', inst: 'cello', clef: 'bass', notes: [{ s: 96, p: 50, l: 192 }] }] }, { own: true });
+      sv = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const tie = sv.querySelector('.tie');
+      const tq = tie ? tie.getAttribute('d').match(/-?[\d.]+/g).map(Number) : [];
+      out['タイのふくらみ（まん中で4以上）'] = tq.length >= 6 ? Math.abs((tq[3] - (tq[1] + tq[5]) / 2) / 2) >= 4 : 'tie?';
+      // 2声部：同じ時の臨時記号は、かさならない。2度の音は上の声部を右へ
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 1, key: 0, tracks: [{ type: 'melody', inst: 'oboe', notes: [{ s: 0, p: 70, l: 96 }, { s: 0, p: 66, l: 96, v: 2 }, { s: 96, p: 72, l: 96 }, { s: 96, p: 71, l: 96, v: 2 }] }] }, { own: true });
+      sv = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const accD = new Set(['accidentalSharp', 'accidentalFlat', 'accidentalNatural'].map((n) => Glyphs.g[n].d));
+      const accs = [...sv.querySelectorAll('path')].filter((e) => accD.has(e.getAttribute('d'))).map(rx);
+      const ovA = accs.some((a, i) => accs.some((c, j) => j > i && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5));
+      out['2声部の臨時記号がかさならない'] = accs.length >= 2 && !ovA;
+      const hs = [...sv.querySelectorAll('.nh')].filter((e) => +e.dataset.s === 96).map(rx).sort((a, c) => a.top - c.top);
+      out['2度の音：上の声部が右へ（符頭がかさならない）'] = hs.length === 2 && hs[0].left >= hs[1].right - 1;
+      // 付点8分（旗が上）：付点は旗より右
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 1, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 64, l: 36 }, { s: 48, p: 65, l: 36 }, { s: 96, p: 64, l: 96 }] }] }, { own: true });
+      sv = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const flagD = new Set(['flag8thUp', 'flag16thUp'].map((n) => Glyphs.g[n].d));
+      const fl = [...sv.querySelectorAll('path')].filter((e) => flagD.has(e.getAttribute('d'))).map(rx);
+      const dt = [...sv.querySelectorAll('path')].filter((e) => e.getAttribute('d') === Glyphs.g.augmentationDot.d).map(rx);
+      out['付点と旗がかさならない'] = fl.length ? !dt.some((d) => fl.some((f) => d.left < f.right && f.left < d.right && d.top < f.bottom && f.top < d.bottom)) : 'beamed';
+    }
     // ---- 4c. MuseScore：2つ目の声部が高いときは上の声部に。とちゅうで終わる声部のあとに休符を書かない。3/8 のテンポは ♪＝ ----
     {
       const ch = (p, d, extra = '') => `<Chord><durationType>${d}</durationType>${extra}<Note><pitch>${p}</pitch></Note></Chord>`;

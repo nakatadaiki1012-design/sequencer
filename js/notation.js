@@ -520,15 +520,24 @@ const Notation = (() => {
       // 下の声部の休符は、上の声部の低い音をよけて下へ出る：そのぶんも下をあける（強弱記号がかさならないように）
       for (const b in lowV1) if (lowV1[b] < 4 && +b < bars) st.loB[b] = Math.min(st.loB[b], lowV1[b] - 7);
       // スラーは、ぼうの先や符頭の上を通るので、その小節の上のあきに入れる
+      // （ぼうがみんな上向きのスラーは下を通るので、下のあきに入れる：強弱記号とかさならないように）
       if (st.clef !== 'perc') for (const sl of st.part.slurs || []) {
         let pk = -99;
+        let tr = 99;
+        let allUp = true;
+        let any = false;
         for (const n of st.notes.concat(st.notes2)) {
           if (n.s < sl.s || n.s > sl.e) continue;
+          if (sl.v === 2 ? n.v !== 2 : sl.v === 1 && n.v === 2) continue;
           const nb = barOfT(Math.max(0, n.s));
           const pos = spell(n.p, st.kcs[nb] || 0).dn - st.baseAt(nb);
+          any = true;
+          if (n.l < 192 && !(v2Bars.has(nb) ? n.v !== 2 : pos < 4)) allUp = false;
           pk = Math.max(pk, (pos < 4 && n.l < 192 ? pos + 7 : pos + 1) + 5);
+          tr = Math.min(tr, pos - 6);
         }
-        if (pk > -99) for (let bb = barOfT(Math.max(0, sl.s)); bb <= barOfT(Math.max(sl.s, sl.e)) && bb < bars; bb++) if (bb >= 0) st.hiB[bb] = Math.max(st.hiB[bb], pk);
+        if (!any) continue;
+        for (let bb = barOfT(Math.max(0, sl.s)); bb <= barOfT(Math.max(sl.s, sl.e)) && bb < bars; bb++) if (bb >= 0) { if (allUp) st.loB[bb] = Math.min(st.loB[bb], tr); else st.hiB[bb] = Math.max(st.hiB[bb], pk); }
       }
       st.above = Math.max(0, hi - 10) * (SP / 2) + (hi > 9 ? 6 : 0);
       // 装飾記号・指番号・弓の記号・譜表テキストの分も、上をあける
@@ -585,9 +594,17 @@ const Notation = (() => {
       const need = new Map(); // 位置 → { w: 文字のはば, acc: 臨時記号がつくか }
       for (const st of staves) {
         const keyPcs = new Set([0, 2, 4, 5, 7, 9, 11].map((v, i) => (v + keyAccOf(st.kcs[b])[i] + 12) % 12));
+        const comb = new Map(); // 位置 → 2つの声部の臨時記号（いっしょに列をならべる）
+        const v1lo = new Map();
+        const v2hi = new Map();
+        const ev2 = st.has2[b] ? new Set(st.bars2[b]) : null;
         for (const ev of st.evAt(b)) {
           if (ev.pos < barStartTick(b)) continue;
           set.add(ev.pos);
+          if (ev2 && ev.pitches && st.clef !== 'perc') {
+            const dns = ev.pitches.map((p) => spell(p, st.kcs[b] || 0).dn);
+            if (ev2.has(ev)) v2hi.set(ev.pos, Math.max(v2hi.get(ev.pos) ?? -1e9, ...dns)); else v1lo.set(ev.pos, Math.min(v1lo.get(ev.pos) ?? 1e9, ...dns));
+          }
           const n = need.get(ev.pos) || { w: 0, acc: false, pre: 0 };
           if (ev.pitches && st.clef !== 'perc' && !st.part.slash && ev.pitches.some((p) => !keyPcs.has(((p % 12) + 12) % 12))) {
             // 臨時記号の列の数（和音で近い音に臨時記号が2つ以上あると、左へ何列もならぶ）
@@ -599,6 +616,7 @@ const Notation = (() => {
             const all = ev.pitches.map((p) => spell(p, st.kcs[b] || 0).dn).sort((x, y) => x - y);
             const second = all.some((d, i) => i && d - all[i - 1] === 1); // 2度の和音は符頭が左右にずれる
             n.acc = Math.max(+n.acc || 0, mx + 1 + (second ? 1 : 0));
+            if (ev2) { const c = comb.get(ev.pos) || []; c.push(...ds); comb.set(ev.pos, c); }
           }
           // 装飾音符・アルペジオは、音の前に場所をとる
           if (ev.first && ev.pitches) n.pre = Math.max(n.pre || 0, (ev.gr != null ? 6 + 9 * grOf(ev.gr).length : 0) + ((ev.art || []).includes('arp') ? 9 : 0));
@@ -609,6 +627,18 @@ const Notation = (() => {
           need.set(ev.pos, n);
           if (ev.pitches && ev.pos === barStartTick(b) && (n.acc || n.pre)) accRoom = Math.max(accRoom, (+n.acc || 0) * 9 + (n.pre || 0));
         }
+        // 2つの声部が同じ時に臨時記号をもつ：列をいっしょにならべるので、そのぶん左をあける
+        for (const [pos, ds] of comb) {
+          const srt = [...new Set(ds)].sort((x, y) => y - x);
+          let col = 0;
+          let mx = 0;
+          let last = 1e9;
+          for (const d of srt) { col = last - d < 6 ? col + 1 : 0; last = d; mx = Math.max(mx, col); }
+          const n = need.get(pos);
+          if (n) { n.acc = Math.max(+n.acc || 0, mx + 1 + (srt.length > 1 ? 1 : 0)); if (pos === barStartTick(b)) accRoom = Math.max(accRoom, n.acc * 9 + (n.pre || 0)); }
+        }
+        // 上の声部が下の声部と2度以内（または交差）：上の声部を右へずらすので、そのぶん広く
+        for (const [pos, lo1] of v1lo) { const hi2 = v2hi.get(pos); if (hi2 != null && lo1 - hi2 <= 1) { const n = need.get(pos); if (n) n.w = Math.max(n.w, 26); } }
       }
       if (edit && edit.cursor != null && edit.cursor < bS(bars) && barOfT(edit.cursor) === b) set.add(edit.cursor - bS(b));
       // 1小節にいくつものコード：コードが変わる位置にも場所をとり、コードネームが重ならないように
@@ -1145,6 +1175,7 @@ const Notation = (() => {
           }
           const notPick = (ev) => !(bb === 0 && pickup && ev.pos < bL(0) - pickup);
           const gapsB = st.gapB ? st.gapB.get(bb) : null;
+          const accAt = new Map(); // この小節の、位置 → 書いた臨時記号（2つの声部で列をいっしょに）
           // mode 0: 1声部だけ / 1: 上の声部（ぼう上） / 2: 下の声部（ぼう下）
           const drawEvs = (evs, mode, stream, allBars, other) => {
           const drawn = [];
@@ -1216,7 +1247,19 @@ const Notation = (() => {
             const disp = new Array(heads.length).fill(0);
             if (up) { for (let i = 1; i < heads.length; i++) if (heads[i].pos - heads[i - 1].pos === 1 && !disp[i - 1]) disp[i] = 10.5; }
             else { for (let i = heads.length - 2; i >= 0; i--) if (heads[i + 1].pos - heads[i].pos === 1 && !disp[i + 1]) disp[i] = -10.5; }
-            const x = x0;
+            // 上の声部の音が、下の声部の音と2度以内（または交差）：上の声部を右へずらす（浄書のきまり）。同じ音（同じ形）なら符頭を共有
+            let shiftX = 0;
+            if (modeE === 1 && other && !perc) {
+              const oe = other.find((e) => !e.rest && e.pitches && e.pos === ev.pos);
+              if (oe) {
+                const oPos = oe.pitches.map((pp) => spell(pp, kcB).dn - st.baseDn);
+                // 同じ高さ・同じ形の音は、符頭を共有できる（ずらさない）。それ以外で2度以内にある音があれば、ずらす
+                const share = (ev.base < 96) === (oe.base < 96) && ev.base < 192 && oe.base < 192 && !!ev.dot === !!oe.dot;
+                const clash = heads.some((h) => oPos.some((q) => Math.abs(q - h.pos) <= 1 && !(q === h.pos && share)));
+                if (clash) shiftX = GW('noteheadBlack') + 1;
+              }
+            }
+            const x = x0 + shiftX;
             const filled = ev.base < 96;
             const sel = edit && edit.sel && edit.part === st.pi;
             let accCol = 0;
@@ -1257,6 +1300,7 @@ const Notation = (() => {
                 o.push(`<rect x="${sxs[0]}" y="${top}" width="${sxs[sxs.length - 1] - sxs[0] + 0.8}" height="2.4" fill="#111"/><rect x="${sxs[0]}" y="${top + 4}" width="${sxs[sxs.length - 1] - sxs[0] + 0.8}" height="2.4" fill="#111"/>`);
               }
             }
+            const dotIdx = []; // 付点の位置（旗があれば、あとで旗の右へずらす）
             for (let i = heads.length - 1; i >= 0; i--) {
               const h = heads[i];
               const hx2 = x + disp[i];
@@ -1287,10 +1331,15 @@ const Notation = (() => {
               if (h.accTxt && !st.part.slash) {
                 if (lastAccPos - h.pos < 6) accCol++; else accCol = 0;
                 lastAccPos = h.pos;
+                // もう一方の声部の臨時記号と、同じ列でかさならないように（左の列へ）
+                const occ = accAt.get(ev.pos) || [];
+                while (occ.some((q) => q.col === accCol && Math.abs(q.pos - h.pos) < 6)) accCol++;
+                occ.push({ pos: h.pos, col: accCol });
+                accAt.set(ev.pos, occ);
                 const an = ACC_G[h.acc] || 'accidentalNatural';
-                o.push(G(an, x - hw - GW(an) - 2.5 - accCol * 9 + Math.min(0, ...disp), y, `fill="${col}"`)); // 左にずれた符頭（2度）がある和音では、その分だけ左へ
+                o.push(G(an, x0 - hw - GW(an) - 2.5 - accCol * 9 + Math.min(0, ...disp), y, `fill="${col}"`)); // 左にずれた符頭（2度）がある和音では、その分だけ左へ
               }
-              if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; o.push(G('augmentationDot', x + hw + 3 + Math.max(0, ...disp), y + dy, `fill="${col}"`)); }
+              if (ev.dot) { const dy = h.pos % 2 === 0 ? -SP / 2 : 0; dotIdx.push(o.length); o.push(G('augmentationDot', x + hw + 3 + Math.max(0, ...disp), y + dy, `fill="${col}"`)); }
             }
             // 階名・歌詞
             if (!perc && nameOf && ev.first && stream === 'A') o.push(`<text x="${x}" y="${textY}" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1e3a8a">${esc(heads.map((h) => nameOf(h.p)).reverse().join('・'))}</text>`);
@@ -1312,7 +1361,7 @@ const Notation = (() => {
               else melFlush();
             }
             const flags = ev.base <= 6 ? 3 : ev.base <= 12 ? 2 : ev.base <= 24 ? 1 : 0;
-            const d = { x, up, lo, hi, flags: st.part.slash ? 0 : flags, hasStem: ev.base < 192 && !st.part.slash, ev, yOf, beatIdx: Math.floor(ev.pos / beatOf(mAt(bb))), heads, disp, forced: ev.sd && !perc ? ev.sd > 0 : modeE ? modeE === 1 : perc ? true : null, free };
+            const d = { x, up, lo, hi, flags: st.part.slash ? 0 : flags, hasStem: ev.base < 192 && !st.part.slash, ev, yOf, beatIdx: Math.floor(ev.pos / beatOf(mAt(bb))), heads, disp, forced: ev.sd && !perc ? ev.sd > 0 : modeE ? modeE === 1 : perc ? true : null, free, tw: !!modeE, dotIdx };
             drawn.push(d);
             if (!headsAt.has(ev.abs) || stream === 'A') headsAt.set(ev.abs, d);
             (stream === 'A' ? headsA : headsB).set(ev.abs, d);
@@ -1348,21 +1397,42 @@ const Notation = (() => {
             const arts = d.ev.first ? d.ev.art || [] : [];
             let k = 0;
             let artTop = Infinity; // 符頭の上に書いた記号のいちばん上
+            let edge = null; // いま書いた記号の外がわのはし
             for (const a of arts) {
               if (ABOVE_ART.has(a) || !['stac', 'ten', 'acc', 'marc', 'stacc2'].includes(a)) continue;
               // 2つの声部がある小節：記号は、ぼうの先（外がわ）に書く。符頭がわに書くと、相手の声部の音にかさなる
-              const stemSide = two && d.hasStem && !d.free;
+              const stemSide = d.tw && d.hasStem;
               const below = stemSide ? !d.up : d.up;
               const tipA = d.tipY != null ? d.tipY : stemEnd(d);
-              // 符頭から半スペース以上はなし、線の上にかからないように
-              let yy = stemSide ? (d.up ? tipA - 5 - k * 9 : tipA + 5 + k * 9) : below ? d.yOf(d.lo) + 6 + k * 9 : d.yOf(d.hi) - 6 - k * 9;
               const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato', stacc2: 'articStaccatissimo' }[a] + (below ? 'Below' : 'Above');
               if (!Glyphs.g[nm]) continue;
-              o.push(G(nm, d.x - GW(nm) / 2, yy));
-              if (!below) artTop = Math.min(artTop, yy - (a === 'marc' ? 11 : 9));
+              const bbA = Glyphs.g[nm].bbox || [0, -0.5, 1, 0];
+              const gT = bbA[1] * SP; // 記号の上のはし（書く位置から）
+              const gB = bbA[3] * SP; // 下のはし
+              // 記号の、符頭（ぼうの先）がわのはしを置く高さ
+              const near = edge != null ? edge + (below ? 2.5 : -2.5) : stemSide ? (d.up ? tipA - 3 : tipA + 3) : below ? d.yOf(d.lo) + 5 : d.yOf(d.hi) - 5;
+              let yy = below ? near - gT : near - gB;
+              // 五線の中に入るときは、線と線のあいだ（間）のまん中に（線の上にかからないように）。外がわへずらす
+              const cy0 = yy + (gT + gB) / 2;
+              if (cy0 > yOf(8) - 1 && cy0 < yOf(0) + 1) {
+                const q = (yOf(0) - cy0) / (SP / 2); // 位置（線＝偶数）
+                let qq = Math.round(q);
+                if (qq % 2 === 0) qq += below ? -1 : 1; // 線の上なら、外がわの間へ
+                if (below ? qq > q + 0.01 : qq < q - 0.01) qq += below ? -2 : 2; // 内がわへもどらない
+                const cy1 = yOf(qq);
+                if (cy1 > yOf(8) - 1 && cy1 < yOf(0) + 1) yy += cy1 - cy0;
+              }
+              const ax = stemSide ? stemX(d) : d.x; // ぼうがわの記号は、ぼうの上（浄書のきまり）
+              o.push(G(nm, ax - GW(nm) / 2, yy));
+              const aT = yy + gT;
+              const aB = yy + gB;
+              if (!below) artTop = Math.min(artTop, aT - 1);
+              edge = below ? aB : aT;
+              // 書いた記号の上下のはし（3連符の数字・スラーをその外へ）
+              if (below) d.outB = Math.max(d.outB == null ? -Infinity : d.outB, aB); else d.outT = Math.min(d.outT == null ? Infinity : d.outT, aT);
               k++;
             }
-            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? (d.tipY != null ? d.tipY : stemEnd(d)) - 4 : Infinity, artTop - 2);
+            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? (d.tipY != null ? d.tipY : stemEnd(d)) - 4 : Infinity, artTop - 2, d.tupTop != null ? d.tupTop - 2 : Infinity);
             // スラーのはし（上がわ）の音なら、装飾記号・フェルマータはスラーの外へ
             if (!d.up && (st.part.slurs || []).some((sl) => sl.s === d.ev.src || sl.e === d.ev.src) && arts.some((a) => ORN_G[a] || a === 'ferm')) yy -= 9;
             if (arts.includes('ferm')) {
@@ -1544,30 +1614,43 @@ const Notation = (() => {
             const ups = inside.filter((d) => d.hasStem).map((d) => d.up);
             above = !ups.length ? !(a || z).up : ups.every((u) => u) ? false : true;
           }
-          // はしの高さ：ぼうがスラーの側にある音は、ぼうの先から
+          // はしの高さ：ぼうがスラーの側にある音は、ぼうの先から。スタッカートなど・3連符の数字がそのがわにあれば、その外
           const tip = (d) => (d.tipY != null ? d.tipY : stemEnd(d));
-          const endY = (d) => (above ? (d.hasStem && d.up ? tip(d) - 4 : d.yOf(d.hi) - 8) : (d.hasStem && !d.up ? tip(d) + 4 : d.yOf(d.lo) + 8));
+          const endY = (d) => {
+            let y = above ? (d.hasStem && d.up ? tip(d) - 4 : d.yOf(d.hi) - 8) : (d.hasStem && !d.up ? tip(d) + 4 : d.yOf(d.lo) + 8);
+            if (above) { if (d.outT != null) y = Math.min(y, d.outT - 3); if (d.tupTop != null) y = Math.min(y, d.tupTop - 2); }
+            else { if (d.outB != null) y = Math.max(y, d.outB + 3); if (d.tupBot != null) y = Math.max(y, d.tupBot + 2); }
+            return y;
+          };
           const xa = a ? a.x + (above && a.hasStem && a.up ? 4 : 0) : sys.bars[0].xs[0] - 6;
           const xz = z ? z.x - (!above && z.hasStem && !z.up ? 4 : 0) : xEnd - 6;
           const ya = a ? endY(a) : (above ? yOf(9) : yOf(-1));
           const yz = z ? endY(z) : ya;
-          const yA = ya;
-          // ふくらみ：スラーの長さ（ななめの長さ）に合わせる。はしの高さが大きくちがうときも、まっすぐな線に見えないように
-          const sLen = Math.hypot(xz - xa, yz - ya);
-          let lift = Math.min(22, 6 + sLen / 12) * (above ? -1 : 1);
-          // 中の音（符頭・ぼう・連桁）にさわらないよう、カーブを高く（深く）する
+          const W = Math.max(1, xz - xa);
+          // ふくらみ：横の長さに合わせる（短いスラーでも、ふくらみが見えるように）
+          let lift = Math.min(24, 7 + W / 10) * (above ? -1 : 1);
+          // 中の音（符頭・ぼう・連桁・記号）にさわらないよう、カーブを高く（深く）する
           for (const d of inside) {
-            if (d === a || d === z || xz - xa < 4) continue;
-            const t = Math.min(0.8, Math.max(0.2, (d.x - xa) / (xz - xa)));
+            if (d === a || d === z || W < 4) continue;
+            const t = Math.min(0.85, Math.max(0.15, (d.x - xa) / W));
             const base = ya + (yz - ya) * t;
             const need = endY(d) + (above ? -2 : 2) - base;
-            const k3 = 3 * t * (1 - t) * 0.9;
+            const k3 = 3 * t * (1 - t) * 0.92;
             if (above ? need < lift * k3 : need > lift * k3) lift = need / k3;
           }
-          lift = Math.max(-64, Math.min(64, lift));
-          // 太さは、ふくらみの大きさに関係なく同じ（まん中で約2）。大きくふくらむスラーが、太いかたまりにならないように
-          const lift2 = lift - Math.sign(lift) * Math.min(3.2, Math.abs(lift) * 0.2);
-          o.push(`<path class="slur" d="M${xa} ${yA} C${xa + (xz - xa) / 3} ${yA + lift} ${xa + (2 * (xz - xa)) / 3} ${yz + lift} ${xz} ${yz} C${xa + (2 * (xz - xa)) / 3} ${yz + lift2} ${xa + (xz - xa) / 3} ${yA + lift2} ${xa} ${yA}" fill="#111" stroke="#111" stroke-width="0.6"/>`);
+          lift = Math.max(-72, Math.min(72, lift));
+          // 長さのわりに高すぎる山は、形がくずれる：はしごと外へ出して、山の高さはそのまま
+          let yA = ya;
+          let yZ = yz;
+          const cap = 9 + W * 0.28;
+          if (Math.abs(lift) > cap) { const ex = (Math.abs(lift) - cap) * 0.75 * Math.sign(lift); yA += ex; yZ += ex; lift = Math.sign(lift) * cap; }
+          // はしを結ぶ線を基準にした、左右対称のカーブ（ななめのスラーも、きれいな弓の形に）
+          const c1x = xa + W / 3;
+          const c2x = xa + (2 * W) / 3;
+          const c1y = yA + (yZ - yA) / 3 + lift;
+          const c2y = yA + (2 * (yZ - yA)) / 3 + lift;
+          const th = Math.sign(lift) * Math.min(2.4, Math.abs(lift) * 0.3); // まん中の太さ（約1.8）
+          o.push(`<path class="slur" d="M${xa} ${yA} C${c1x} ${c1y} ${c2x} ${c2y} ${xz} ${yZ} C${c2x} ${c2y - th} ${c1x} ${c1y - th} ${xa} ${yA}" fill="#111" stroke="#111" stroke-width="0.5"/>`);
         }
         // グリッサンド：その音から、つぎの音への線
         for (const n of st.notes.concat(st.notes2)) {
@@ -1761,10 +1844,14 @@ const Notation = (() => {
       const y0 = yOf(a.heads[i].pos) + (up ? -6 : 6);
       const y1 = yOf(b.heads[i].pos) + (up ? -6 : 6);
       // ぼうの側にかけるタイは、ぼう・旗をよけて少し右から
-      const x0 = a.x + (up === a.up && a.hasStem ? 9 : 6);
+      // 付点のある音からのタイは、付点の右から
+      const x0 = a.x + (up === a.up && a.hasStem ? 9 : 6) + (a.ev && a.ev.dot && !up === !(a.heads[i].pos % 2 === 0) ? 0 : 0) + (a.ev && a.ev.dot ? 6 : 0);
       const x1 = b.x - 6;
-      const c = up ? -6 : 6;
-      o.push(`<path d="M${x0} ${y0} Q${(x0 + x1) / 2} ${y0 + c} ${x1} ${y1} Q${(x0 + x1) / 2} ${y0 + c * 0.6} ${x0} ${y0}" fill="#111" stroke="#111" stroke-width="0.8"/>`);
+      // ふくらみは長さに合わせる（長いタイが、まっすぐな線に見えないように）。太さはまん中で約1.6
+      const hgt = Math.max(3.5, Math.min(9, 2.5 + (x1 - x0) * 0.045));
+      const c = (up ? -1 : 1) * hgt * 2;
+      const c2 = c - Math.sign(c) * 3.2;
+      o.push(`<path class="tie" d="M${x0} ${y0} Q${(x0 + x1) / 2} ${(y0 + y1) / 2 + c} ${x1} ${y1} Q${(x0 + x1) / 2} ${(y0 + y1) / 2 + c2} ${x0} ${y0}" fill="#111" stroke="#111" stroke-width="0.6"/>`);
     }
   }
   const restName = (base) => (base >= 192 ? 'restWhole' : base >= 96 ? 'restHalf' : base >= 48 ? 'restQuarter' : base >= 24 ? 'rest8th' : base >= 12 ? 'rest16th' : 'rest32nd');
@@ -1924,7 +2011,10 @@ const Notation = (() => {
       const ye = stemEnd(d) + (d.up ? -1 : 1) * Math.max(0, d.flags - 1) * 4;
       d.tipY = ye;
       o.push(`<line x1="${x}" x2="${x}" y1="${d.up ? d.yOf(d.lo) - 1.3 : d.yOf(d.hi) + 1.3}" y2="${ye}" stroke="#111" stroke-width="1"/>`);
-      if (d.flags) o.push(G(`flag${d.flags === 1 ? '8th' : d.flags === 2 ? '16th' : '32nd'}${d.up ? 'Up' : 'Down'}`, x - 0.5, ye));
+      const fl = `flag${d.flags === 1 ? '8th' : d.flags === 2 ? '16th' : '32nd'}${d.up ? 'Up' : 'Down'}`;
+      if (d.flags) o.push(G(fl, x - 0.5, ye));
+      // 上向きの旗がある付点音符：付点は旗の右に（旗にかさならないように）
+      if (d.flags && d.up && d.dotIdx && d.dotIdx.length) for (const k of d.dotIdx) o[k] = o[k].replace(/translate\(([-\d.]+) /, (m, v) => `translate(${Math.max(+v, x + GW(fl) + 1.5).toFixed(2)} `);
     }
   }
   // 3連符：1つの「3」の組（2拍ぶんなど）ごとに数字を1つ。連桁でまとまっていなければ、かぎ（ブラケット）をつける（浄書のきまり）
@@ -1954,7 +2044,18 @@ const Notation = (() => {
       const up = above || (notes.length ? notes.filter((d) => d.up).length * 2 >= notes.length : true);
       const x0 = list[0].x;
       const x1 = list[list.length - 1].x;
-      const edge = list.map((d) => (d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? (d.tipY != null ? d.tipY + (up ? -2 : 2) : stemEnd(d)) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6));
+      // スタッカートなど（あとで書く）が数字のがわに来るなら、そのぶん外へ
+      const artOut = (d) => {
+        const n = d.ev.first ? (d.ev.art || []).filter((a) => ['stac', 'ten', 'acc', 'marc', 'stacc2'].includes(a)).length : 0;
+        if (!n) return null;
+        const stemSide = d.tw && d.hasStem;
+        const aboveA = stemSide ? d.up : !d.up;
+        if (aboveA !== up) return null;
+        const base = stemSide ? (d.tipY != null ? d.tipY : stemEnd(d)) : up ? d.yOf(d.hi) : d.yOf(d.lo);
+        const r = 3 + n * 9 + 4; // 間のまん中にずらすぶんも見こむ
+        return up ? base - r : base + r;
+      };
+      const edge = list.map((d) => { const e0 = d.rest ? (up ? yOf(8) : yOf(0)) : d.hasStem && d.up === up ? (d.tipY != null ? d.tipY + (up ? -2 : 2) : stemEnd(d)) : up ? d.yOf(d.hi) - 6 : d.yOf(d.lo) + 6; const ao = d.rest ? null : artOut(d); return ao == null ? e0 : up ? Math.min(e0, ao) : Math.max(e0, ao); });
       const beamedAll = !list[0].rest && list[0].bg && list.every((d) => d.bg === list[0].bg) && list[0].bg.length === list.length;
       // 数字・かぎは、五線の外（線にかからない所）へ。連桁のときは連桁のすぐ外
       let y = up ? Math.min(yOf(10) - 2, ...edge.map((e) => e - 7)) : Math.max(yOf(-2) + 2, ...edge.map((e) => e + 14));
@@ -1970,6 +2071,8 @@ const Notation = (() => {
         y = ya + 3.5;
       }
       o.push(G('tuplet3', cx - nw / 2, y, 'fill="#111"', 7));
+      // 数字（かぎ）の外がわのはし：スラー・装飾記号は、その外へ
+      for (const d of notes) { if (up) d.tupTop = Math.min(d.tupTop == null ? Infinity : d.tupTop, y - 11); else d.tupBot = Math.max(d.tupBot == null ? -Infinity : d.tupBot, y + 2); }
     }
   }
 
