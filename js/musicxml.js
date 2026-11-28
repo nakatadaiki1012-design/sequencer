@@ -1012,7 +1012,7 @@ const MusicXMLImport = (() => {
       // 弦の楽器（ギターなど）：開放弦の高さ（低い弦から）。TAB譜の段は、五線につながっている（linkedTo）なら読まない（同じ音）
       const sd = kid(inst, 'StringData');
       const tun = sd ? kids(sd, 'string').map((e) => Math.round(num(e.textContent, NaN))).filter((v) => Number.isFinite(v)) : [];
-      const part = { name: name.slice(0, 30), prg, perc, staves: [], trans: tc ? -tc : 0, iclef, drumName, tun: tun.length >= 4 && tun.length <= 8 ? tun : null, tabView: '' };
+      const part = { name: name.slice(0, 30), short: (plain(kid(inst, 'shortName')) || '').trim().slice(0, 12), prg, perc, staves: [], trans: tc ? -tc : 0, iclef, drumName, tun: tun.length >= 4 && tun.length <= 8 ? tun : null, tabView: '' };
       const isTab = (st) => (kid(st, 'StaffType') || { getAttribute: () => '' }).getAttribute('group') === 'tablature';
       const allTab = staves.length > 0 && staves.every(isTab);
       staves.forEach((st) => {
@@ -1066,6 +1066,8 @@ const MusicXMLImport = (() => {
     let bpm = 0;
     let tempoText = '';
     const tempos = {};
+    const tempoHid = {};
+    const tempoWords = {};
     const keys = {};
     let key0 = null;
     const rStart = [];
@@ -1169,12 +1171,15 @@ const MusicXMLImport = (() => {
             }
             if (tag === 'Tempo') {
               const q = num(txt(el, 'tempo'), 0);
-              if (q > 0) { const b = Math.round(q * 60); if (!bpm && mi === 0) bpm = b; else if (mi > 0) tempos[mi] = b; }
+              const hid = txt(el, 'visible') === '0'; // 見えないテンポ（再生だけのもの）は、楽譜に書かない
+              if (q > 0) { const b = Math.round(q * 60); if (!bpm && mi === 0) bpm = b; else if (mi > 0) { tempos[mi] = b; if (hid) tempoHid[mi] = 1; else delete tempoHid[mi]; } }
               const tx = plain(kid(el, 'text')).replace(/[-]/g, '').replace(/\s*=\s*\d+.*$/, '').trim();
               if (mi === 0 && tx && !/^[\d\s=.]*$/.test(tx) && !tempoText) tempoText = tx.slice(0, 30);
+              // とちゅうの速さのことば（Andante など）
+              if (mi > 0 && !hid && tx && !/^[\d\s=.]*$/.test(tx)) tempoWords[mi] = tx.slice(0, 40);
               continue;
             }
-            if (tag === 'Dynamic') { const v = txt(el, 'subtype'); if (/^(ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp)$/.test(v)) dyn.push({ t: absT(pos), v }); continue; }
+            if (tag === 'Dynamic') { const v = txt(el, 'subtype'); if (/^(ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp)$/.test(v)) dyn.push({ t: absT(pos), v, ...(txt(el, 'visible') === '0' ? { h: 1 } : {}) }); continue; }
             if (tag === 'RehearsalMark') { if (isFirstStaff && plain(kid(el, 'text'))) rehearsal[mi] = plain(kid(el, 'text')).slice(0, 8); continue; }
             if (tag === 'StaffText' || tag === 'SystemText' || tag === 'Expression') { const s = plain(kid(el, 'text')); if (s) texts.push({ t: absT(pos), x: s.slice(0, 80) }); continue; }
             if (tag === 'Harmony') {
@@ -1192,7 +1197,7 @@ const MusicXMLImport = (() => {
               continue;
             }
             if (tag === 'Jump' && isFirstStaff) { const to = (txt(el, 'jumpTo') + ' ' + plain(kid(el, 'text'))).toLowerCase(); if (/segno|d\.?s/.test(to)) jumps.ds = mi; else jumps.dc = mi; continue; }
-            if (tag === 'Fermata') { pendingArt.push('ferm'); continue; }
+            if (tag === 'Fermata') { if (txt(el, 'visible') !== '0') pendingArt.push('ferm'); continue; }
             if (tag === 'Breath') { if (lastChord) for (const n of lastChord) n.art = [...new Set([...(n.art || []), /caesura/i.test(txt(el, 'subtype')) ? 'caes' : 'breath'])]; continue; }
             if (tag === 'Spanner') {
               const type = el.getAttribute('type');
@@ -1257,6 +1262,7 @@ const MusicXMLImport = (() => {
             pendingArt = [];
             let trillAcc = null;
             for (const a of [...kids(el, 'Articulation'), ...kids(el, 'Ornament')]) {
+              if (txt(a, 'visible') === '0') continue; // 見えない記号（再生だけのもの）
               for (const x of artsOf(txt(a, 'subtype'))) if (!arts.includes(x)) arts.push(x);
               // トリルの上の ♯・♭・♮
               const ac = kid(a, 'Accidental') || kid(a, 'accidentalAbove');
@@ -1338,7 +1344,7 @@ const MusicXMLImport = (() => {
         });
       });
       if (part.perc) {
-        const dt = drumTracks.get(part) || { type: 'drum', name: part.name, kit: 'drums', grid: {} };
+        const dt = drumTracks.get(part) || { type: 'drum', name: part.name, ...(part.short ? { short: part.short } : {}), kit: 'drums', grid: {} };
         for (const id in grid) { dt.grid[id] = { ...(dt.grid[id] || {}), ...grid[id] }; }
         dt.kit = kitFor(dt.grid);
         drumTracks.set(part, dt);
@@ -1359,7 +1365,16 @@ const MusicXMLImport = (() => {
         const auto = Notation.tabFrets(notes.map((n) => { const { str, ...o } = n; return o; }), part.tun, nBars, { starts: Array.from({ length: nBars + 1 }, (_, i) => Math.round(T(startDiv[i]))), meters: Array(nBars).fill(meters[0] || [4, 4]), keys: Array(nBars).fill({ key: 0, minor: false }) }, meters[0] || [4, 4]);
         for (const n of notes) if (n.str != null) { const q = auto.get(n.s + ':' + n.p); if (q && q.si === n.str) delete n.str; }
       }
-      tracks.push({ type: 'melody', name: nm.slice(0, 30), inst, ...(part.tabView && part.tun ? { tabView: part.tabView } : {}), range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
+      // 弦楽器の「pizz.」「arco」：そこから音色を変える（楽譜には、もとのことばだけを書く）
+      const instChg = [];
+      if (['violin', 'viola', 'cello', 'contrabass', 'strings'].includes(inst)) {
+        let cur = inst;
+        for (const x of texts.slice().sort((a, b) => a.t - b.t)) {
+          const want = /^\s*pizz/i.test(x.x) ? 'pizz' : /^\s*arco/i.test(x.x) ? inst : null;
+          if (want && want !== cur) { instChg.push({ t: x.t, inst: want, q: 1 }); cur = want; }
+        }
+      }
+      tracks.push({ type: 'melody', name: nm.slice(0, 30), ...(part.short ? { short: part.short } : {}), ...(instChg.length ? { instChg } : {}), inst, ...(part.tabView && part.tun ? { tabView: part.tabView } : {}), range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
         ...(firstClef ? { clef: firstClef } : {}), ...(part.trans ? { trans: part.trans } : {}),
         notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(trills.length ? { trills } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
     }
@@ -1373,7 +1388,7 @@ const MusicXMLImport = (() => {
       v: 2, title: title.slice(0, 60), bpm: clamp(bpm || 100, 30, 240), meter: meters[0] || [4, 4], bars: nBars, key: k0.key, scale: k0.minor ? 'minor' : 'major',
       tempos, meters: Object.fromEntries(Object.entries(meters).filter(([b]) => +b > 0)), keys: Object.fromEntries(Object.entries(keys).map(([b, k]) => [b, k])),
       pickup: pickupDiv ? Math.round(T(pickupDiv)) : 0, jumps,
-      repeats: { start: rStart, end: rEnd, volta }, tempoText, ...(Object.keys(rehearsal).length ? { rehearsal } : {}),
+      repeats: { start: rStart, end: rEnd, volta }, tempoText, ...(Object.keys(tempoHid).length ? { tempoHid } : {}), ...(Object.keys(tempoWords).length ? { tempoWords } : {}), ...(Object.keys(rehearsal).length ? { rehearsal } : {}),
       score: { ...credit, ...(out.filter((t) => t.type === 'melody').length >= 6 ? { orch: true, ordered: true } : {}) },
       tracks: out,
     };

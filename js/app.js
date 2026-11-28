@@ -242,6 +242,13 @@ function sanitizeSong(s) {
   out.rehearsal = {};
   for (const b in obj(s.rehearsal)) { const v = String(s.rehearsal[b] == null ? '' : s.rehearsal[b]).trim().slice(0, 8); if (Number.isInteger(+b) && +b >= 0 && +b < MAX_BARS && v) out.rehearsal[b] = v; }
   if (!Object.keys(out.rehearsal).length) delete out.rehearsal;
+  // 楽譜に書かないテンポ（読みこんだ曲の、再生だけのテンポ）と、とちゅうの速さのことば（Andante など）
+  out.tempoHid = {};
+  for (const b in obj(s.tempoHid)) if (Number.isInteger(+b) && +b > 0 && +b < MAX_BARS && s.tempoHid[b] && out.tempos[b]) out.tempoHid[b] = 1;
+  if (!Object.keys(out.tempoHid).length) delete out.tempoHid;
+  out.tempoWords = {};
+  for (const b in obj(s.tempoWords)) { const v = String(s.tempoWords[b] == null ? '' : s.tempoWords[b]).trim().slice(0, 40); if (Number.isInteger(+b) && +b > 0 && +b < MAX_BARS && v) out.tempoWords[b] = v; }
+  if (!Object.keys(out.tempoWords).length) delete out.tempoWords;
   // 楽譜のコメント（小節ごとのメモ）
   if (s.comments != null) {
     out.comments = (Array.isArray(s.comments) ? s.comments : []).filter((c) => c && Number.isInteger(c.b) && c.b >= 0 && c.b < MAX_BARS && typeof c.x === 'string' && c.x.trim()).slice(0, 500).map((c) => ({ b: c.b, x: c.x.slice(0, 300), ...(typeof c.who === 'string' && c.who ? { who: c.who.slice(0, 20) } : {}), ...(Number.isFinite(c.at) ? { at: c.at } : {}) }));
@@ -280,7 +287,7 @@ function sanitizeSong(s) {
       tr.texts = (Array.isArray(t.texts) ? t.texts : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.x === 'string' && x.x.trim()).map((x) => ({ t: Math.round(+x.t), x: x.x.slice(0, 80) }));
       if (!tr.texts.length) delete tr.texts;
       // 楽器の持ちかえ（とちゅうから、ちがう楽器の音で鳴らす）
-      tr.instChg = (Array.isArray(t.instChg) ? t.instChg : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.inst === 'string' && Sound.INSTRUMENTS[x.inst]).map((x) => ({ t: Math.round(+x.t), inst: x.inst })).sort((a, b) => a.t - b.t);
+      tr.instChg = (Array.isArray(t.instChg) ? t.instChg : []).filter((x) => x && Number.isFinite(+x.t) && +x.t >= 0 && typeof x.inst === 'string' && Sound.INSTRUMENTS[x.inst]).map((x) => ({ t: Math.round(+x.t), inst: x.inst, ...(x.q ? { q: 1 } : {}) })).sort((a, b) => a.t - b.t);
       if (!tr.instChg.length) delete tr.instChg;
       for (const k of ['dyn', 'hairpins', 'slurs', 'pedals']) tr[k] = (Array.isArray(tr[k]) ? tr[k] : []).filter((x) => x && typeof x === 'object' && (k === 'dyn' ? Number.isFinite(+x.t) && typeof x.v === 'string' : Number.isFinite(+x.s) && Number.isFinite(+x.e)));
       if (!tr.pedals.length) delete tr.pedals;
@@ -312,6 +319,7 @@ function sanitizeSong(s) {
     tr.vol = num(t.vol, 0.8, 0, 1.5);
     tr.pan = num(t.pan, 0, -1, 1);
     if (t.name != null) tr.name = String(t.name).slice(0, 40);
+    if (typeof t.short === 'string' && t.short.trim()) tr.short = t.short.trim().slice(0, 12); // 楽譜の2段目からの短い名前（Vln. 1 など）
     return tr;
   });
   if (s.voice && !(typeof s.voice.data === 'string' && Number.isFinite(+s.voice.sr) && +s.voice.sr >= 8000 && +s.voice.sr <= 96000 && s.voice.data.length < 400000)) delete out.voice;
@@ -3570,7 +3578,7 @@ function openBarDialog(b) {
         song.meter = nm;
         delete song.meters[0];
       } else {
-        if (ramp && ramp !== '-') { /* だんだんで入れたテンポをのこす */ } else if (tOn) song.tempos[b] = clamp(Math.round(+$('#barTempo').value) || bpmAt(b), 30, 240); else delete song.tempos[b];
+        if (ramp && ramp !== '-') { /* だんだんで入れたテンポをのこす */ } else if (tOn) { song.tempos[b] = clamp(Math.round(+$('#barTempo').value) || bpmAt(b), 30, 240); if (song.tempoHid) delete song.tempoHid[b]; } else delete song.tempos[b];
         if (mOn && String(nm) !== String(meterAt(b - 1))) song.meters[b] = nm; else delete song.meters[b];
         const prev = keyAt(b - 1);
         if (kOn && !(prev.key === kk && !!prev.minor === !!mm)) song.keys[b] = { key: kk, minor: !!mm }; else delete song.keys[b];
@@ -3620,6 +3628,8 @@ function shiftBarMarks(fromBar, n) {
   song.meters = mv(song.meters || {});
   song.keys = mv(song.keys || {});
   if (song.rehearsal) song.rehearsal = mv(song.rehearsal);
+  if (song.tempoHid) song.tempoHid = mv(song.tempoHid);
+  if (song.tempoWords) song.tempoWords = mv(song.tempoWords);
   for (const t of song.tracks) { if (t.clefChg) t.clefChg = mv(t.clefChg); if (t.mrep) t.mrep = mv(t.mrep); }
   const R = song.repeats || { start: [], end: [], volta: {} };
   const mvArr = (arr) => arr.map((b) => (b >= fromBar ? b + n : n < 0 && b >= fromBar + n ? -1 : b)).filter((b) => b >= 0);
@@ -4737,7 +4747,7 @@ function renderTracksNow() {
       const a = b.dataset.a;
       if (a === 'rename') {
         const n = prompt('トラックの名前（空にすると楽器の名前にもどります）', tr.name);
-        if (n != null) edit(() => { const v = n.trim().slice(0, 20); tr.name = v; if (v && !isAutoName({ name: v })) tr.cname = true; else delete tr.cname; }, 'トラック名');
+        if (n != null) edit(() => { const v = n.trim().slice(0, 20); tr.name = v; delete tr.short; if (v && !isAutoName({ name: v })) tr.cname = true; else delete tr.cname; }, 'トラック名');
         renderTracks();
       }
       else if (a === 'tab') { const order = ['', 'both', 'only']; const c = (scoreSettings().tab || {})[tr.id] || ''; setTabMode(tr, order[(order.indexOf(c) + 1) % 3]); renderTracks(); }
@@ -5657,7 +5667,7 @@ function scoreOpts(trackIds, withDrums) {
     if (t.type === 'melody') {
       const oi = ORCH[t.inst];
       const { clef, trans } = partClefTrans(t);
-      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : '', family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => c.t === x.t)), ...t.instChg.map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: t.short || (oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : ''), family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn && t.dyn.some((d) => d.h) ? t.dyn.filter((d) => !d.h) : t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg && t.instChg.some((c) => !c.q) ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => !c.q && c.t === x.t)), ...t.instChg.filter((c) => !c.q).map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -5669,7 +5679,7 @@ function scoreOpts(trackIds, withDrums) {
         const s0 = +st;
         notes.push({ s: s0, p: 0, l: Math.max(1, Math.min(nextOf.get(s0) - s0, beatAt(barOf(s0)))), id, art: t.grid[id][st] === 2 ? ['acc'] : [] });
       }
-      parts.push({ id: t.id, name: t.name, short: 'Perc.', family: S.orch ? 'perc' : '', perc: true, notes, gm: 0 });
+      parts.push({ id: t.id, name: t.name, short: t.short || 'Perc.', family: S.orch ? 'perc' : '', perc: true, notes, gm: 0 });
       partTracks.push(t);
     } else if (t.type === 'chord' && S.accomp && t.chords.some(Boolean)) {
       if (S.accompStyle === 'slash') {
@@ -5708,8 +5718,8 @@ function scoreOpts(trackIds, withDrums) {
     parts, partTracks, bars: song.bars, barTicks: barTicks(), meter: song.meter, key: song.key, minor: isMinor(),
     geo: { starts: geo().starts, meters: geo().meters, keys: geo().keys }, jumps: song.jumps || {},
     title: song.title, bpm: song.bpm, tempoText: song.tempoText,
-    tempos: (() => { const t = { ...song.tempos }; for (const b in song.ramps || {}) for (let i = 0; i < song.ramps[b].n; i++) delete t[+b + i]; return t; })(),
-    words: Object.fromEntries(Object.entries(song.ramps || {}).map(([b, r]) => [b, r.type === 'rit' ? 'rit.' : 'accel.'])),
+    tempos: (() => { const t = { ...song.tempos }; for (const b in song.ramps || {}) for (let i = 0; i < song.ramps[b].n; i++) delete t[+b + i]; for (const b in song.tempoHid || {}) delete t[b]; return t; })(),
+    words: { ...(song.tempoWords || {}), ...Object.fromEntries(Object.entries(song.ramps || {}).map(([b, r]) => [b, r.type === 'rit' ? 'rit.' : 'accel.'])) },
     soundTempos: { ...song.tempos },
     drumGm: Object.fromEntries(Object.entries(Sound.DRUMS).map(([k, v]) => [k, v.gm])),
     meta: { subtitle: S.subtitle, lyricist: S.lyricist, composer: S.composer, nameLine: !!S.nameLine },
@@ -5788,6 +5798,7 @@ function scoreSvg(trackIds) {
   const o = combineParts(scoreOpts(trackIds, true));
   const S0 = scoreSettings();
   o.hideEmpty = !!S0.orch && S0.hideEmpty !== false; // フルスコアは、休んでいる段をかくす（2段目から）
+  o.fillPage = !!S0.orch; // 1ページに1段のときは、五線の間を広げて下までそろえる
   let svg = Notation.render(o);
   // パートが多い（フルスコア）ときは、1段が A4 の1ページに入るように五線を小さくする
   const L = Notation.lastLayout;
@@ -10149,7 +10160,7 @@ function init() {
   };
   $('#instOk').onclick = () => {
     const tr = song.tracks[picker.ti];
-    edit(() => { if (picker.type === 'drum') tr.kit = picker.val; else tr.inst = picker.val; tr.real = picker.real; }, '楽器を変更');
+    edit(() => { if (picker.type === 'drum') tr.kit = picker.val; else tr.inst = picker.val; tr.real = picker.real; delete tr.short; }, '楽器を変更');
     renderTracks();
     preloadSamples();
     $('#dlgInst').close();
