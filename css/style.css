@@ -1744,3 +1744,11 @@ svg .pname[data-id]:hover { fill: var(--accent, #6d28d9); }
 /* ダイアログの右上の ✕ */
 dialog h3 .dlgx { float: right; border: 0; background: transparent; font-size: 18px; line-height: 1; width: 36px; height: 36px; margin: -8px -8px 0 0; border-radius: 8px; cursor: pointer; color: inherit; }
 dialog h3 .dlgx:hover { background: var(--hover, rgba(0,0,0,.06)); }
+/* 横にスクロールする行の中のポップアップ：画面に固定して、切りとられないように */
+.popbody.popfixed { position: fixed; right: auto; z-index: 60; overflow-y: auto; }
+/* ポップアップにした窓の右上の ✕（もとの場所にもどす） */
+.floatx { display: none; }
+.floating > .floatx { display: grid; place-items: center; position: absolute; top: 6px; right: 6px; z-index: 5; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text, #111); font-size: 15px; line-height: 1; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+.floating > .floatx:hover { background: var(--sel, #eef); }
+.floating.canvas-area .ovtools, .floating .sphead, .floating .tracks-head { padding-right: 40px; }
+.floating.tracks .tracks-head, .floating.canvas-area .ovtools, .floating.scorepanel .sphead, #scorePanel.floating .sphead { padding-right: 42px; }

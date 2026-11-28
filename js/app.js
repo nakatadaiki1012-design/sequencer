@@ -8874,7 +8874,7 @@ function floatToggle(k) {
   applyLayout();
   saveLayout();
   relayoutAll();
-  toast(floatOn(k) ? `「${FLOATS[k].name}」をポップアップにしました（上の帯をドラッグで動かす・右下で大きさ）` : `「${FLOATS[k].name}」をもとの場所にもどしました`);
+  toast(floatOn(k) ? `「${FLOATS[k].name}」をポップアップにしました（上の帯をドラッグで動かす・右下で大きさ・右上の ✕ で閉じる）` : `「${FLOATS[k].name}」をもとの場所にもどしました`);
 }
 function initFloats() {
   for (const k in FLOATS) {
@@ -8886,6 +8886,15 @@ function initFloats() {
     btn.className = 'mini floatbtn';
     btn.onclick = (e) => { e.stopPropagation(); floatToggle(k); };
     head.appendChild(btn);
+    // ポップアップのときだけ出す、右上の ✕（もとの場所にもどす）
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'floatx';
+    x.textContent = '✕';
+    x.title = '閉じる（もとの場所にもどす）';
+    x.setAttribute('aria-label', `「${FLOATS[k].name}」のポップアップを閉じる`);
+    x.onclick = (e) => { e.stopPropagation(); if (floatOn(k)) floatToggle(k); };
+    el.appendChild(x);
     // 上の帯をつかんで動かす
     head.addEventListener('pointerdown', (e) => {
       if (!floatOn(k) || e.button !== 0 || e.target.closest('button, input, select, summary, details, a, label')) return;
@@ -10230,6 +10239,27 @@ function init() {
   // ポップアップ（ルール・メニュー・道具・表示）は外をおすと閉じる
   document.addEventListener('pointerdown', (e) => { if (e.target.closest('#miniInfo')) return; closePops(e.target.closest('details.pop')); });
   document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pop') && e.target.open) closePops(e.target); }, true);
+  // 横にスクロールする行（道具の行など）の中のポップアップは、行に切りとられて「せまいスクロール」になる：画面に固定して、ボタンの下に出す
+  const popClip = (el) => { for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) { const cs = getComputedStyle(a); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return true; } return false; };
+  const popPlace = (d) => {
+    const pb = d.querySelector(':scope > .popbody');
+    if (!pb) return;
+    if (!d.open) { pb.classList.remove('popfixed'); pb.style.left = pb.style.top = pb.style.maxHeight = ''; return; }
+    if (!popClip(d)) return;
+    pb.classList.add('popfixed');
+    const r = d.querySelector(':scope > summary').getBoundingClientRect();
+    const w = pb.offsetWidth;
+    const right = d.classList.contains('right');
+    const x = Math.max(8, Math.min(innerWidth - w - 8, right ? r.right - w : r.left));
+    const y = r.bottom + 6;
+    pb.style.left = x + 'px';
+    pb.style.top = y + 'px';
+    pb.style.maxHeight = Math.max(160, innerHeight - y - 10) + 'px';
+  };
+  document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.pop')) popPlace(e.target); }, true);
+  const popAll = () => document.querySelectorAll('details.pop[open]').forEach(popPlace);
+  addEventListener('resize', popAll);
+  document.addEventListener('scroll', (e) => { if (e.target && e.target.querySelector && e.target.querySelector('details.pop[open] > .popfixed')) popAll(); }, true);
   $('#btnPal').onclick = openPalette;
   $('#btnTeach').onclick = openTeacher;
   $('#btnShare').onclick = () => shareDialog().catch((err) => alert('URLを作れませんでした：' + err.message));
