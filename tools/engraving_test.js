@@ -20,7 +20,7 @@ const { chromium } = require('playwright');
     o['1段目は小節番号なし'] = ![...v.querySelectorAll('text')].some((t) => t.textContent === '1' && t.getAttribute('font-size') === '10');
     // 3/4 の8分6つは1本の連桁
     v = svgOf({ v: 2, bars: 1, meter: [3, 4], tracks: [{ type: 'melody', notes: [0, 1, 2, 3, 4, 5].map((i) => N(i * 24, 64 + i, 24)) }] });
-    o['3/4 の8分6つは連桁1本'] = (v.innerHTML.match(/<path d="M[^"]*Z" fill="#111">/g) || []).length === 1;
+    o['3/4 の8分6つは連桁1本'] = (v.innerHTML.match(/<path (class="beam" )?d="M[^"]*Z" fill="#111">/g) || []).length === 1;
     // 6/8 のテンポは付点4分（90 → 60）
     v = svgOf({ v: 2, bars: 1, bpm: 90, meter: [6, 8], tracks: [{ type: 'melody', notes: [N(0, 64, 144)] }] });
     o['6/8 は付点4分＝60'] = [...v.querySelectorAll('text')].some((t) => t.textContent === '= 60');
