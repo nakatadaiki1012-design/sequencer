@@ -1023,8 +1023,9 @@ const Notation = (() => {
     credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12.5" fill="#222" font-family="${SERIF}" class="sctitle">${esc(c)}</text>`));
     // 楽譜を書く画面だけ：作詞・作曲を入れるための、うすい印（印刷には出ない）
     if (opts.edit && !credits.length) o.push(`<text x="${width - 16}" y="${top - 26}" text-anchor="end" font-size="11" fill="#9aa1ad" class="sctitle scadd">＋ 作詞・作曲</text>`);
-    {
-      const tw = opts.tempoText ? textW(opts.tempoText) * 1.05 + 8 : 0;
+    // 曲のはじめのテンポ（とちゅうのページだけを書くときは出さない：そのページの頭のテンポは、小節の上に書く）
+    if (!(WIN && WIN[0] > 0)) {
+      const tw = opts.tempoText ? textW(opts.tempoText) * 1.15 + 8 : 0;
       if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="14" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
       const m0 = mAt(0);
       const compound = m0[1] === 8 && m0[0] % 3 === 0 && m0[0] > 3;
@@ -1260,6 +1261,7 @@ const Notation = (() => {
         const lyrY = textY + (nameOf && !perc ? 15 : 0) + fOff;
         const dynY = st.dynAbove ? stTop - st.above - 2 * SP + 2 : (st.hasLyr ? lyrY + 18 + (st.lyrN - 1) * LYR_GAP : textY + (nameOf && !perc ? 15 : 0) + fOff) + 2;
         const headsAt = new Map(); // abs tick → {x, ys[], up}（スラー用）
+        const tempoRowY = new Map(); // 小節 → テンポ・速さのことばを書いた高さ（いちばん上の段）
         const headsB = new Map(); // 下の声部の音（下の声部のスラー用）
         const headsA = new Map(); // 上の声部の音
         // 1つの音節を何音かでのばすとき（メリスマ）は、歌詞のあとに横線をひく
@@ -1683,12 +1685,27 @@ const Notation = (() => {
           }
           // rit. / accel. はコード名の上に（かさならないように）
           // 練習番号（四角の文字）と同じ小節なら、その右に書く（かさならないように）
+          // テンポのことば・♩＝：その小節の音・記号のすぐ上（段のいちばん高い音に合わせて、遠くに浮かせない）
+          const tyNear = (() => {
+            let hi = 8;
+            // ことばが小節のはばをこえるときだけ、つぎの小節の音も見る
+            const wTxt = (opts.words && opts.words[bb] ? textW(opts.words[bb]) * 1.15 + 12 : 0) + (opts.tempos && opts.tempos[bb] ? 60 : 0);
+            const over = wTxt > B.x1 - B.xs[0];
+            if (st.hiB) for (const b2 of over ? [bb, bb + 1] : [bb]) if (b2 < b1) hi = Math.max(hi, st.hiB[b2] + (st.has2 && st.has2[b2] ? 7 : 0), st.hiBeam ? st.hiBeam[b2] : 0);
+            const orn = st.ornB ? Math.max(st.ornB[bb] || 0, over && bb + 1 < b1 ? st.ornB[bb + 1] || 0 : 0) : 0;
+            const txtHere = (st.part.texts || []).some((x) => x.t >= bS(bb) && x.t < bS(bb + 1));
+            const trHere = st.trl && (st.part.trills || []).some((q) => q.e > bS(bb) && q.s < bS(bb + 1));
+            const ottHere = st.ottUp && st.ott.some((q) => q.k > 0 && q.e > bS(bb) && q.s < bS(bb + 1));
+            return stTop - Math.max(0, hi - 10) * (SP / 2) - (hi > 9 ? 6 : 0) - (orn ? orn * 11 + 5 : 0) - (txtHere ? 18 : 0) - (trHere ? 24 : 0) - (ottHere ? 20 : 0) - dynRoom(st) - 12;
+          })();
+          const tyT = (y0) => { const y = Math.max(y0, Math.min(tyNear, stTop - 14)); if (si === 0) tempoRowY.set(bb, y); return y; };
           const wx0 = si === 0 && anyReh && opts.rehearsal[bb] != null && opts.rehearsal[bb] !== '' ? Math.max(B.xs[0], B.x0 + textW(String(opts.rehearsal[bb])) * 1.15 + 18) : B.xs[0];
-          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${wx0}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13.5" font-style="${/^(rit|rall|accel|string|allarg|a tempo)/i.test(opts.words[bb]) ? 'italic' : 'normal'}" font-weight="bold" fill="#111" class="twords">${esc(opts.words[bb])}</text>`);
+          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${wx0}" y="${tyT(stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0))}" font-size="13.5" font-style="${/^(rit|rall|accel|string|allarg|a tempo)/i.test(opts.words[bb]) ? 'italic' : 'normal'}" font-weight="bold" fill="#111" class="twords">${esc(opts.words[bb])}</text>`);
           // とちゅうのテンポの変化（♩ = 80）
           if (si === 0 && bb > 0 && opts.tempos && opts.tempos[bb]) {
-            const ty = stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0);
-            const tx = wx0 + (opts.words && opts.words[bb] ? textW(opts.words[bb]) + 10 : 0);
+            const ty = tyT(stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0));
+            // ことばの右に、すこしあけて（太字の欧文は、文字数の見つもりより広い）
+            const tx = wx0 + (opts.words && opts.words[bb] ? textW(opts.words[bb]) * 1.05 + 12 : 0);
             const mm = mAt(bb);
             const cmp = mm[1] === 8 && mm[0] % 3 === 0 && mm[0] > 3;
             const e8 = !cmp && mm[1] === 8 && !!Glyphs.g.metNote8thUp; // 3/8 など：8分音符を1拍に数える（♪＝68）
@@ -1907,8 +1924,10 @@ const Notation = (() => {
             const lim = si === 0 ? sys.y0 + (anyReh ? 24 : 0) + 12 : -1e9;
             const tyA2 = tyA + (st.diagH || 0);
             let ty = st.diagH ? Math.max(lim, tyB < lim ? tyA2 : tyB) : tyB < lim ? Math.max(lim, tyA) : Math.min(tyA, tyB);
+            const tRow = tempoRowY.get(bb2);
             // その小節の音のすぐ上に書く（段のいちばん高い音に合わせない）。トリルの線がある小節は、その上
-            if (!(si === 0 && ((chords && chords[bb2]) || (opts.words && opts.words[bb2]) || (opts.marks && opts.marks[bb2]) || (opts.tempos && opts.tempos[bb2]) || (opts.rehearsal && opts.rehearsal[bb2])))) {
+            if (tRow != null) ty = Math.min(ty, tRow - 18); // テンポの行と同じ小節：その上に
+            else if (!(si === 0 && ((chords && chords[bb2]) || (opts.words && opts.words[bb2]) || (opts.marks && opts.marks[bb2]) || (opts.tempos && opts.tempos[bb2]) || (opts.rehearsal && opts.rehearsal[bb2])))) {
               const late = tx2.t - bS(bb2) > bL(bb2) * 0.55;
               const nt = nearTop(bb2, late ? bb2 + 1 : bb2);
               if (nt != null) {

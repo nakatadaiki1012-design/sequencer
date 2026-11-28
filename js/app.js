@@ -4617,17 +4617,29 @@ function scPosShow(box) {
   const h = el.offsetHeight;
   let x = r.left - br.left + box.scrollLeft + r.width / 2 - w / 2;
   x = clamp(x, box.scrollLeft + 2, box.scrollLeft + box.clientWidth - w - 2);
-  let y = r.top - br.top + box.scrollTop - h - 16; // 長さの記号（♩）の上
-  // コードネーム・テンポなどの文字にかぶるなら、その上へ
+  // 文字だけでなく、記号（プラルトリラー・スラー・音符・連桁など）にもかぶらない所に出す。上がつまっていれば、五線の下に
   const L = x + br.left - box.scrollLeft;
-  const texts = [...box.querySelectorAll('svg text')].map((t) => t.getBoundingClientRect()).filter((q) => q.width && q.right > L - 2 && q.left < L + w + 2 && q.bottom <= r.top + 2 && q.bottom > r.top - 120);
-  for (let k = 0; k < 6; k++) {
-    const top = y - box.scrollTop + br.top;
-    const hit = texts.find((q) => q.bottom > top - 1 && q.top < top + h + 1);
-    if (!hit) break;
-    y = hit.top - br.top + box.scrollTop - h - 3;
+  const svgEl = box.querySelector('svg');
+  const obs = [];
+  if (svgEl) for (const t of svgEl.querySelectorAll('text, path, line.gliss')) {
+    if (t.closest('.cursor')) continue;
+    const q = t.getBoundingClientRect();
+    if (!q.width || q.width > 600 || q.height > 90) continue;
+    if (q.right > L - 2 && q.left < L + w + 2 && q.bottom > r.top - 170 && q.top < r.bottom + 170) obs.push(q);
   }
-  if (y < box.scrollTop + 2) { y = r.bottom - br.top + box.scrollTop + 4; el.classList.add('below'); }
+  const clear = (top) => !obs.some((q) => q.bottom > top - 1 && q.top < top + h + 1);
+  // 上へ：カーソル（五線）の上から、かぶらない所までのぼる
+  let up = r.top - h - 6;
+  for (let k = 0; k < 40 && !clear(up); k++) { const hit = obs.filter((q) => q.bottom > up - 1 && q.top < up + h + 1); up = Math.min(...hit.map((q) => q.top)) - h - 3; }
+  // 下へ：カーソル（五線）の下から、かぶらない所までくだる
+  let dn = r.bottom + 6;
+  for (let k = 0; k < 40 && !clear(dn); k++) { const hit = obs.filter((q) => q.bottom > dn - 1 && q.top < dn + h + 1); dn = Math.max(...hit.map((q) => q.bottom)) + 3; }
+  const dUp = r.top - (up + h);
+  const dDn = dn - r.bottom;
+  const viewTop = br.top + 2;
+  const useDn = up < viewTop || dDn + 8 < dUp;
+  let y = (useDn ? dn : up) - br.top + box.scrollTop;
+  if (useDn) el.classList.add('below');
   el.style.left = x + 'px';
   el.style.top = y + 'px';
 }
@@ -6955,7 +6967,9 @@ function scPalette(gridMode = ui.view !== 'score') {
     ${PAL_MORE.filter(([name]) => !gridMode || PAL_GRID.has(name)).map(([name, f]) => sec(name, f())).join('')}
     <button class="mini palclr" id="palClr" title="えらんだ音符の記号・強弱・スラーなどを消す">記号を消す</button>
     </div>`;
-  d.querySelector('.close').onclick = () => d.close();
+  // ✕：おしたらすぐ閉じる（ドラッグの準備や、ほかの画面の動きにじゃまされないように）
+  { const x = d.querySelector('.close'); x.onclick = () => d.close(); x.onpointerdown = (e) => e.stopPropagation(); x.onpointerup = (e) => { e.stopPropagation(); if (d.open) d.close(); }; }
+  d.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); d.close(); } };
   d.querySelectorAll('[data-art]').forEach((b) => (b.onclick = () => scArt(b.dataset.art)));
   d.querySelectorAll('[data-gr]').forEach((b) => (b.onclick = () => { const v = b.dataset.gr; scGrace(/^-?\d+$/.test(v) ? +v : v); }));
   d.querySelectorAll('[data-tra]').forEach((b) => (b.onclick = () => ornTrill(+b.dataset.tra)));
