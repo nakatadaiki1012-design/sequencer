@@ -291,6 +291,9 @@ function sanitizeSong(s) {
       if (!tr.instChg.length) delete tr.instChg;
       for (const k of ['dyn', 'hairpins', 'slurs', 'pedals']) tr[k] = (Array.isArray(tr[k]) ? tr[k] : []).filter((x) => x && typeof x === 'object' && (k === 'dyn' ? Number.isFinite(+x.t) && typeof x.v === 'string' : Number.isFinite(+x.s) && Number.isFinite(+x.e)));
       if (!tr.pedals.length) delete tr.pedals;
+      // 読みこんだ楽譜で、声部がとちゅうで終わっている所（そこには休符を書かない）
+      tr.vgap = (Array.isArray(t.vgap) ? t.vgap : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s).slice(0, 4000).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), v: x.v === 2 ? 2 : 1 }));
+      if (!tr.vgap.length) delete tr.vgap;
       tr.trills = (Array.isArray(t.trills) ? t.trills : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), ...([1, -1, 0].includes(x.a) ? { a: x.a } : {}) }));
       if (!tr.trills.length) delete tr.trills;
       tr.ottava = (Array.isArray(t.ottava) ? t.ottava : []).filter((x) => x && Number.isFinite(+x.s) && Number.isFinite(+x.e) && +x.e > +x.s && [1, -1, 2, -2].includes(x.k)).map((x) => ({ s: Math.round(+x.s), e: Math.round(+x.e), k: x.k }));
@@ -3658,7 +3661,7 @@ function shiftAll(fromBar, n) {
   for (const tr of song.tracks) {
     if (tr.type === 'melody') {
       tr.notes = tr.notes.filter((x) => keep(x.s)).map((x) => (x.s >= a ? { ...x, s: x.s + d } : x));
-      for (const k of ['dyn', 'hairpins', 'slurs', 'texts', 'instChg', 'pedals', 'ottava', 'trills']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
+      for (const k of ['dyn', 'hairpins', 'slurs', 'texts', 'instChg', 'pedals', 'ottava', 'trills', 'vgap']) if (tr[k]) tr[k] = tr[k].filter((x) => keep(x.t != null ? x.t : x.s)).map((x) => { const y = { ...x }; for (const f of ['t', 's', 'e']) if (y[f] != null && y[f] >= a) y[f] += d; return y; });
     } else if (tr.type === 'drum') {
       for (const id in tr.grid) {
         const ng = {};
@@ -5667,7 +5670,7 @@ function scoreOpts(trackIds, withDrums) {
     if (t.type === 'melody') {
       const oi = ORCH[t.inst];
       const { clef, trans } = partClefTrans(t);
-      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: t.short || (oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : ''), family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn && t.dyn.some((d) => d.h) ? t.dyn.filter((d) => !d.h) : t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg && t.instChg.some((c) => !c.q) ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => !c.q && c.t === x.t)), ...t.instChg.filter((c) => !c.q).map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: t.short || (oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : ''), family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn && t.dyn.some((d) => d.h) ? t.dyn.filter((d) => !d.h) : t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg && t.instChg.some((c) => !c.q) ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => !c.q && c.t === x.t)), ...t.instChg.filter((c) => !c.q).map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, vgap: t.vgap, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];
@@ -5784,7 +5787,7 @@ function combineParts(o) {
     const prev = out[out.length - 1];
     if (cb[p.id] && prev && !prev.perc && !p.perc && prev.clef !== 'grand' && !prev._comb) {
       const nm = (a, z) => { const m = /^(.*?)\s*(Ⅰ|Ⅱ|Ⅲ|1|2|3|１|２|３)$/.exec(a); const m2 = /^(.*?)\s*(Ⅰ|Ⅱ|Ⅲ|1|2|3|１|２|３)$/.exec(z); return m && m2 && m[1] === m2[1] ? `${m[1]} ${m[2]}・${m2[2]}` : `${a}・${z}`; };
-      out[out.length - 1] = { ...prev, _comb: true, name: nm(prev.name, p.name), short: prev.short, notes: prev.notes.filter((n) => n.v !== 2).concat(p.notes.map((n) => ({ ...n, v: 2 }))), slurs: (prev.slurs || []).concat(p.slurs || []) };
+      out[out.length - 1] = { ...prev, _comb: true, name: nm(prev.name, p.name), short: prev.short, notes: prev.notes.filter((n) => n.v !== 2).concat(p.notes.map((n) => ({ ...n, v: 2 }))), slurs: (prev.slurs || []).concat((p.slurs || []).map((x) => ({ ...x, v: 2 }))) };
       return;
     }
     out.push(p);
@@ -6358,7 +6361,7 @@ function scInsert(pitches, chordAdd, str) {
       ensureLength(lastEnd + d);
       for (const n of tr.notes) if (mine(n) && n.s >= t) n.s += d;
       for (const k of ['dyn', 'texts', 'instChg']) for (const x of tr[k] || []) if (x.t >= t) x.t += d;
-      for (const k of ['hairpins', 'slurs', 'pedals', 'ottava', 'trills']) for (const x of tr[k] || []) { if (x.s >= t) x.s += d; if (x.e >= t) x.e += d; }
+      for (const k of ['hairpins', 'slurs', 'pedals', 'ottava', 'trills', 'vgap']) for (const x of tr[k] || []) { if (x.s >= t) x.s += d; if (x.e >= t) x.e += d; }
     }
     ensureLength(t + d);
     if (!chordAdd && !ui.sc.insert) clearRange(tr, t, t + d);

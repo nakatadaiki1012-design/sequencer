@@ -526,7 +526,7 @@ const Notation = (() => {
           if (n.s < sl.s || n.s > sl.e) continue;
           const nb = barOfT(Math.max(0, n.s));
           const pos = spell(n.p, st.kcs[nb] || 0).dn - st.baseAt(nb);
-          pk = Math.max(pk, (pos < 4 && n.l < 192 ? pos + 7 : pos + 1) + 3);
+          pk = Math.max(pk, (pos < 4 && n.l < 192 ? pos + 7 : pos + 1) + 5);
         }
         if (pk > -99) for (let bb = barOfT(Math.max(0, sl.s)); bb <= barOfT(Math.max(sl.s, sl.e)) && bb < bars; bb++) if (bb >= 0) st.hiB[bb] = Math.max(st.hiB[bb], pk);
       }
@@ -535,6 +535,9 @@ const Notation = (() => {
       let stack = 0;
       for (const n of st.notes) stack = Math.max(stack, (n.art || []).filter((a) => ABOVE_ART.has(a)).length * 1.3 + (n.fg ? String(n.fg).length : 0));
       st.orn = stack;
+      // 声部がとちゅうで終わっている所（小節ごと）
+      st.gapB = null;
+      if (st.sub === 0 && (st.part.vgap || []).length) { st.gapB = new Map(); for (const g of st.part.vgap) { const b = barOfT(Math.max(0, g.s)); if (!st.gapB.has(b)) st.gapB.set(b, []); st.gapB.get(b).push(g); } }
       // 小節ごとの、上に書く記号の数（ことば・トリルの線を、その小節の音のすぐ上に置くため）
       st.ornB = new Array(bars).fill(0);
       for (const n of st.notes) { const k = (n.art || []).filter((a) => ABOVE_ART.has(a)).length * 1.3 + (n.fg ? String(n.fg).length : 0); if (k) { const nb = barOfT(Math.max(0, n.s)); if (nb < bars) st.ornB[nb] = Math.max(st.ornB[nb], k); } }
@@ -618,8 +621,10 @@ const Notation = (() => {
         const a = need.get(ticks[i]) || { w: 0 };
         const z = need.get(ticks[i + 1]) || { w: 0, acc: false };
         // 音の長さに合った間隔・歌詞が重ならない間隔・臨時記号の分
-        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]) * SPC, (a.w + z.w) / 2 + 5) + (+z.acc || 0) * 9 + (z.pre || 0));
-        segP.push({ d: spaceFor(ticks[i + 1] - ticks[i]) * SPC, m: (a.w + z.w) / 2 + 5, f: (+z.acc || 0) * 9 + (z.pre || 0) });
+        // どんなにつめても、符頭どうしがかさならない間隔（符頭のはば＋少し）はのこす
+        const minGap = Math.max((a.w + z.w) / 2 + 5, 10.5);
+        segW.push(Math.max(spaceFor(ticks[i + 1] - ticks[i]) * SPC, minGap) + (+z.acc || 0) * 9 + (z.pre || 0));
+        segP.push({ d: spaceFor(ticks[i + 1] - ticks[i]) * SPC, m: minGap, f: (+z.acc || 0) * 9 + (z.pre || 0) });
       }
       const nat = 14 + chgRoom + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
       barInfo.push({ ticks, segW, segP, nat, accRoom, chgRoom, keyChg, mChg, clefChg });
@@ -1094,6 +1099,8 @@ const Notation = (() => {
         const lyrY = textY + (nameOf && !perc ? 15 : 0) + fOff;
         const dynY = st.dynAbove ? stTop - st.above - 2 * SP + 2 : (st.hasLyr ? lyrY + 18 + (st.lyrN - 1) * LYR_GAP : textY + (nameOf && !perc ? 15 : 0) + fOff) + 2;
         const headsAt = new Map(); // abs tick → {x, ys[], up}（スラー用）
+        const headsB = new Map(); // 下の声部の音（下の声部のスラー用）
+        const headsA = new Map(); // 上の声部の音
         // 1つの音節を何音かでのばすとき（メリスマ）は、歌詞のあとに横線をひく
         const lyOwn = st.sub === 0 && st.notes.some((n) => n.ly);
         const lastLy = lyOwn ? Math.max(...st.notes.filter((n) => n.ly).map((n) => n.s)) : -1;
@@ -1137,6 +1144,7 @@ const Notation = (() => {
             if (B.mChg) { const mm2 = mAt(bb); const wide = Math.max(String(mm2[0]).length, String(mm2[1]).length) > 1 ? GW('timeSig4') / 2 + 1 : 0; digits(mm2[0], yOf(6), cx2 + 6 + wide); digits(mm2[1], yOf(2), cx2 + 6 + wide); } // 2けたの数字（12/8 など）は、小節線にかからないように右へ
           }
           const notPick = (ev) => !(bb === 0 && pickup && ev.pos < bL(0) - pickup);
+          const gapsB = st.gapB ? st.gapB.get(bb) : null;
           // mode 0: 1声部だけ / 1: 上の声部（ぼう上） / 2: 下の声部（ぼう下）
           const drawEvs = (evs, mode, stream, allBars, other) => {
           const drawn = [];
@@ -1165,6 +1173,8 @@ const Notation = (() => {
             const x0 = xAt(bb, ev.pos);
             if (ev.rest) {
               const rx = ev.whole ? (B.x0 + B.x1) / 2 - 5 : x0;
+              // 読みこんだ楽譜で、この声部がとちゅうで終わっている所：休符を書かない
+              if (mode && gapsB && gapsB.some((g) => g.v === mode && ev.abs >= g.s && ev.abs < g.e)) { prevHead = null; continue; }
               const yR = yRof(ev);
               // 8分・16分などの休符は、連桁の中にあるかもしれないので、連桁を書いたあとに置く
               if (!ev.whole && ev.base < 48) restLater.push({ ev, x: rx, yOf: yR });
@@ -1198,7 +1208,10 @@ const Notation = (() => {
             heads.sort((a, c) => a.pos - c.pos);
             const lo = heads[0].pos;
             const hi = heads[heads.length - 1].pos;
-            const up = ev.sd && !perc ? ev.sd > 0 : perc || mode === 1 ? true : mode === 2 ? false : !((hi - 4) > (4 - lo) || ((hi - 4) === (4 - lo) && hi >= 4));
+            // 相手の声部がもう終わっている所（休符も書かない）では、ぼうの向きを自由にする（1つの声部のときと同じ）
+            const free = !!(mode && gapsB && gapsB.some((g) => g.v !== mode && ev.abs >= g.s && ev.abs < g.e));
+            const modeE = free ? 0 : mode;
+            const up = ev.sd && !perc ? ev.sd > 0 : perc || modeE === 1 ? true : modeE === 2 ? false : !((hi - 4) > (4 - lo) || ((hi - 4) === (4 - lo) && hi >= 4));
             // 2度の音は符頭を横にずらす
             const disp = new Array(heads.length).fill(0);
             if (up) { for (let i = 1; i < heads.length; i++) if (heads[i].pos - heads[i - 1].pos === 1 && !disp[i - 1]) disp[i] = 10.5; }
@@ -1299,9 +1312,10 @@ const Notation = (() => {
               else melFlush();
             }
             const flags = ev.base <= 6 ? 3 : ev.base <= 12 ? 2 : ev.base <= 24 ? 1 : 0;
-            const d = { x, up, lo, hi, flags: st.part.slash ? 0 : flags, hasStem: ev.base < 192 && !st.part.slash, ev, yOf, beatIdx: Math.floor(ev.pos / beatOf(mAt(bb))), heads, disp, forced: ev.sd && !perc ? ev.sd > 0 : mode ? mode === 1 : perc ? true : null };
+            const d = { x, up, lo, hi, flags: st.part.slash ? 0 : flags, hasStem: ev.base < 192 && !st.part.slash, ev, yOf, beatIdx: Math.floor(ev.pos / beatOf(mAt(bb))), heads, disp, forced: ev.sd && !perc ? ev.sd > 0 : modeE ? modeE === 1 : perc ? true : null, free };
             drawn.push(d);
             if (!headsAt.has(ev.abs) || stream === 'A') headsAt.set(ev.abs, d);
+            (stream === 'A' ? headsA : headsB).set(ev.abs, d);
             if (prevHead && prevHead.ev.tie) drawTie(o, prevHead, d, yOf);
             prevHead = d;
           }
@@ -1336,16 +1350,19 @@ const Notation = (() => {
             let artTop = Infinity; // 符頭の上に書いた記号のいちばん上
             for (const a of arts) {
               if (ABOVE_ART.has(a) || !['stac', 'ten', 'acc', 'marc', 'stacc2'].includes(a)) continue;
-              const below = d.up;
+              // 2つの声部がある小節：記号は、ぼうの先（外がわ）に書く。符頭がわに書くと、相手の声部の音にかさなる
+              const stemSide = two && d.hasStem && !d.free;
+              const below = stemSide ? !d.up : d.up;
+              const tipA = d.tipY != null ? d.tipY : stemEnd(d);
               // 符頭から半スペース以上はなし、線の上にかからないように
-              let yy = below ? d.yOf(d.lo) + 6 + k * 9 : d.yOf(d.hi) - 6 - k * 9;
+              let yy = stemSide ? (d.up ? tipA - 5 - k * 9 : tipA + 5 + k * 9) : below ? d.yOf(d.lo) + 6 + k * 9 : d.yOf(d.hi) - 6 - k * 9;
               const nm = { stac: 'articStaccato', ten: 'articTenuto', acc: 'articAccent', marc: 'articMarcato', stacc2: 'articStaccatissimo' }[a] + (below ? 'Below' : 'Above');
               if (!Glyphs.g[nm]) continue;
               o.push(G(nm, d.x - GW(nm) / 2, yy));
               if (!below) artTop = Math.min(artTop, yy - (a === 'marc' ? 11 : 9));
               k++;
             }
-            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : Infinity, artTop - 2);
+            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? (d.tipY != null ? d.tipY : stemEnd(d)) - 4 : Infinity, artTop - 2);
             // スラーのはし（上がわ）の音なら、装飾記号・フェルマータはスラーの外へ
             if (!d.up && (st.part.slurs || []).some((sl) => sl.s === d.ev.src || sl.e === d.ev.src) && arts.some((a) => ORN_G[a] || a === 'ferm')) yy -= 9;
             if (arts.includes('ferm')) {
@@ -1453,16 +1470,19 @@ const Notation = (() => {
             o.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="18" fill="#fff" stroke="#111" stroke-width="1.3"/><text x="${rx + rw / 2}" y="${ry + 14}" font-size="14" font-weight="bold" text-anchor="middle" fill="#111" class="reh">${esc(t)}</text>`);
           }
           // rit. / accel. はコード名の上に（かさならないように）
-          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${B.xs[0]}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
+          // 練習番号（四角の文字）と同じ小節なら、その右に書く（かさならないように）
+          const wx0 = si === 0 && anyReh && opts.rehearsal[bb] != null && opts.rehearsal[bb] !== '' ? Math.max(B.xs[0], B.x0 + textW(String(opts.rehearsal[bb])) * 1.15 + 18) : B.xs[0];
+          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${wx0}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
           // とちゅうのテンポの変化（♩ = 80）
           if (si === 0 && bb > 0 && opts.tempos && opts.tempos[bb]) {
             const ty = stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0);
-            const tx = B.xs[0] + (opts.words && opts.words[bb] ? textW(opts.words[bb]) + 10 : 0);
+            const tx = wx0 + (opts.words && opts.words[bb] ? textW(opts.words[bb]) + 10 : 0);
             const mm = mAt(bb);
             const cmp = mm[1] === 8 && mm[0] % 3 === 0 && mm[0] > 3;
-            o.push(G('metNoteQuarterUp', tx, ty, 'class="tempo" fill="#111"', 6.5));
+            const e8 = !cmp && mm[1] === 8 && !!Glyphs.g.metNote8thUp; // 3/8 など：8分音符を1拍に数える（♪＝68）
+            o.push(G(e8 ? 'metNote8thUp' : 'metNoteQuarterUp', tx, ty, 'class="tempo" fill="#111"', 6.5));
             if (cmp) o.push(G('metAugmentationDot', tx + 9, ty, 'fill="#111"', 6.5));
-            o.push(`<text x="${tx + (cmp ? 15 : 11)}" y="${ty}" font-size="13" fill="#111" class="tempo">= ${cmp ? Math.round(opts.tempos[bb] / 1.5) : opts.tempos[bb]}</text>`);
+            o.push(`<text x="${tx + (cmp || e8 ? 15 : 11)}" y="${ty}" font-size="13" fill="#111" class="tempo">= ${cmp ? Math.round(opts.tempos[bb] / 1.5) : e8 ? opts.tempos[bb] * 2 : opts.tempos[bb]}</text>`);
           }
         }
         melFlush();
@@ -1508,13 +1528,15 @@ const Notation = (() => {
         }
         // スラー
         for (const sl of st.part.slurs || []) {
-          const a = headsAt.get(sl.s);
-          const z = headsAt.get(sl.e);
+          // スラーは、その声部の音につける（2つの声部がある段で、相手の声部の音につながらないように）
+          const own = sl.v === 2 && headsB.has(sl.s) ? headsB : sl.v !== 2 && headsA.has(sl.s) ? headsA : headsAt;
+          const a = own.get(sl.s) || headsAt.get(sl.s);
+          const z = own.get(sl.e) || headsAt.get(sl.e);
           if (!a && !z) continue;
           const inSys = (t) => t >= bS(b0) && t < bS(b1);
           if (!inSys(sl.s) && !inSys(sl.e) && !(sl.s < bS(b0) && sl.e >= bS(b1))) continue;
           // スラーの中の音（この段の分）
-          const inside = [...headsAt.entries()].filter(([t]) => t >= sl.s && t <= sl.e).map(([, d]) => d);
+          const inside = [...(own === headsAt ? headsAt : new Map([...headsAt, ...own])).entries()].filter(([t]) => t >= sl.s && t <= sl.e).map(([, d]) => d);
           // 上か下か：ぼうがみんな下向きなら上、みんな上向きなら下、まざっていたら上（浄書のきまり）
           let above;
           if ((a || z).forced != null) above = (a || z).forced;
@@ -1530,7 +1552,9 @@ const Notation = (() => {
           const ya = a ? endY(a) : (above ? yOf(9) : yOf(-1));
           const yz = z ? endY(z) : ya;
           const yA = ya;
-          let lift = Math.min(18, 6 + (xz - xa) / 14) * (above ? -1 : 1);
+          // ふくらみ：スラーの長さ（ななめの長さ）に合わせる。はしの高さが大きくちがうときも、まっすぐな線に見えないように
+          const sLen = Math.hypot(xz - xa, yz - ya);
+          let lift = Math.min(22, 6 + sLen / 12) * (above ? -1 : 1);
           // 中の音（符頭・ぼう・連桁）にさわらないよう、カーブを高く（深く）する
           for (const d of inside) {
             if (d === a || d === z || xz - xa < 4) continue;
@@ -1540,8 +1564,10 @@ const Notation = (() => {
             const k3 = 3 * t * (1 - t) * 0.9;
             if (above ? need < lift * k3 : need > lift * k3) lift = need / k3;
           }
-          lift = Math.max(-28, Math.min(28, lift));
-          o.push(`<path d="M${xa} ${yA} C${xa + (xz - xa) / 3} ${yA + lift} ${xa + (2 * (xz - xa)) / 3} ${yz + lift} ${xz} ${yz} C${xa + (2 * (xz - xa)) / 3} ${yz + lift * 0.8} ${xa + (xz - xa) / 3} ${yA + lift * 0.8} ${xa} ${yA}" fill="#111" stroke="#111" stroke-width="0.6"/>`);
+          lift = Math.max(-64, Math.min(64, lift));
+          // 太さは、ふくらみの大きさに関係なく同じ（まん中で約2）。大きくふくらむスラーが、太いかたまりにならないように
+          const lift2 = lift - Math.sign(lift) * Math.min(3.2, Math.abs(lift) * 0.2);
+          o.push(`<path class="slur" d="M${xa} ${yA} C${xa + (xz - xa) / 3} ${yA + lift} ${xa + (2 * (xz - xa)) / 3} ${yz + lift} ${xz} ${yz} C${xa + (2 * (xz - xa)) / 3} ${yz + lift2} ${xa + (xz - xa) / 3} ${yA + lift2} ${xa} ${yA}" fill="#111" stroke="#111" stroke-width="0.6"/>`);
         }
         // グリッサンド：その音から、つぎの音への線
         for (const n of st.notes.concat(st.notes2)) {
@@ -1666,7 +1692,8 @@ const Notation = (() => {
             const open = hp.type === 'cresc';
             const wa = open ? 0 : 5;
             const wz = open ? 5 : 0;
-            o.push(`<path d="M${xz} ${yy - wz} L${xa} ${yy - wa} L${xz} ${yy + wz}" fill="none" stroke="#111" stroke-width="1.1"/>`);
+            // クレッシェンドは「＜」、デクレッシェンドは「＞」（開いているがわに2本の線）
+            o.push(open ? `<path d="M${xz} ${yy - wz} L${xa} ${yy} L${xz} ${yy + wz}" fill="none" stroke="#111" stroke-width="1.1"/>` : `<path d="M${xa} ${yy - wa} L${xz} ${yy} L${xa} ${yy + wa}" fill="none" stroke="#111" stroke-width="1.1"/>`);
             if (edit) o.push(`<rect class="hp" data-i="${hpi}" data-pi="${st.pi}" x="${xa - 2}" y="${yy - 8}" width="${xz - xa + 4}" height="16" fill="transparent"/>`);
             if (!open) o.push(`<path d="M${xa} ${yy - wa} L${xz} ${yy}" fill="none" stroke="none"/>`);
           }

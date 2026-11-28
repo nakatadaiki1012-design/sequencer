@@ -1107,6 +1107,7 @@ const MusicXMLImport = (() => {
       const dyn = [];
       const hairpins = [];
       const slurs = [];
+      const vgap = []; // 声部がとちゅうで終わっている所（休符を書かない）
       const texts = [];
       const pedals = [];
       const ottava = [];
@@ -1203,7 +1204,7 @@ const MusicXMLImport = (() => {
               const type = el.getAttribute('type');
               const end = locTo(el, mi, pos);
               if (end == null) continue; // 終わりの印
-              if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end) });
+              if (type === 'Slur') slurs.push({ s: absT(pos), e: absT(end), ...(voice > 0 ? { v: 2 } : {}) });
               else if (type === 'Pedal') pedals.push({ s: absT(pos), e: absT(end) });
               else if (type === 'Trill') {
                 // トリルの波線（♯・♭がついていれば、その上の音）
@@ -1285,7 +1286,7 @@ const MusicXMLImport = (() => {
             for (const sp of kids(el, 'Spanner')) {
               if (sp.getAttribute('type') !== 'Slur') continue;
               const end = locTo(sp, mi, pos);
-              if (end != null && end > pos) slurs.push({ s: absT(pos), e: absT(end) });
+              if (end != null && end > pos) slurs.push({ s: absT(pos), e: absT(end), ...(voice > 0 ? { v: 2 } : {}) });
             }
             // 2.x のスラー
             for (const sl of kids(el, 'Slur')) { const id = sl.getAttribute('id'); if (sl.getAttribute('type') === 'start') slur2[id] = absT(pos); else if (slur2[id] != null) { slurs.push({ s: slur2[id], e: absT(pos) }); delete slur2[id]; } }
@@ -1341,8 +1342,27 @@ const MusicXMLImport = (() => {
             lastChord = made;
             pos += dur;
           }
+          // 2つ目からの声部が、小節のとちゅうで終わっている（のこりに休符が書かれていない）：そこには休符を書かない
+          if (vi0 > 0 && pos > mStart && pos < startDiv[mi + 1] - 1) vgap.push({ s: absT(pos), e: absT(startDiv[mi + 1]), v: 2 });
         });
       });
+      // 2つの声部がある小節：同時に鳴る所で、2つ目の声部のほうが高いなら、上下を入れかえる（上の声部＝ぼうが上、下の声部＝ぼうが下）
+      if (!part.perc && notes.some((n) => n.v === 2)) {
+        const bT = Array.from({ length: nBars + 1 }, (_, i) => absT(startDiv[i]));
+        const barOf = (t) => { let a = 0; let z = nBars; while (a < z - 1) { const m = (a + z) >> 1; if (bT[m] <= t) a = m; else z = m; } return a; };
+        const per = new Map();
+        for (const n of notes) { const b = barOf(n.s); let q = per.get(b); if (!q) per.set(b, (q = [[], []])); q[n.v === 2 ? 1 : 0].push(n); }
+        for (const [b, [v1, v2]] of per) {
+          if (!v1.length || !v2.length) continue;
+          let sum = 0;
+          let cnt = 0;
+          for (const a of v2) for (const c of v1) if (c.s < a.s + a.l && a.s < c.s + c.l) { sum += a.p - c.p; cnt++; }
+          if (!cnt || sum <= 0) continue;
+          for (const n of v1) n.v = 2;
+          for (const n of v2) delete n.v;
+          for (const x of slurs.concat(vgap)) if (x.s >= bT[b] && x.s < bT[b + 1]) { if (x.v === 2) delete x.v; else x.v = 2; }
+        }
+      }
       if (part.perc) {
         const dt = drumTracks.get(part) || { type: 'drum', name: part.name, ...(part.short ? { short: part.short } : {}), kit: 'drums', grid: {} };
         for (const id in grid) { dt.grid[id] = { ...(dt.grid[id] || {}), ...grid[id] }; }
@@ -1376,7 +1396,7 @@ const MusicXMLImport = (() => {
       }
       tracks.push({ type: 'melody', name: nm.slice(0, 30), ...(part.short ? { short: part.short } : {}), ...(instChg.length ? { instChg } : {}), inst, ...(part.tabView && part.tun ? { tabView: part.tabView } : {}), range: avg >= 60 ? 'soprano' : avg >= 55 ? 'alto' : avg >= 48 ? 'tenor' : 'bass',
         ...(firstClef ? { clef: firstClef } : {}), ...(part.trans ? { trans: part.trans } : {}),
-        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(trills.length ? { trills } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
+        notes: notes.sort((a, b) => a.s - b.s || a.p - b.p), dyn, hairpins, slurs, ...(vgap.length ? { vgap: vgap.map((g) => ({ s: g.s, e: g.e, v: g.v === 2 ? 2 : 1 })) } : {}), ...(texts.length ? { texts } : {}), ...(pedals.length ? { pedals } : {}), ...(ottava.length ? { ottava } : {}), ...(trills.length ? { trills } : {}), ...(Object.keys(clefChg).length ? { clefChg } : {}), ...(Object.keys(mrep).length ? { mrep } : {}) });
     }
     let out = tracks.filter((t) => t.type !== 'melody' || t.notes.length || tracks.length <= 2);
     if (!out.length) out = tracks.slice(0, 1);

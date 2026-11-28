@@ -37,6 +37,13 @@ const { chromium } = require('playwright');
     out['楽譜のことば'] = JSON.stringify(o1.words);
     out['楽譜の強弱（f だけ）'] = JSON.stringify(o1.parts[0].dyn.map((d) => d.v));
     out['楽譜の短い名前'] = o1.parts[0].short;
+    {
+      const svgW = show(Notation.render(o1));
+      const w = [...svgW.querySelectorAll('text')].find((e) => e.textContent === 'Andante');
+      const r = w && w.getBoundingClientRect();
+      const sr = svgW.getBoundingClientRect();
+      out['速さのことばが楽譜の中に見える'] = !!r && r.top > sr.top && r.bottom < sr.bottom && r.height > 4;
+    }
     const s1 = JSON.parse(snapshot());
     // pizz. / arco：弦楽器は、そこから音色が変わる（楽譜には「持ちかえ」と書かない）
     {
@@ -89,6 +96,44 @@ const { chromium } = require('playwright');
       const hy = heads.length ? Math.min(...heads.map(cy)) : 0;
       const by = beams.length ? Math.min(...beams.map(cy)) : 1e9;
       out['打楽器：連桁は符頭より上'] = heads.length >= 2 && beams.length ? by < hy : 'beam?' + beams.length;
+    }
+    // ---- 4b. デクレッシェンドは「＞」の形（開いているがわに2本）・スラーは丸い・2声部のスタッカートは、ぼうの先 ----
+    {
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 2, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 72, l: 96 }, { s: 96, p: 74, l: 96 }, { s: 192, p: 76, l: 192 }], hairpins: [{ s: 0, e: 190, type: 'dim' }], dyn: [{ t: 0, v: 'f' }] }] }, { own: true });
+      const svg = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const hp = [...svg.querySelectorAll('path')].find((q) => /^M[\d.]+ [\d.]+ L[\d.]+ [\d.]+ L[\d.]+ [\d.]+$/.test(q.getAttribute('d')) && q.getAttribute('fill') === 'none');
+      const m = hp ? hp.getAttribute('d').match(/[\d.]+/g).map(Number) : [];
+      out['デクレッシェンド：左が開いて右が閉じる'] = m.length === 6 && m[0] === m[4] && m[0] < m[2] && Math.abs(m[1] - m[5]) > 6;
+      // ななめのスラー：まっすぐな線にならない
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 1, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 89, l: 48 }, { s: 48, p: 60, l: 48 }], slurs: [{ s: 0, e: 48 }] }] }, { own: true });
+      const svg2 = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const sl = svg2.querySelector('.slur');
+      const q = sl ? sl.getAttribute('d').match(/-?[\d.]+/g).map(Number) : [];
+      // M xa ya C c1x c1y c2x c2y xz yz …：まん中の高さが、はしを結ぶ線から 8 以上はなれている
+      const mid = q.length >= 8 ? 0.125 * q[1] + 0.375 * q[3] + 0.375 * q[5] + 0.125 * q[7] : 0;
+      out['ななめのスラーも丸い'] = q.length >= 8 && Math.abs(mid - (q[1] + q[7]) / 2) > 8;
+      // 2声部：上の声部のスタッカートは音符より上（ぼうの先）、下の声部は下
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 1, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 76, l: 48, art: ['stac'] }, { s: 0, p: 72, l: 48, v: 2, art: ['stac'] }] }] }, { own: true });
+      const svg3 = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
+      const hs = [...svg3.querySelectorAll('.nh')].map(cy);
+      const dA = Glyphs.g.articStaccatoAbove.d; const dB = Glyphs.g.articStaccatoBelow.d;
+      const dots = [...svg3.querySelectorAll('path')].filter((e) => e.getAttribute('d') === dA || e.getAttribute('d') === dB).map(cy);
+      out['2声部のスタッカート：音符の外がわ（上と下）'] = dots.length === 2 && Math.min(...dots) < Math.min(...hs) - 15 && Math.max(...dots) > Math.max(...hs) + 15;
+    }
+    // ---- 4c. MuseScore：2つ目の声部が高いときは上の声部に。とちゅうで終わる声部のあとに休符を書かない。3/8 のテンポは ♪＝ ----
+    {
+      const ch = (p, d, extra = '') => `<Chord><durationType>${d}</durationType>${extra}<Note><pitch>${p}</pitch></Note></Chord>`;
+      const x3 = `<?xml version="1.0"?><museScore version="3.01"><Score><Division>480</Division><Part><Staff id="1"/><trackName>Flute</trackName><Instrument><Channel><program value="73"/></Channel></Instrument></Part><Staff id="1">`
+        + `<Measure><voice><TimeSig><sigN>2</sigN><sigD>4</sigD></TimeSig>${ch(61, 'quarter')}${ch(64, 'quarter')}</voice><voice>${ch(76, 'eighth')}</voice></Measure>`
+        + `<Measure><voice><TimeSig><sigN>3</sigN><sigD>8</sigD></TimeSig><Tempo><tempo>0.5</tempo><text>x = 60</text></Tempo>${ch(72, 'quarter')}${ch(72, 'eighth')}</voice></Measure></Staff></Score></museScore>`;
+      const g3 = await MusicXMLImport.readFile(new TextEncoder().encode(x3).buffer, 'v.mscx');
+      loadSong(g3, { own: true });
+      const t3 = song.tracks[0];
+      out['高い声部が上（v なし）・低い声部が下（v:2）'] = t3.notes.map((n) => n.p + (n.v === 2 ? 'v2' : '')).join(',');
+      out['声部のとちゅう終わり（上の声部・8分のあと）'] = JSON.stringify(t3.vgap);
+      const svg4 = show(Notation.render(scoreOpts([t3.id], true)));
+      out['1小節目に休符を書かない'] = [...svg4.querySelectorAll('.rest')].filter((r) => +r.dataset.s < 96).length;
+      out['3/8 のテンポは ♪＝60'] = [...svg4.querySelectorAll('text.tempo')].map((e) => e.textContent.trim()).join('|') + ' ' + (svg4.querySelector('path.tempo') && [...svg4.querySelectorAll('path.tempo')].some((e) => e.getAttribute('d') === Glyphs.g.metNote8thUp.d));
     }
     // ---- 5. フルスコア：1ページに1段のとき、下までそろえる ----
     const names = [['フルート', 'flute', 84], ['オーボエ', 'oboe', 79], ['クラリネット', 'clarinet', 72], ['ファゴット', 'bassoon', 48], ['ホルン', 'horn', 60], ['トランペット', 'trumpet', 72], ['トロンボーン', 'trombone', 55], ['チューバ', 'tuba', 40], ['バイオリンⅠ', 'violin', 79], ['バイオリンⅡ', 'violin', 74], ['ビオラ', 'viola', 64], ['チェロ', 'cello', 50], ['コントラバス', 'contrabass', 40]];
