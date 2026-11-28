@@ -7929,8 +7929,12 @@ function scoreClick(e) {
   if (hpe) {
     const ptr = scoreParts[+hpe.dataset.pi];
     if (ptr && ptr !== track()) selectTrack(song.tracks.indexOf(ptr), false);
-    const hi = +hpe.dataset.i;
-    if (track().hairpins && track().hairpins[hi]) { dynPop(track(), track().hairpins[hi].s, e.clientX, e.clientY, { hp: hi }); return; }
+    // 画面に出ている範囲だけの「何番目」ではなく、はじめとおわりの位置でさがす（長い曲で、ちがうクレッシェンドをえらばないように）
+    const hs = track().hairpins || [];
+    let hi = hs.findIndex((h) => String(h.s) === hpe.dataset.s && String(h.e) === hpe.dataset.e);
+    if (hi < 0) hi = hs.findIndex((h) => String(h.s) === hpe.dataset.s);
+    if (hi < 0 && hpe.dataset.s == null) hi = +hpe.dataset.i;
+    if (hs[hi]) { dynPop(track(), track().hairpins[hi].s, e.clientX, e.clientY, { hp: hi }); return; }
   }
   // コメントの印：そのコメントを出す
   const cmt = e.target.closest && e.target.closest('.cmt');

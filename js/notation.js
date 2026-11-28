@@ -1937,7 +1937,7 @@ const Notation = (() => {
             const wz = open ? 5 : 0;
             // クレッシェンドは「＜」、デクレッシェンドは「＞」（開いているがわに2本の線）
             o.push(open ? `<path d="M${xz} ${yy - wz} L${xa} ${yy} L${xz} ${yy + wz}" fill="none" stroke="#111" stroke-width="1.1"/>` : `<path d="M${xa} ${yy - wa} L${xz} ${yy} L${xa} ${yy + wa}" fill="none" stroke="#111" stroke-width="1.1"/>`);
-            if (edit) o.push(`<rect class="hp" data-i="${hpi}" data-pi="${st.pi}" x="${xa - 2}" y="${yy - 8}" width="${xz - xa + 4}" height="16" fill="transparent"/>`);
+            if (edit) o.push(`<rect class="hp" data-i="${hpi}" data-s="${hp.s}" data-e="${hp.e}" data-pi="${st.pi}" x="${xa - 2}" y="${yy - 8}" width="${xz - xa + 4}" height="16" fill="transparent"/>`);
             if (!open) o.push(`<path d="M${xa} ${yy - wa} L${xz} ${yy}" fill="none" stroke="none"/>`);
           }
         }
