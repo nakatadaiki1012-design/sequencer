@@ -323,6 +323,9 @@ function sanitizeSong(s) {
     tr.pan = num(t.pan, 0, -1, 1);
     if (t.name != null) tr.name = String(t.name).slice(0, 40);
     if (typeof t.short === 'string' && t.short.trim()) tr.short = t.short.trim().slice(0, 12); // 楽譜の2段目からの短い名前（Vln. 1 など）
+    // 自分で決めた音域 [出せる下, 出せる上, ふつうの下, ふつうの上]（鳴る音）。0＝音域の色分けをしない
+    if (t.rng === 0) tr.rng = 0;
+    else if (Array.isArray(t.rng) && t.rng.length === 4 && t.rng.every((v) => Number.isInteger(v) && v >= 0 && v <= 127) && t.rng[0] <= t.rng[2] && t.rng[2] <= t.rng[3] && t.rng[3] <= t.rng[1]) tr.rng = t.rng.slice();
     return tr;
   });
   if (s.voice && !(typeof s.voice.data === 'string' && Number.isFinite(+s.voice.sr) && +s.voice.sr >= 8000 && +s.voice.sr <= 96000 && s.voice.data.length < 400000)) delete out.voice;
@@ -5670,7 +5673,7 @@ function scoreOpts(trackIds, withDrums) {
     if (t.type === 'melody') {
       const oi = ORCH[t.inst];
       const { clef, trans } = partClefTrans(t);
-      parts.push({ id: t.id, name: t.name, range: S.orch ? INST_RANGE[t.inst] || null : null, short: t.short || (oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : ''), family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn && t.dyn.some((d) => d.h) ? t.dyn.filter((d) => !d.h) : t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg && t.instChg.some((c) => !c.q) ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => !c.q && c.t === x.t)), ...t.instChg.filter((c) => !c.q).map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, vgap: t.vgap, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
+      parts.push({ id: t.id, name: t.name, range: t.rng === 0 ? null : t.rng || (S.orch ? INST_RANGE[t.inst] || null : null), short: t.short || (oi ? oi[1] + (/(Ⅰ|Ⅱ|Ⅲ|Ⅳ|[1-4１-４])\s*$/.exec(t.name) || [''])[0] : ''), family: S.orch ? (oi ? oi[0] : 'kb') : '', inst: t.inst, notes: t.notes, clef, transpose: trans, lyrics: t.notes.some((n) => n.ly) ? [] : Notation.splitLyrics(t.lyrics || ''), dyn: t.dyn && t.dyn.some((d) => d.h) ? t.dyn.filter((d) => !d.h) : t.dyn, hairpins: t.hairpins, slurs: t.slurs, texts: t.instChg && t.instChg.some((c) => !c.q) ? [...(t.texts || []).filter((x) => !t.instChg.some((c) => !c.q && c.t === x.t)), ...t.instChg.filter((c) => !c.q).map((c) => { const own = (t.texts || []).find((x) => x.t === c.t); return { t: c.t, x: (Sound.INSTRUMENTS[c.inst] || c.inst) + ' に持ちかえ' + (own ? '　' + own.x : '') }; })].sort((a, b) => a.t - b.t) : t.texts, pedals: t.pedals, ottava: t.ottava, trills: t.trills, vgap: t.vgap, clefChg: t.clefChg, mrep: t.mrep, tab: TAB_INST[t.inst] ? (S.tab || {})[t.id] || '' : '', tabTuning: TAB_INST[t.inst], gm: Sound.GM[t.inst] || 0 });
       partTracks.push(t);
     } else if (t.type === 'drum' && withDrums) {
       const notes = [];

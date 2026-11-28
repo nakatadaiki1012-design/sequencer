@@ -769,6 +769,7 @@ function pro2Cmds() {
     ['えらんだ音をアイデア帳にしまう', 'capture idea しまう', () => ideaCapture()],
     ['演奏の表情（人が弾いたように）', 'espressivo humanize 表情 ゆれ 自然 ひょうじょう', () => feelSet(((song.feel || 0) + 1) % 3)],
     ['ピアノ譜にまとめる', 'reduction piano reduce リダクション ピアノ まとめる', () => reduceOpen()],
+    ['パートの設定（名前・移調・音域）', 'part name transpose range パート 名前 移調 音域 いちょう おんいき', () => partDlg(track().id)],
     ['歌って入力（マイク）', 'sing mic microphone うた うたう マイク 鼻歌', () => singToggle()],
     ['弾いて練習（採点）', 'practice score mic れんしゅう さいてん マイク', () => prStart()],
   ].map(([n, k, run]) => ({ n, k, run }));
@@ -794,3 +795,99 @@ function pro2Menu() {
   feelUi();
 }
 pro2Menu();
+
+/* ---------- パートの設定（楽譜のパート名をダブルクリック） ----------
+   名前・短い名前（2段目から）・音部記号・移調（in B♭ など）・音域（出せない音を赤、むずかしい音をオレンジに） */
+const PART_TRANS = [
+  ['auto', '自動（楽器にあわせる）'], ['0', 'なし（C・実音）'], ['2', 'in B♭（クラリネット・トランペット）'], ['3', 'in A（クラリネット・トランペット）'],
+  ['7', 'in F（ホルン・イングリッシュホルン）'], ['9', 'in E♭（アルトサックス）'], ['5', 'in G（アルトフルート）'], ['14', 'in B♭・1オクターブ下（テナーサックス・バスクラリネット）'],
+  ['21', 'in E♭・1オクターブ下（バリトンサックス）'], ['12', '1オクターブ下で鳴る（コントラバス・ギター）'], ['-12', '1オクターブ上で鳴る（ピッコロ・グロッケン）'],
+];
+const PART_CLEF = [['auto', '自動'], ['treble', 'ト音記号'], ['treble8', 'ト音記号（8つ下・テノール）'], ['alto', 'ハ音記号（アルト・ビオラ）'], ['bass', 'ヘ音記号'], ['grand', '大譜表（ピアノ）']];
+const midiLabel = (m) => `${['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'][m % 12]}${Math.floor(m / 12) - 1}（${noteJa(m)}）`;
+function partDlg(id) {
+  const t = song.tracks.find((x) => String(x.id) === String(id));
+  if (!t) return;
+  const S = scoreSettings();
+  if (!S.trans) S.trans = {};
+  if (!S.clefs) S.clefs = {};
+  const mel = t.type === 'melody';
+  let dlg = $('#dlgPart');
+  if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'dlgPart'; dlg.className = 'dlg small'; document.body.appendChild(dlg); }
+  const instR = INST_RANGE[t.inst] || null;
+  const cur = Array.isArray(t.rng) ? t.rng : instR || [48, 84, 52, 79];
+  const rMode = t.rng === 0 ? 'off' : Array.isArray(t.rng) ? 'own' : 'auto';
+  const nOpts = (v) => Array.from({ length: 88 }, (_, i) => 21 + i).reverse().map((m) => `<option value="${m}" ${m === v ? 'selected' : ''}>${midiLabel(m)}</option>`).join('');
+  const now = mel && typeof partClefTrans === 'function' ? partClefTrans(t).trans : 0;
+  const nowTxt = (PART_TRANS.find(([v]) => +v === now && v !== 'auto') || [0, now ? `${now > 0 ? '+' : ''}${now}半音` : 'なし（実音）'])[1].replace(/（.*$/, '');
+  dlg.innerHTML = `<h3>パートの設定</h3>
+    <label class="col small">名前 <input id="ptName" maxlength="20" value="${escapeHtml(t.name)}"></label>
+    <label class="col small">短い名前（2段目からの左に書く。空なら自動） <input id="ptShort" maxlength="12" value="${escapeHtml(t.short || '')}" placeholder="れい：Vln. 1"></label>
+    ${mel ? `<label class="col small">音部記号 <select id="ptClef">${PART_CLEF.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+    <label class="col small">移調楽器（楽譜に書く高さ）<small class="muted">いまの書き方：${escapeHtml(nowTxt)}</small> <select id="ptTrans">${PART_TRANS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+    <label class="col small">音域の色分け（楽譜で編集するときだけ）<select id="ptRng">
+      <option value="auto">自動（オーケストラの書き方のとき、楽器の音域）</option>
+      ${instR ? '<option value="inst">楽器の音域でいつも出す</option>' : ''}
+      <option value="own">自分で決める</option><option value="off">出さない</option></select></label>
+    <div id="ptOwn" class="small" style="display:grid;grid-template-columns:auto 1fr 1fr;gap:4px 8px;align-items:center">
+      <span></span><b>下</b><b>上</b>
+      <span>出せる音<br><small class="muted">外は赤</small></span><select id="ptP0">${nOpts(cur[0])}</select><select id="ptP1">${nOpts(cur[1])}</select>
+      <span>ふつうの音<br><small class="muted">外はオレンジ</small></span><select id="ptE0">${nOpts(cur[2])}</select><select id="ptE1">${nOpts(cur[3])}</select>
+    </div>
+    <p class="muted small">音域は、実際に鳴る音の高さです。</p>` : ''}
+    <div class="btnrow" style="margin-top:12px"><span class="grow"></span><button class="mini" id="ptNo">やめる</button><button class="mini accent" id="ptOk">決める</button></div>`;
+  const q = (s) => dlg.querySelector(s);
+  if (mel) {
+    q('#ptClef').value = S.clefs[t.id] || 'auto';
+    q('#ptTrans').value = S.trans[t.id] == null ? 'auto' : String(S.trans[t.id]);
+    if (!q('#ptTrans').value) q('#ptTrans').value = 'auto';
+    q('#ptRng').value = rMode;
+    const showOwn = () => { q('#ptOwn').hidden = q('#ptRng').value !== 'own'; };
+    q('#ptRng').onchange = showOwn;
+    showOwn();
+  }
+  q('#ptNo').onclick = () => dlg.close();
+  q('#ptOk').onclick = () => {
+    const name = q('#ptName').value.trim().slice(0, 20);
+    if (!name) return toast('名前を入れてください');
+    const short = q('#ptShort').value.trim().slice(0, 12);
+    let rng;
+    if (mel) {
+      const m = q('#ptRng').value;
+      if (m === 'off') rng = 0;
+      else if (m === 'inst' && instR) rng = instR.slice();
+      else if (m === 'own') {
+        const p = [+q('#ptP0').value, +q('#ptP1').value].sort((a, c) => a - c);
+        const e2 = [+q('#ptE0').value, +q('#ptE1').value].sort((a, c) => a - c);
+        rng = [p[0], p[1], Math.max(p[0], e2[0]), Math.min(p[1], e2[1])];
+        if (rng[2] > rng[3]) { rng[2] = p[0]; rng[3] = p[1]; }
+      }
+    }
+    dlg.close();
+    edit(() => {
+      if (name !== t.name) { t.name = name; t.cname = true; }
+      if (short) t.short = short; else delete t.short;
+      if (mel) {
+        const cv = q('#ptClef').value;
+        if (cv === 'auto') delete S.clefs[t.id]; else S.clefs[t.id] = cv;
+        const tv = q('#ptTrans').value;
+        if (tv === 'auto') delete S.trans[t.id]; else S.trans[t.id] = +tv;
+        if (rng === undefined) delete t.rng; else t.rng = rng;
+      }
+    }, 'パートの設定');
+    renderTracks();
+    if (ui.view === 'score') renderScoreEdit();
+    if ($('#dlgScore') && $('#dlgScore').open) openScore();
+    toast('パートの設定を変えました');
+  };
+  dlg.showModal();
+  q('#ptName').focus();
+}
+// 楽譜（編集の画面・楽譜の画面）のパート名をダブルクリック → パートの設定
+document.addEventListener('dblclick', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('.pname[data-id]') : null;
+  if (!el) return;
+  e.preventDefault();
+  e.stopPropagation();
+  partDlg(el.dataset.id);
+}, true);

@@ -689,8 +689,9 @@ const Notation = (() => {
       const nm = first ? partLabel(st) : partShort(st);
       const sub0 = first ? partIn(st) : '';
       const sub = sub0 && !nm.includes(sub0) ? sub0 : ''; // 名前に「in F」が入っていれば、書かない
-      if (!sub) return `<text x="${x}" y="${y}" text-anchor="end" font-size="11" fill="#111" class="pname">${escA(nm)}</text>`;
-      return `<text x="${x}" y="${y - 5.5}" text-anchor="end" font-size="11" fill="#111" class="pname">${escA(nm)}</text><text x="${x}" y="${y + 7}" text-anchor="end" font-size="10" fill="#111" class="pname">${escA(sub)}</text>`;
+      const da = st.part.id != null ? ` data-id="${esc(String(st.part.id))}"` : ''; // ダブルクリックで、そのパートの設定をひらく
+      if (!sub) return `<text x="${x}" y="${y}" text-anchor="end" font-size="11" fill="#111" class="pname"${da}>${escA(nm)}</text>`;
+      return `<text x="${x}" y="${y - 5.5}" text-anchor="end" font-size="11" fill="#111" class="pname"${da}>${escA(nm)}</text><text x="${x}" y="${y + 7}" text-anchor="end" font-size="10" fill="#111" class="pname"${da}>${escA(sub)}</text>`;
     };
     // 2段目からは短い名前（Fl.・Vn. など）
     const partShort = (st) => st.part.short || ([...st.part.name].length <= 4 ? st.part.name : [...st.part.name].slice(0, 3).join('') + '.');

@@ -1732,3 +1732,12 @@ body.phone #btnCmd { display: none; } /* スマホは「メニュー → 機能�
 .scoreeditview .nh.pk-ok { fill: #2f9e44 !important; }
 .scoreeditview .nh.pk-ng { fill: #e03131 !important; }
 .scoreeditview .nh.vd-add { fill: #1c7ed6 !important; }
+/* 楽譜のパート名：ダブルクリックで、パートの設定 */
+svg .pname[data-id] { cursor: pointer; }
+svg .pname[data-id]:hover { fill: var(--accent, #6d28d9); }
+#ptOwn[hidden] { display: none !important; }
+#dlgPart { width: min(520px, calc(100vw - 32px)); }
+#dlgPart label.col { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+#dlgPart label.col small { font-weight: normal; }
+#dlgPart .btnrow { display: flex; gap: 8px; }
+#dlgPart .btnrow .grow { flex: 1; }
