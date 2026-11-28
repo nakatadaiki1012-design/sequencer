@@ -1517,12 +1517,15 @@ const Notation = (() => {
             }
             // アルペジオ（和音の左に波線）
             if (arts.includes('arp')) {
-              const ax = d.x - 6 - (d.heads.some((h) => h.accTxt) ? 11 : 0) - 8;
-              const ya = d.yOf(d.hi) - 6;
-              const yz = d.yOf(d.lo) + 6;
-              let pth = `M${ax} ${yz}`;
-              for (let yv = yz, k2 = 0; yv > ya; yv -= 4, k2++) pth += ` Q${ax + (k2 % 2 ? -2.6 : 2.6)} ${yv - 2} ${ax} ${yv - 4}`;
-              o.push(`<path d="${pth}" fill="none" stroke="#111" stroke-width="1.1"/>`);
+              // アルペジオの波線：楽譜の字体（Bravura）の波の部品を、下から上へたてにならべる（太く、はっきりした波）
+              const ax = d.x - 6 - (d.heads.some((h) => h.accTxt) ? 11 : 0) - 5;
+              const ya = d.yOf(d.hi) - 5;
+              const yz = d.yOf(d.lo) + 5;
+              const seg = GW('wiggleArpeggiatoUp');
+              const n = Math.max(2, Math.ceil((yz - ya) / seg));
+              let g = '';
+              for (let k2 = 0; k2 < n; k2++) g += G('wiggleArpeggiatoUp', k2 * seg, 0);
+              o.push(`<g class="arp" transform="translate(${ax} ${yz + (n * seg - (yz - ya)) / 2}) rotate(-90)">${g}</g>`);
             }
             // ブレス（息つぎ）・カエスーラ（区切り）
             if (arts.includes('breath')) o.push(G('breathMarkComma', d.x + 12, d.yOf(9.5)));
