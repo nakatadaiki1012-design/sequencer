@@ -914,7 +914,8 @@ const Notation = (() => {
     };
     const chordRowOf = (line) => { if (!PART) return chordRow; const [b0, b1] = lines[line]; for (let b = b0; b < b1; b++) if (!barInfo[b].hide && !barInfo[b].mm && chords && chords[b]) return 16; return 0; };
     let PADL = 0; // ページを下までうめるために、五線ごとに足すあき（段ごと）
-    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? 9.5 : st.grand && st.sub === 0 ? 8.5 : PART ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 + (st.lyrN - 1) * LYR_GAP : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below + PADL;
+    const TIGHT = !!opts.tight; // フルスコア：五線と五線のあいだを、ぶつからない分だけにつめる（五線を大きく書けるように）
+    const staffH = (st) => st.clef === 'tab' ? (st.tab.length - 1) * 12 + 24 + (st.sub === 0 ? 8 : 0) : (st.clef === 'perc' ? (TIGHT ? 8 : 9.5) : st.grand && st.sub === 0 ? 8.5 : PART || TIGHT ? 8.5 : 10.5) * SP + (nameOf && st.clef !== 'perc' ? 15 : 0) + (FING && st.clef !== 'perc' ? 42 : 0) + (st.hasLyr ? 18 + (st.lyrN - 1) * LYR_GAP : 0) + (st.hasDyn ? 18 : 0) + st.above + st.below + PADL;
     const dynRoom = (st) => (st.dynAbove ? 18 : 0); // 上に強弱を書くぶん
     // 空の段をかくす（フルスコア）：2段目からは、その段で音のないパートを書かない
     const busy = (st, a, z) => st.notes.concat(st.notes2).some((n) => n.s < z && n.s + n.l > a) || (st.part.dyn || []).some((d) => d.t >= a && d.t < z);
@@ -981,7 +982,7 @@ const Notation = (() => {
     const inWin = (line) => !W || (lines[line][0] >= W[0] && lines[line][1] <= W[1]);
     // フルスコア：1ページに1段しか入らないとき、五線の間を広げて、ページの下までそろえる（下が大きく空かないように）
     if (opts.fillPage && !W && lines.length > 1) {
-      const PH = width * (273 / 186);
+      const PH = width * (opts.pageRatio || 273 / 186);
       const top0 = 70 + (meta.nameLine ? 24 : 0) + (meta.subtitle ? 18 : 0);
       const hs = lines.map((_, i) => sysHOf(i));
       let i = 0;
@@ -991,7 +992,13 @@ const Notation = (() => {
         let j = i;
         let h = 0;
         while (j < lines.length && (j === i || h + hs[j] <= room)) { h += hs[j]; j++; }
-        if (j - i === 1 && vis[i].length > 3 && h < room - 4 && h > room * 0.5) padOf[i] = Math.min(room - h, h * 0.7) / vis[i].length;
+        // ページの下があまる：五線と五線のあいだを少しずつ広げて、ページ全体を使う（段が1つのページも、2つ以上のページも）
+        const nSt = lines.slice(i, j).reduce((a, _, k) => a + vis[i + k].length, 0);
+        if (nSt > 3 && h < room - 4 && (j - i > 1 || h > room * 0.3)) {
+          const extra = room - h;
+          const use = j - i === 1 ? Math.min(extra, h * 1.0) : Math.min(extra * 0.6, h * 0.5); // 2段以上のときは、のこりを段のあいだに
+          for (let k = i; k < j; k++) padOf[k] = use / nSt;
+        }
         i = j;
         page++;
       }

@@ -2,7 +2,7 @@
    - アプリ本体（HTML・CSS・JS）: まずネットから新しいものを取り、だめならキャッシュ（ネットが遅いときは 4 秒で見切る）
    - 楽器の録音 samples/mp3/**.mp3: 中身が変わらない（?v=… 付き）のでキャッシュを先に使う
    キャッシュの中身を変えたいときは VERSION を上げてください。 */
-const VERSION = 'v80';
+const VERSION = 'v81';
 const SHELL = 'shell-' + VERSION;
 const SAMPLES = 'samples-' + VERSION;
 const SHELL_FILES = ['./', 'index.html', 'css/style.css', 'fonts/serif.css', 'js/sound.js', 'js/glyphs.js', 'js/notation.js', 'js/musicxml.js', 'js/mscz.js', 'js/counterpoint.js', 'js/insticons.js', 'js/mp3.js', 'js/vendor/lame.min.js', 'js/app.js', 'js/pro.js', 'js/pro2.js', 'samples/mp3/index.json'];
