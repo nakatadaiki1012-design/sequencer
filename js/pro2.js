@@ -891,3 +891,116 @@ document.addEventListener('dblclick', (e) => {
   e.stopPropagation();
   partDlg(el.dataset.id);
 }, true);
+
+/* ---------- 楽譜をつくる画面：楽譜の上をおして、見た目（レイアウト）を変える ----------
+   曲名・サブタイトル・作詞作曲・テンポ：大きさと位置 ／ パート名：大きさ ／ 段：その段の大きさ・改行・1段の小節数・段のあいだ */
+const LOOK_NAME = { title: '曲名', sub: 'サブタイトル', credit: '作詞・作曲', tempo: 'テンポ' };
+function lookOf() { const S = scoreSettings(); if (!S.look || typeof S.look !== 'object') S.look = {}; return S.look; }
+function lookApply() { autosaveSoon(); if (typeof scoreUpd === 'function') scoreUpd(); if (ui.view === 'score') renderScoreEdit(); }
+function lookPopClose() { const p = $('#lyPop'); if (p) p.hidden = true; document.querySelectorAll('#scoreView .lyon').forEach((e) => e.classList.remove('lyon')); }
+function lookPop(e) {
+  const dlg = $('#dlgScore');
+  let pop = $('#lyPop');
+  if (!pop) { pop = document.createElement('div'); pop.id = 'lyPop'; pop.className = 'lypop'; pop.setAttribute('role', 'dialog'); dlg.appendChild(pop); }
+  const S = scoreSettings();
+  const LK = lookOf();
+  const t = e.target;
+  const lookEl = t.closest('[data-look]');
+  const pn = t.closest('.pname');
+  // 段の中のすきま（五線と五線のあいだなど）をおしたときも、その段をえらぶ
+  const sysEl = t.closest('.syss') || [...document.querySelectorAll('#scoreView .syss')].find((g) => { const r = g.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 6 && e.clientY <= r.bottom + 6; }) || null;
+  let html = '';
+  let wire = null;
+  const pct = (v) => Math.round((v || 1) * 100) + '%';
+  const sizeRow = (v, id) => `<div class="lyrow"><span>大きさ</span><button class="mini" data-${id}="-1" aria-label="小さく">−</button><b>${pct(v)}</b><button class="mini" data-${id}="1" aria-label="大きく">＋</button></div>`;
+  if (lookEl) {
+    const k = lookEl.dataset.look;
+    const v = LK[k] || {};
+    html = `<div class="lyhead"><b>${LOOK_NAME[k] || k}</b><button class="mini close" data-x aria-label="閉じる">✕</button></div>
+      ${sizeRow(v.s, 'sz')}
+      <div class="lyrow"><span>位置</span><span class="lyarrows"><button class="mini" data-mv="0,-1" aria-label="上へ">↑</button><button class="mini" data-mv="-1,0" aria-label="左へ">←</button><button class="mini" data-mv="1,0" aria-label="右へ">→</button><button class="mini" data-mv="0,1" aria-label="下へ">↓</button></span></div>
+      <div class="lyrow"><button class="mini" data-rs>最初にもどす</button></div>`;
+    wire = () => {
+      pop.querySelectorAll('[data-sz]').forEach((b) => (b.onclick = () => { const c = { ...(LK[k] || {}) }; c.s = Math.max(0.5, Math.min(3, Math.round(((+c.s || 1) + 0.1 * +b.dataset.sz) * 100) / 100)); LK[k] = c; lookApply(); lookPop(e); }));
+      pop.querySelectorAll('[data-mv]').forEach((b) => (b.onclick = () => { const [dx, dy] = b.dataset.mv.split(',').map(Number); const c = { ...(LK[k] || {}) }; c.dx = (+c.dx || 0) + dx * 8; c.dy = (+c.dy || 0) + dy * 4; LK[k] = c; lookApply(); }));
+      pop.querySelector('[data-rs]').onclick = () => { delete LK[k]; lookApply(); lookPop(e); };
+    };
+  } else if (pn) {
+    html = `<div class="lyhead"><b>パート名</b><button class="mini close" data-x aria-label="閉じる">✕</button></div>
+      ${sizeRow(LK.pname, 'pn')}
+      <p class="muted small">ぜんぶのパート名が同じ大きさになります。</p>
+      ${pn.dataset.id ? '<div class="lyrow"><button class="mini" data-pset>名前・移調・音域の設定…</button></div>' : ''}`;
+    wire = () => {
+      pop.querySelectorAll('[data-pn]').forEach((b) => (b.onclick = () => { LK.pname = Math.max(0.6, Math.min(2, Math.round(((+LK.pname || 1) + 0.1 * +b.dataset.pn) * 100) / 100)); lookApply(); lookPop(e); }));
+      const ps = pop.querySelector('[data-pset]');
+      if (ps) ps.onclick = () => { lookPopClose(); partDlg(pn.dataset.id); };
+    };
+  } else if (sysEl && scoreLayoutL) {
+    const line = +sysEl.dataset.line;
+    const sys = scoreLayoutL.systems.find((q) => q.line === line);
+    if (!sys) return;
+    // おした所の小節：段の中の座標（大きさをかける前）になおして、小節の左右のはしでさがす
+    let bar = null;
+    try {
+      const m = sysEl.getScreenCTM().inverse();
+      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m);
+      const B = sys.bars.find((q) => pt.x >= q.x0 && pt.x < q.x1) || null;
+      if (B) bar = B.b;
+    } catch (err) { /* 古いブラウザ */ }
+    const b0 = sys.bars.length ? sys.bars[0].b : +sysEl.dataset.b0;
+    const ss = LK.sysScale || {};
+    const sv = +ss[b0] || 1;
+    const brk = Array.isArray(S.breaks) ? S.breaks : [];
+    const num = (b) => b + (song.pickup ? 0 : 1);
+    const canBreak = bar != null && bar > b0;
+    html = `<div class="lyhead"><b>${num(b0)}小節からの段</b><button class="mini close" data-x aria-label="閉じる">✕</button></div>
+      <div class="lyrow"><span>この段の大きさ</span><button class="mini" data-ss="-1" aria-label="小さく">−</button><b>${pct(sv)}</b><button class="mini" data-ss="1" aria-label="大きく">＋</button></div>
+      <div class="lyrow">${canBreak ? `<button class="mini" data-brk="${bar}">${num(bar)}小節の前で改行</button>` : ''}${b0 > 0 && brk.includes(b0) ? `<button class="mini" data-unbrk="${b0}">前の段とつなげる</button>` : ''}</div>
+      <div class="lyrow"><span>1段の小節数</span><select data-per>${[0, 1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => `<option value="${n}" ${+S.perLine === n ? 'selected' : ''}>${n ? n + '小節' : '自動'}</option>`).join('')}</select></div>
+      <div class="lyrow"><span>段のあいだ（ぜんぶ）</span><button class="mini" data-gap="-1" aria-label="せまく">−</button><b>${(+LK.gap || 0) > 0 ? '+' : ''}${+LK.gap || 0}</b><button class="mini" data-gap="1" aria-label="広く">＋</button></div>
+      ${sv !== 1 || brk.length ? '<div class="lyrow"><button class="mini" data-sysrs>この段の大きさをもどす</button>' + (brk.length ? `<button class="mini" data-allbrk>改行をぜんぶ消す（${brk.length}）</button>` : '') + '</div>' : ''}`;
+    wire = () => {
+      pop.querySelectorAll('[data-ss]').forEach((b) => (b.onclick = () => { const n = { ...(LK.sysScale || {}) }; const v = Math.max(0.5, Math.min(1.6, Math.round(((+n[b0] || 1) + 0.05 * +b.dataset.ss) * 100) / 100)); if (v === 1) delete n[b0]; else n[b0] = v; LK.sysScale = n; lookApply(); lookPop(e); }));
+      const bk = pop.querySelector('[data-brk]');
+      if (bk) bk.onclick = () => { S.breaks = [...new Set([...brk, +bk.dataset.brk])].sort((x, y) => x - y); lookApply(); lookPopClose(); toast(`${num(+bk.dataset.brk)}小節から、つぎの段にしました`); };
+      const ub = pop.querySelector('[data-unbrk]');
+      if (ub) ub.onclick = () => { S.breaks = brk.filter((x) => x !== +ub.dataset.unbrk); if (LK.sysScale) delete LK.sysScale[+ub.dataset.unbrk]; lookApply(); lookPopClose(); };
+      pop.querySelector('[data-per]').onchange = (ev) => { S.perLine = +ev.target.value; lookApply(); };
+      pop.querySelectorAll('[data-gap]').forEach((b) => (b.onclick = () => { LK.gap = Math.max(-12, Math.min(120, (+LK.gap || 0) + 4 * +b.dataset.gap)); S.gapSel = String(LK.gap); lookApply(); lookPop(e); }));
+      const rs = pop.querySelector('[data-sysrs]');
+      if (rs) rs.onclick = () => { if (LK.sysScale) delete LK.sysScale[b0]; lookApply(); lookPop(e); };
+      const ab = pop.querySelector('[data-allbrk]');
+      if (ab) ab.onclick = () => { delete S.breaks; lookApply(); lookPopClose(); };
+    };
+  } else { lookPopClose(); return; }
+  pop.innerHTML = html;
+  pop.hidden = false;
+  pop.querySelector('[data-x]').onclick = lookPopClose;
+  wire();
+  document.querySelectorAll('#scoreView .lyon').forEach((x) => x.classList.remove('lyon'));
+  (lookEl || pn || sysEl).classList.add('lyon');
+  // おした所のそばに（画面からはみ出さないように）
+  const w = pop.offsetWidth;
+  const h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + 'px';
+  pop.style.top = (e.clientY + 14 + h < innerHeight - 8 ? e.clientY + 14 : Math.max(8, e.clientY - h - 14)) + 'px';
+}
+document.addEventListener('click', (e) => {
+  const v = e.target && e.target.closest ? e.target.closest('#scoreView') : null;
+  if (v) { if (e.target.closest('svg')) { e.preventDefault(); lookPop(e); } else lookPopClose(); return; }
+  // パネルの中のボタンは、おしたあとにパネルを書きなおすので、おした時の道すじ（composedPath）で見る
+  if (!e.composedPath().some((n) => n && n.id === 'lyPop')) lookPopClose();
+});
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'lookReset') {
+    const S = scoreSettings();
+    delete S.look;
+    delete S.breaks;
+    S.gapSel = '0';
+    const g = document.querySelector('#scoreSide [data-s="gapSel"]');
+    if (g) g.value = '0';
+    lookPopClose();
+    lookApply();
+    toast('レイアウトを最初にもどしました');
+  }
+});

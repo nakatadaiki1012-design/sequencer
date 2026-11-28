@@ -1752,3 +1752,17 @@ dialog h3 .dlgx:hover { background: var(--hover, rgba(0,0,0,.06)); }
 .floating > .floatx:hover { background: var(--sel, #eef); }
 .floating.canvas-area .ovtools, .floating .sphead, .floating .tracks-head { padding-right: 40px; }
 .floating.tracks .tracks-head, .floating.canvas-area .ovtools, .floating.scorepanel .sphead, #scorePanel.floating .sphead { padding-right: 42px; }
+/* 楽譜をつくる画面：おして見た目を変えるパネル */
+#scoreView svg { cursor: pointer; }
+#scoreView .syss:hover { outline: 1px dashed var(--accent, #7c3aed); outline-offset: 2px; }
+#scoreView [data-look]:hover, #scoreView .pname:hover { fill: var(--accent, #7c3aed); }
+#scoreView .lyon { outline: 2px solid var(--accent, #7c3aed); outline-offset: 2px; }
+#scoreView text.lyon, #scoreView .sctempo.lyon { fill: var(--accent, #7c3aed); outline: none; }
+.lypop { position: fixed; z-index: 80; background: var(--panel, #fff); border: 1px solid var(--border, #ddd); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.2); padding: 10px 12px; min-width: 230px; max-width: min(340px, calc(100vw - 16px)); font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.lypop[hidden] { display: none; }
+.lypop .lyhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lypop .lyrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lypop .lyrow > span:first-child { min-width: 5.5em; color: var(--muted, #666); }
+.lypop .lyrow b { min-width: 3.2em; text-align: center; }
+.lypop .lyarrows { display: inline-flex; gap: 4px; }
+.lypop .mini { min-width: 32px; min-height: 32px; }

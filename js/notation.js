@@ -420,6 +420,7 @@ const Notation = (() => {
       breaks: [...(opts.breaks || []).map((b) => F(+b)), ...cutsAt], // 分けた所では、段をかえる
       window: Array.isArray(opts.window) ? [F(Math.floor(opts.window[0])), F(Math.floor(opts.window[1]))] : opts.window,
       comments: Array.isArray(opts.comments) ? opts.comments.map((c) => ({ ...c, b: F(c.b) })) : opts.comments,
+      ...(opts.look && opts.look.sysScale ? { look: { ...opts.look, sysScale: mapK(opts.look.sysScale) } } : {}),
       parts: (opts.parts || []).map((p) => ({ ...p, ...(p.clefChg ? { clefChg: mapK(p.clefChg) } : {}), ...(p.mrep ? { mrep: Object.fromEntries(Object.entries(mapK(p.mrep)).filter(([k]) => piece[+k] === 0 && last[orig[+k]] === +k)) } : {}) })),
     };
     const svg = render(o2);
@@ -444,6 +445,13 @@ const Notation = (() => {
     let OUTW = opts.width || 780;
     let width = OUTW / scale;
     const SPC = Math.max(0.4, Math.min(2.5, +opts.spacing || 1)); // 小節の詰まり具合（小さい＝つめる）
+    // 見た目の調整（楽譜をつくる画面で、タップして変える）：曲名・サブタイトル・作詞作曲・テンポの大きさと位置、パート名の大きさ、段の間、段ごとの大きさ
+    const LK = opts.look || {};
+    const lkT = (k) => { const v = LK[k] || {}; return { s: Math.max(0.5, Math.min(3, +v.s || 1)), dx: Math.max(-400, Math.min(400, +v.dx || 0)), dy: Math.max(-200, Math.min(200, +v.dy || 0)) }; };
+    const PNK = Math.max(0.6, Math.min(2, +LK.pname || 1)); // パート名の大きさ
+    const SGAP = Math.max(-12, Math.min(120, +LK.gap || 0)); // 段と段のあいだに足す
+    const SS = LK.sysScale || null; // 段ごとの大きさ（その段のはじめの小節 → 倍率）
+    const sAt = (b) => { const v = SS && +SS[b]; return v > 0 ? Math.max(0.5, Math.min(1.6, v)) : 1; };
     // 小節の表（途中で拍子・調が変わってもよい）
     const GEO = opts.geo || { starts: Array.from({ length: bars + 1 }, (_, i) => i * barTicks), meters: Array(bars).fill(meter), keys: Array(bars).fill({ key, minor }) };
     const bS = (b) => GEO.starts[Math.max(0, Math.min(bars, b))];
@@ -785,8 +793,8 @@ const Notation = (() => {
       const sub0 = first ? partIn(st) : '';
       const sub = sub0 && !nm.includes(sub0) ? sub0 : ''; // 名前に「in F」が入っていれば、書かない
       const da = st.part.id != null ? ` data-id="${esc(String(st.part.id))}"` : ''; // ダブルクリックで、そのパートの設定をひらく
-      if (!sub) return `<text x="${x}" y="${y}" text-anchor="end" font-size="11" fill="#111" class="pname"${da}>${escA(nm)}</text>`;
-      return `<text x="${x}" y="${y - 5.5}" text-anchor="end" font-size="11" fill="#111" class="pname"${da}>${escA(nm)}</text><text x="${x}" y="${y + 7}" text-anchor="end" font-size="10" fill="#111" class="pname"${da}>${escA(sub)}</text>`;
+      if (!sub) return `<text x="${x}" y="${y + (PNK - 1) * 3}" text-anchor="end" font-size="${11 * PNK}" fill="#111" class="pname"${da}>${escA(nm)}</text>`;
+      return `<text x="${x}" y="${y - 5.5 * PNK}" text-anchor="end" font-size="${11 * PNK}" fill="#111" class="pname"${da}>${escA(nm)}</text><text x="${x}" y="${y + 7 * PNK}" text-anchor="end" font-size="${10 * PNK}" fill="#111" class="pname"${da}>${escA(sub)}</text>`;
     };
     // 2段目からは短い名前（Fl.・Vn. など）
     const partShort = (st) => st.part.short || ([...st.part.name].length <= 4 ? st.part.name : [...st.part.name].slice(0, 3).join('') + '.');
@@ -806,8 +814,8 @@ const Notation = (() => {
     const brk = groups.some((g) => g.z > g.a) ? 9 : 0;
     // 大譜表の波かっこ（ブレース）は、五線の左の外に書く。そのぶん、五線を右へよせる
     const grd = staves.some((s) => s.grand) ? 10 : 0;
-    const nameW = (staves.length > 1 ? Math.min(130, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => Math.max(textW(partLabel(st)), textW(partIn(st))) * 0.95)) + 10) + brk : 0) + grd;
-    const nameW2 = (staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.95)) + 10) + brk : brk) + grd;
+    const nameW = (staves.length > 1 ? Math.min(130 * PNK, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => Math.max(textW(partLabel(st)), textW(partIn(st))) * 0.95 * PNK)) + 10) + brk : 0) + grd;
+    const nameW2 = (staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.95 * PNK)) + 10) + brk : brk) + grd;
     const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6 + nameW2);
     // 全部の段が「くり返し記号」の小節は、せまくする
     for (let b = 1; b < bars; b++) {
@@ -841,7 +849,7 @@ const Notation = (() => {
     }
     // 段組み：自分で入れた改行（breaks）ごとに区切って、その中で1段に入る小節を決める
     const lines = [];
-    const forced = [...new Set((opts.breaks || []).map(Number).filter((x) => x > 0 && x < bars))].sort((x, y) => x - y);
+    const forced = [...new Set([...(opts.breaks || []), ...Object.keys(SS || {})].map(Number).filter((x) => x > 0 && x < bars))].sort((x, y) => x - y); // 大きさを変えた段は、その小節から始める
     const chunk = (a, z) => {
       if (opts.perLine) {
         for (let b = a; b < z; b += opts.perLine) lines.push([b, Math.min(z, b + opts.perLine)]);
@@ -854,7 +862,7 @@ const Notation = (() => {
       best[0] = 0;
       for (let i = 0; i < n; i++) {
         if (best[i] === Infinity) continue;
-        const avail = width - left - headW(lines.length === 0 && i === 0) - 10;
+        const avail = width / sAt(a + i) - left - headW(lines.length === 0 && i === 0) - 10; // 小さくした段は、そのぶん多く入る
         let w = 0;
         for (let j = i + 1; j <= n; j++) {
           w += barInfo[a + j - 1].nat;
@@ -949,7 +957,9 @@ const Notation = (() => {
       }
     };
     const padOf = {};
-    const sysHOf = (line) => { fitLine(line); PADL = padOf[line] || 0; return topRowOf(line) + vis[line].reduce((a, s) => a + staffH(s), 0) + (PART ? 8 : 16); };
+    const sysHOf = (line) => { fitLine(line); PADL = padOf[line] || 0; return topRowOf(line) + vis[line].reduce((a, s) => a + staffH(s), 0) + (PART ? 8 : 16) + SGAP; };
+    const lineS = (line) => sAt(lines[line][0]); // この段の大きさ
+    const sysHS = (line) => sysHOf(line) * lineS(line); // この段の、ページの上での高さ
     // 大きな曲：opts.window＝[はじめの小節, おわりの小節) にかかる段だけを書く（画面を軽くする）
     const W = WIN;
     // 大きな曲を画面で書くとき：部品の数をへらす（ぼう・加線・連桁などを、段ごとに1つの図形にまとめる）。
@@ -984,7 +994,7 @@ const Notation = (() => {
     if (opts.fillPage && !W && lines.length > 1) {
       const PH = width * (opts.pageRatio || 273 / 186);
       const top0 = 70 + (meta.nameLine ? 24 : 0) + (meta.subtitle ? 18 : 0);
-      const hs = lines.map((_, i) => sysHOf(i));
+      const hs = lines.map((_, i) => sysHS(i));
       let i = 0;
       let page = 0;
       while (i < lines.length) {
@@ -997,41 +1007,54 @@ const Notation = (() => {
         if (nSt > 3 && h < room - 4 && (j - i > 1 || h > room * 0.3)) {
           const extra = room - h;
           const use = j - i === 1 ? Math.min(extra, h * 1.0) : Math.min(extra * 0.6, h * 0.5); // 2段以上のときは、のこりを段のあいだに
-          for (let k = i; k < j; k++) padOf[k] = use / nSt;
+          for (let k = i; k < j; k++) padOf[k] = use / nSt / lineS(k);
         }
         i = j;
         page++;
       }
     }
     const lineTop = [];
-    { let y = 0; lines.forEach((_, i) => { lineTop.push(y); if (inWin(i)) y += sysHOf(i); }); }
+    { let y = 0; lines.forEach((_, i) => { lineTop.push(y); if (inWin(i)) y += sysHS(i); }); }
     const systemH = sysHOf(0);
     const NL = meta.nameLine ? 24 : 0; // 名前のらんのぶん、下げる
-    const top = 70 + NL + (meta.subtitle ? 18 : 0);
-    const height = top + lines.reduce((a, _, i) => a + (inWin(i) ? sysHOf(i) : 0), 0) + 24;
+    const LT = lkT('title');
+    const LS = lkT('sub');
+    const LC = lkT('credit');
+    const LTP = lkT('tempo');
+    // 曲名を大きくした・下へ動かしたぶん、楽譜を下げる
+    const HX = Math.max(0, (LT.s - 1) * 22 + Math.max(0, LT.dy) * 0.6 + (meta.subtitle ? (LS.s - 1) * 13 + Math.max(0, LS.dy) * 0.6 : 0), (LTP.s - 1) * 14);
+    const top = 70 + NL + (meta.subtitle ? 18 : 0) + HX;
+    const height = top + lines.reduce((a, _, i) => a + (inWin(i) ? sysHS(i) : 0), 0) + 24;
     const o = [];
     const layout = { systems: [], width, height, scale, barTicks, starts: GEO.starts };
     o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="${SERIF}">`);
     o.push(`<rect width="100%" height="100%" fill="#fff"/>`);
-    o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="${SERIF}" class="sctitle">${esc(title)}</text>`);
-    if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13.5" fill="#333" font-family="${SERIF}" class="sctitle">${esc(meta.subtitle)}</text>`);
+    o.push(`<text x="${width / 2 + LT.dx}" y="${32 + NL + (LT.s - 1) * 16 + LT.dy}" text-anchor="middle" font-size="${22 * LT.s}" font-weight="bold" fill="#111" font-family="${SERIF}" class="sctitle" data-look="title">${esc(title)}</text>`);
+    if (meta.subtitle) o.push(`<text x="${width / 2 + LS.dx}" y="${52 + NL + (LT.s - 1) * 22 + (LS.s - 1) * 10 + LS.dy}" text-anchor="middle" font-size="${13.5 * LS.s}" fill="#333" font-family="${SERIF}" class="sctitle" data-look="sub">${esc(meta.subtitle)}</text>`);
     // パート譜：左上にパートの名前
     if (opts.partHeader) o.push(`<rect x="14" y="${12 + NL}" width="${textW(opts.partHeader) * 1.05 + 14}" height="22" rx="4" fill="none" stroke="#111" stroke-width="1"/><text x="21" y="${28 + NL}" font-size="13.5" font-weight="bold" fill="#111" class="parthead">${esc(opts.partHeader)}</text>`);
     const credits = [meta.lyricist ? '作詞：' + meta.lyricist : '', meta.composer ? '作曲：' + meta.composer : ''].filter(Boolean);
     // 名前を書くらん（プリント用）
     if (meta.nameLine) o.push(`<text x="${width - 340}" y="20" font-size="12" fill="#111">　年　　組　　番　名前</text><line x1="${width - 216}" y1="23" x2="${width - 16}" y2="23" stroke="#111" stroke-width="0.8"/>`);
-    credits.forEach((c, i) => o.push(`<text x="${width - 16}" y="${top - 26 + i * 15}" text-anchor="end" font-size="12.5" fill="#222" font-family="${SERIF}" class="sctitle">${esc(c)}</text>`));
+    credits.forEach((c, i) => o.push(`<text x="${width - 16 + LC.dx}" y="${top - 26 + i * 15 * LC.s - (credits.length - 1) * 15 * (LC.s - 1) + LC.dy}" text-anchor="end" font-size="${12.5 * LC.s}" fill="#222" font-family="${SERIF}" class="sctitle" data-look="credit">${esc(c)}</text>`));
     // 楽譜を書く画面だけ：作詞・作曲を入れるための、うすい印（印刷には出ない）
     if (opts.edit && !credits.length) o.push(`<text x="${width - 16}" y="${top - 26}" text-anchor="end" font-size="11" fill="#9aa1ad" class="sctitle scadd">＋ 作詞・作曲</text>`);
     // 曲のはじめのテンポ（とちゅうのページだけを書くときは出さない：そのページの頭のテンポは、小節の上に書く）
     if (!(WIN && WIN[0] > 0)) {
+      // テンポ（曲のはじめ）：ことば・音符・数を1つのまとまりにして、大きさと位置を変えられるように
       const tw = opts.tempoText ? textW(opts.tempoText) * 1.15 + 8 : 0;
-      if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="14" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
+      const tX = left + LTP.dx;
+      const tY = top - 12 + LTP.dy;
+      const ts = LTP.s;
+      o.push(`<g class="sctempo" data-look="tempo" transform="translate(${tX} ${tY}) scale(${ts})">`);
+      if (opts.tempoText) o.push(`<text x="0" y="0" font-size="14" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
       const m0 = mAt(0);
       const compound = m0[1] === 8 && m0[0] % 3 === 0 && m0[0] > 3;
-      o.push(G('metNoteQuarterUp', left + tw, top - 12, 'fill="#111"', 6.5));
-      if (compound) o.push(G('metAugmentationDot', left + tw + 9, top - 12, 'fill="#111"', 6.5));
-      o.push(`<text x="${left + tw + (compound ? 15 : 11)}" y="${top - 12}" font-size="13.5" font-weight="bold" fill="#111" font-family="${SERIF}">&#8202;= ${compound ? Math.round(bpm / 1.5) : bpm}</text>`);
+      o.push(G('metNoteQuarterUp', tw, 0, 'fill="#111"', 6.5));
+      if (compound) o.push(G('metAugmentationDot', tw + 9, 0, 'fill="#111"', 6.5));
+      o.push(`<text x="${tw + (compound ? 15 : 11)}" y="0" font-size="13.5" font-weight="bold" fill="#111" font-family="${SERIF}">&#8202;= ${compound ? Math.round(bpm / 1.5) : bpm}</text>`);
+      // おしやすいように、すきとおった当たり
+      o.push(`<rect x="-4" y="-16" width="${tw + 70}" height="22" fill="transparent"/></g>`);
     }
 
     let prevStretch = 1.2;
@@ -1079,6 +1102,10 @@ const Notation = (() => {
       if (!inWin(line)) return;
       if (line === 0) layout.headSvg = o.slice(2).join(''); // 曲名・作曲者・テンポなど（1ページ目の上）
       const oStart = o.length;
+      // 大きさを変えた段：その段だけ、はばを（1/大きさ）にして組み、あとで大きさをかける（ページのはばにぴったり）
+      const sL = lineS(line);
+      const width0 = width;
+      if (sL !== 1) width = width0 / sL;
       const topRowL = topRowOf(line), chordRowL = chordRowOf(line);
       const sysTop = top + lineTop[line] + topRowL;
       const VS = vis[line];
@@ -1123,9 +1150,9 @@ const Notation = (() => {
         let nh = 0; for (let b = Math.max(0, b0 - 1); b <= Math.min(bars - 1, b1); b++) nh = (Math.imul(nh, 31) + barHash[b]) | 0;
         sysSig = [b0, b1, lam, stretch, sysTop, hx, L, avail, nh, cIn ? edit.part + '/' + edit.cursor + '/' + (edit.curLabel || '') : '', selSpans.filter((q) => q[1] < tz + 1 && q[2] > ta - 1).map((q) => edit.part + '/' + q[0]).join(',')].join('|');
         const hit = sysCache.m.get(line);
-        if (hit && hit.sig === sysSig) { for (const q of hit.strs) o.push(q); layout.systems.push(hit.sys); return; }
+        if (hit && hit.sig === sysSig) { for (const q of hit.strs) o.push(q); layout.systems.push(hit.sys); width = width0; return; }
       }
-      const sys = { y0: sysTop - topRowL, y1: sysTop + sysHOf(line) - topRowL, bars: [], staves: [] };
+      const sys = { y0: sysTop - topRowL, y1: sysTop - topRowL + sysHS(line), bars: [], staves: [], s: sL, line, b0 };
       // 小節の x 位置
       let x = hx;
       for (let bb = b0; bb < b1; bb++) {
@@ -2014,6 +2041,9 @@ const Notation = (() => {
         }
       });
       // 段ごとに <g> でくるむ（画面では、変わった段だけを入れかえられるように）
+      // 大きさを変えた段：段の上のはしを中心に、大きさをかける。どの段か（data-line）は、楽譜をつくる画面でおしたときに使う
+      if (opts.lookEdit || sL !== 1) { o.splice(oStart, 0, `<g class="syss" data-line="${line}" data-b0="${b0}" data-s="${sL}"${sL !== 1 ? ` transform="translate(0 ${sys.y0}) scale(${sL}) translate(0 ${-sys.y0})"` : ''}>`); o.push('</g>'); }
+      width = width0;
       if (SYSG) { let part = o.splice(oStart); if (COMPACT) part = compact(part); o.push('<g class="sys">'); for (const q of part) o.push(q); o.push('</g>'); }
       sys.svg = o.slice(oStart).join('');
       if (SYSKEY) sysCache.m.set(line, { sig: sysSig, strs: [sys.svg], sys });
