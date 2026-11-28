@@ -1463,9 +1463,12 @@ const Notation = (() => {
             let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? (d.tipY != null ? d.tipY : stemEnd(d)) - 4 : Infinity, artTop - 2, d.tupTop != null ? d.tupTop - 2 : Infinity);
             // スラーのはし（上がわ）の音なら、装飾記号・フェルマータはスラーの外へ
             if (!d.up && (st.part.slurs || []).some((sl) => sl.s === d.ev.src || sl.e === d.ev.src) && arts.some((a) => ORN_G[a] || a === 'ferm')) yy -= 9;
+            // 2つの声部の下の声部（ぼうが下）：フェルマータ・装飾記号は下（ぼうの先の外）に書く
+            const lowV = d.tw && d.hasStem && !d.up;
+            let yb = lowV ? Math.max(d.tipY != null ? d.tipY : stemEnd(d), d.outB != null ? d.outB : -Infinity, d.tupBot != null ? d.tupBot : -Infinity) + 4 : 0;
             if (arts.includes('ferm')) {
-              o.push(G('fermataAbove', d.x - GW('fermataAbove') / 2, yy));
-              yy -= 14;
+              if (lowV && Glyphs.g.fermataBelow) { const bbF = Glyphs.g.fermataBelow.bbox; o.push(G('fermataBelow', d.x - GW('fermataBelow') / 2, yb - (bbF ? bbF[1] * SP : 0))); yb += (bbF ? (bbF[3] - bbF[1]) * SP : 12) + 3; }
+              else { o.push(G('fermataAbove', d.x - GW('fermataAbove') / 2, yy)); yy -= 14; }
             }
             // 指番号（音にいちばん近く）
             if (d.ev.first && d.ev.fg) {
@@ -1480,6 +1483,7 @@ const Notation = (() => {
               if (!nm || !Glyphs.g[nm]) continue;
               if (a === 'tr' && (st.part.trills || []).some((q) => q.s === d.ev.src)) continue; // 波線つきのトリルは、線のほうで書く
               const bb2 = Glyphs.g[nm].bbox;
+              if (lowV && !(a === 'tr' && d.ev.tra != null)) { o.push(G(nm, stemX(d) - GW(nm) / 2, yb - (bb2 ? bb2[1] * SP : -12))); yb += (bb2 ? (bb2[3] - bb2[1]) * SP : 12) + 3; continue; }
               const bot = bb2 ? bb2[3] * SP : 0;
               o.push(G(nm, d.x - GW(nm) / 2, yy - bot));
               yy -= (bb2 ? (bb2[3] - bb2[1]) * SP : 12) + 3;
@@ -1981,7 +1985,8 @@ const Notation = (() => {
       const minLen = Math.max(3.25 * SP, (maxFl - 1) * 6 + 4 + 2 * SP);
       let off = up ? Infinity : -Infinity;
       for (const d of g) {
-        const need = up ? d.yOf(d.hi) - minLen : d.yOf(d.lo) + minLen;
+        // 加線の多い音：ぼうを五線の中央の線までのばす（連桁が加線のあいだに浮かないように）
+        const need = up ? Math.min(d.yOf(d.hi) - minLen, d.yOf(4)) : Math.max(d.yOf(d.lo) + minLen, d.yOf(4));
         const lineY = slope * (stemX(d) - stemX(f));
         off = up ? Math.min(off, need - lineY) : Math.max(off, need - lineY);
       }
@@ -1998,7 +2003,7 @@ const Notation = (() => {
         const okPos = (e) => !inStaff(e) || okSet.some((a) => Math.abs(rel(e) - a) < 0.26 || Math.abs(rel(e) - a) > 7.74);
         const lattice = (center, span) => { const out = []; const k0 = Math.floor((center - span - Lref) / 8) - 1; const k1 = Math.ceil((center + span - Lref) / 8) + 1; for (let k = k0; k <= k1; k++) for (const a of okSet) out.push(Lref + 8 * k + a); return out; };
         const r0 = slope * X1;
-        const minNeed = (d) => (up ? d.yOf(d.hi) - minLen : d.yOf(d.lo) + minLen);
+        const minNeed = (d) => (up ? Math.min(d.yOf(d.hi) - minLen, d.yOf(4)) : Math.max(d.yOf(d.lo) + minLen, d.yOf(4)));
         const fits = (e1, r) => g.every((d) => { const y = e1 + (r * (stemX(d) - stemX(f))) / X1; return up ? y <= minNeed(d) + 0.5 : y >= minNeed(d) - 0.5; });
         if (inStaff(off) || inStaff(off + r0)) {
           let best = null;
