@@ -59,7 +59,8 @@ const { chromium } = require('playwright');
       const svg = show(Notation.render(scoreOpts([song.tracks[0].id], true)));
       const rests = [...svg.querySelectorAll('.rest')].filter((r) => +r.dataset.s >= 48 && +r.dataset.s < 96);
       const heads = [...svg.querySelectorAll('.nh')].filter((r) => +r.dataset.p === hiP);
-      return { rest: Math.max(...rests.map(cy)), head: Math.max(...heads.map(cy)), n: rests.length };
+      const ref = cy([...svg.querySelectorAll('.nh')].find((r) => +r.dataset.p === 60)); // 下の声部の音（五線に対して、いつも同じ高さ）
+      return { rest: Math.max(...rests.map(cy)) - ref, head: Math.max(...heads.map(cy)) - ref, n: rests.length };
     };
     const rHi = restY(79); // 上の声部が高い：休符はいつもの場所
     const rLo = restY(64); // 上の声部が低い：休符はもっと下

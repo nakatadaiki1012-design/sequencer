@@ -482,13 +482,31 @@ const Notation = (() => {
       st.hiB = new Array(bars).fill(8);
       const shMin = new Array(bars).fill(99); // 短い音（連桁になる音）のいちばん低い・高い位置：連桁が上向きになるかもしれない小節
       const shMax = new Array(bars).fill(-99);
+      // 2つの声部がある小節：上の声部はぼうが上、下の声部はぼうが下（中央線に関係なく）
+      const v2Bars = new Set();
+      for (const n of st.notes.concat(st.notes2)) if (n.v === 2) v2Bars.add(barOfT(Math.max(0, n.s)));
+      const lowV1 = {};
+      const posOf = (n, nb) => (st.clef === 'perc' ? Math.floor((n.p - 1000) / 10) : spell(n.p, st.kcs[nb] || 0).dn - st.baseAt(nb));
+      // 和音は、いちばん上と下の音でぼうの向きが決まる（中央線から遠いほうの反対へ）
+      const chordOf = new Map();
+      if (st.clef !== 'perc') for (const n of st.notes.concat(st.notes2)) {
+        if (n.l >= 192) continue;
+        const k = n.s + ':' + (n.v || 1);
+        const q = posOf(n, barOfT(Math.max(0, n.s)));
+        const c = chordOf.get(k);
+        if (c) { c.hi = Math.max(c.hi, q); c.lo = Math.min(c.lo, q); c.n++; } else chordOf.set(k, { hi: q, lo: q, n: 1 });
+      }
       for (const n of st.notes.concat(st.notes2)) {
         const nb = barOfT(Math.max(0, n.s));
-        const pos = st.clef === 'perc' ? Math.floor((n.p - 1000) / 10) : spell(n.p, st.kcs[nb] || 0).dn - st.baseAt(nb);
+        const pos = posOf(n, nb);
+        const ch = chordOf.get(n.s + ':' + (n.v || 1));
+        const chDown = ch && ch.n > 1 ? (ch.hi - 4 > 4 - ch.lo || (ch.hi - 4 === 4 - ch.lo && ch.hi >= 4)) : pos >= 4;
         if (pos < lo) lo = pos;
         if (pos > hi) hi = pos;
+        const two = st.clef !== 'perc' && v2Bars.has(nb);
+        if (two && n.v !== 2) lowV1[nb] = Math.min(lowV1[nb] == null ? 99 : lowV1[nb], pos);
         // 符尾（ぼう）の先も入れる：中央線より上の音はぼうが下へ、下の音は上へ（3.5間ぶん）
-        const stem = n.l < 192 && st.clef !== 'perc' ? (pos >= 4 ? pos - 7 : pos + 7) : pos;
+        const stem = n.l < 192 && st.clef !== 'perc' ? (two ? (n.v === 2 ? pos - 7 : pos + 7) : chDown ? pos - 7 : pos + 7) : pos;
         // スタッカート・アクセントなど：符頭の、符尾と反対がわに書く（ぼうが下なら上、全音符は上）
         const arts = (n.art || []).filter((a) => ['stac', 'stacc2', 'ten', 'acc', 'marc'].includes(a));
         const artUp = arts.length && (pos >= 4 || n.l >= 192) ? pos + 2 + arts.length * 2 + (arts.includes('marc') ? 1 : 0) : pos;
@@ -496,6 +514,11 @@ const Notation = (() => {
         if (nb >= 0 && nb < bars) { st.loB[nb] = Math.min(st.loB[nb], pos, stem, artDn); st.hiB[nb] = Math.max(st.hiB[nb], pos, stem, artUp); if (n.l < 48 && st.clef !== 'perc') { shMin[nb] = Math.min(shMin[nb], pos); shMax[nb] = Math.max(shMax[nb], pos); } }
       }
       st.hiBeam = shMin.map((m, b) => (m < 4 ? shMax[b] + 7 : 0));
+      // 連桁は、まとまりごとに向きが決まる：高い音と低い音がまざる小節は、上にも下にもぼうがのびるかもしれない
+      // （中央線から遠い音のほうで、ぼうの向きを見つもる）
+      for (let b = 0; b < bars; b++) { if (shMin[b] < 4 && shMax[b] >= 4 && !v2Bars.has(b)) { if (shMax[b] - 4 > 4 - shMin[b]) st.loB[b] = Math.min(st.loB[b], shMin[b] - 7); else st.hiB[b] = Math.max(st.hiB[b], shMax[b] + 7); } }
+      // 下の声部の休符は、上の声部の低い音をよけて下へ出る：そのぶんも下をあける（強弱記号がかさならないように）
+      for (const b in lowV1) if (lowV1[b] < 4 && +b < bars) st.loB[b] = Math.min(st.loB[b], lowV1[b] - 7);
       // スラーは、ぼうの先や符頭の上を通るので、その小節の上のあきに入れる
       if (st.clef !== 'perc') for (const sl of st.part.slurs || []) {
         let pk = -99;
@@ -515,7 +538,7 @@ const Notation = (() => {
       // 小節ごとの、上に書く記号の数（ことば・トリルの線を、その小節の音のすぐ上に置くため）
       st.ornB = new Array(bars).fill(0);
       for (const n of st.notes) { const k = (n.art || []).filter((a) => ABOVE_ART.has(a)).length * 1.3 + (n.fg ? String(n.fg).length : 0); if (k) { const nb = barOfT(Math.max(0, n.s)); if (nb < bars) st.ornB[nb] = Math.max(st.ornB[nb], k); } }
-      st.textRoom = st.sub === 0 && (st.part.texts || []).length ? 16 : 0;
+      st.textRoom = st.sub === 0 && (st.part.texts || []).length ? 20 : 0;
       st.above += stack * 11 + st.textRoom;
       st.aboveX = stack * 11 + st.textRoom;
       // ギターのコード図：いちばん上の段の上に、コードネームと五線の間をあける
@@ -554,7 +577,7 @@ const Notation = (() => {
       if (keyChg) chgRoom += Math.max(1, ...staves.map((st) => Math.abs(st.kcs[b]) || Math.abs(st.kcs[b - 1]))) * 8.5 + 6;
       const clefChg = b > 0 && staves.some((st) => st.clefChg && st.clefChg[b] && st.clefAt(b) !== st.clefAt(b - 1));
       if (clefChg) chgRoom += 22;
-      if (mChg) chgRoom += 20;
+      if (mChg) chgRoom += 20 + (Math.max(String(mAt(b)[0]).length, String(mAt(b)[1]).length) > 1 ? 10 : 0);
       let accRoom = 0;
       const need = new Map(); // 位置 → { w: 文字のはば, acc: 臨時記号がつくか }
       for (const st of staves) {
@@ -1111,7 +1134,7 @@ const Notation = (() => {
               if (bb !== b0) { if (nk === 0) keySig(ok, cx2, true); else keySig(nk, cx2, false); }
               cx2 += Math.max(1, Math.abs(nk) || Math.abs(ok)) * 8.5 + 6;
             } else if (B.keyChg) cx2 += Math.max(1, ...staves.map((s2) => Math.abs(s2.kcs[bb]) || Math.abs(s2.kcs[bb - 1]))) * 8.5 + 6;
-            if (B.mChg) { digits(mAt(bb)[0], yOf(6), cx2 + 6); digits(mAt(bb)[1], yOf(2), cx2 + 6); }
+            if (B.mChg) { const mm2 = mAt(bb); const wide = Math.max(String(mm2[0]).length, String(mm2[1]).length) > 1 ? GW('timeSig4') / 2 + 1 : 0; digits(mm2[0], yOf(6), cx2 + 6 + wide); digits(mm2[1], yOf(2), cx2 + 6 + wide); } // 2けたの数字（12/8 など）は、小節線にかからないように右へ
           }
           const notPick = (ev) => !(bb === 0 && pickup && ev.pos < bL(0) - pickup);
           // mode 0: 1声部だけ / 1: 上の声部（ぼう上） / 2: 下の声部（ぼう下）
@@ -1322,7 +1345,7 @@ const Notation = (() => {
               if (!below) artTop = Math.min(artTop, yy - (a === 'marc' ? 11 : 9));
               k++;
             }
-            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : 99999, artTop - 2);
+            let yy = Math.min(d.yOf(9.5), d.yOf(d.hi) - 8, d.up && d.hasStem ? stemEnd(d) - 4 : Infinity, artTop - 2);
             // スラーのはし（上がわ）の音なら、装飾記号・フェルマータはスラーの外へ
             if (!d.up && (st.part.slurs || []).some((sl) => sl.s === d.ev.src || sl.e === d.ev.src) && arts.some((a) => ORN_G[a] || a === 'ferm')) yy -= 9;
             if (arts.includes('ferm')) {
@@ -1564,7 +1587,7 @@ const Notation = (() => {
           let orn = 0;
           const tup = (b) => [st.bars, st.bars2].some((bs) => bs && bs[b] && bs[b].some((e) => e.trip)); // 連符の数字のぶん
           for (let b = Math.max(b0, ba); b <= Math.min(b1 - 1, bz); b++) { hi = Math.max(hi, Math.max(st.hiB[b] + (st.has2 && st.has2[b] ? 7 : 0), st.hiBeam ? st.hiBeam[b] : 0) + (tup(b) ? 5 : 0)); orn = Math.max(orn, st.ornB ? st.ornB[b] : 0); }
-          return stTop - Math.max(0, hi - 10) * (SP / 2) - (hi > 9 ? 6 : 0) - orn * 11;
+          return stTop - Math.max(0, hi - 10) * (SP / 2) - (hi > 9 ? 6 : 0) - (orn ? orn * 11 + 5 : 0);
         };
         // トリルの波線：「tr～～～～」
         if (st.trl) {
@@ -1619,7 +1642,7 @@ const Notation = (() => {
               const nt = nearTop(bb2, late ? bb2 + 1 : bb2);
               if (nt != null) {
                 const trHere = st.trl && st.part.trills.some((q) => q.e > bS(bb2) && q.s < bS(bb2 + 1));
-                ty = Math.max(ty, nt - 7 - dynRoom(st) - (trHere ? 24 : 0));
+                ty = Math.max(ty, nt - 12 - dynRoom(st) - (trHere ? 24 : 0));
               }
             }
             o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="12.5" fill="#111" class="stxt">${esc(tx2.x)}</text>`);
