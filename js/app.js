@@ -6046,6 +6046,12 @@ const ARTS = [['stac', '・', 'スタッカート（短く）'], ['ten', '－', 
 const DYNS = ['pp', 'p', 'mp', 'mf', 'f', 'ff', 'sf'];
 let scoreElems = [];
 let scoreParts = [];
+// 楽譜の地図で、小節 b（その中の位置 rel）が書かれている段と小節の箱。とても音の多い小節は2段に分かれていることがある（off＝その段の小節の頭のずれ）
+function layoutBar(L, b, rel = 0) {
+  let best = null;
+  if (L) for (const sys of L.systems) for (const B of sys.bars) if (B.b === b && (!best || (B.off || 0) <= rel)) best = { sys, B };
+  return best || { sys: null, B: null };
+}
 
 function scDur() {
   let d = ui.sc.dur;
@@ -6203,7 +6209,7 @@ function renderScoreEditNow() {
     ui.sc.scrollTo = false;
     const L = box._layout;
     const cb = barOf(Math.min(ui.sc.cursor || 0, totalTicks() - 1));
-    const sys = L && L.systems.find((x) => x.bars.some((bb) => bb.b === cb));
+    const { sys } = layoutBar(L, cb, (ui.sc.cursor || 0) - barStart(cb));
     const svg = box.querySelector('svg');
     if (sys && svg) {
       const sr = svg.getBoundingClientRect();
@@ -6220,7 +6226,7 @@ function renderScoreEditNow() {
       if (a < box.scrollTop) box.scrollTop = Math.max(0, a - 8);
       else if (z > box.scrollTop + vh) box.scrollTop = Math.max(0, Math.min(a - 8, z - vh + 8));
       // 横に長いとき（横に1列・段の幅を広げたとき）は、横にもスクロール（はみ出したぶんだけ）
-      const B = sys.bars.find((bb) => bb.b === cb);
+      const { B } = layoutBar(L, cb, (ui.sc.cursor || 0) - barStart(cb));
       if (B && sr.width > box.clientWidth + 4) {
         const kx = sr.width / L.width;
         const ox = sr.left - br.left + box.scrollLeft;
@@ -6309,10 +6315,9 @@ function highlightScore(pos) {
     cur = $('#playCur');
   }
   const svg = box.querySelector('svg');
-  const sys = L.systems.find((x) => x.bars.some((B) => B.b === b));
-  if (!sys) return;
-  const B = sys.bars.find((x) => x.b === b);
   const rel = pos - barStart(b);
+  const { sys, B } = layoutBar(L, b, rel);
+  if (!sys) return;
   let x = B.xs[0];
   for (let i = 0; i < B.ticks.length - 1; i++) if (rel >= B.ticks[i]) x = B.xs[i] + ((Math.min(rel, B.ticks[i + 1]) - B.ticks[i]) / (B.ticks[i + 1] - B.ticks[i] || 1)) * (B.xs[i + 1] - B.xs[i]);
   if (!cur) { box.insertAdjacentHTML('beforeend', '<div id="playCur" aria-hidden="true"></div>'); cur = $('#playCur'); }
@@ -7598,8 +7603,7 @@ function chordPickPlace() {
   if (L && svg) {
     const r = svg.getBoundingClientRect();
     const k = r.width / L.width;
-    const sys = L.systems.find((q) => q.bars.some((bb) => bb.b === S.bar));
-    const B = sys && sys.bars.find((bb) => bb.b === S.bar);
+    const { sys, B } = layoutBar(L, S.bar);
     if (B) {
       x = r.left + B.x0 * k;
       const vr = view.getBoundingClientRect();
@@ -8024,14 +8028,14 @@ function scGhost(e) {
   if (!h || h.pitch == null || h.perc) return hide();
   const tr = scoreParts[h.pi];
   if (!tr || tr.type !== 'melody' || locked(tr)) return hide();
-  const sys = L.systems.find((q) => q.bars.some((B) => B.b === h.bar));
+  const { sys, B: hB } = layoutBar(L, h.bar, h.tick - barStart(h.bar));
   const stf = sys && sys.staves.find((q) => q.pi === h.pi && q.sub === h.sub);
   if (!stf) return hide();
   // 入る位置（クリックしたときと同じ決め方）
   const unit = Math.min(scDur(), ui.sc.trip ? scDur() : 24);
   const bStart = barStart(h.bar);
   const rel = Math.floor((h.tick - bStart) / unit) * unit;
-  const B = sys.bars.find((q) => q.b === h.bar);
+  const B = hB;
   let gx = B.xs[0];
   for (let i = 0; i < B.ticks.length - 1; i++) if (rel >= B.ticks[i]) gx = B.xs[i] + ((Math.min(rel, B.ticks[i + 1]) - B.ticks[i]) / (B.ticks[i + 1] - B.ticks[i] || 1)) * (B.xs[i + 1] - B.xs[i]);
   const gy = stf.top + 32 - h.staffPos * 4;

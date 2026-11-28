@@ -367,6 +367,68 @@ const Notation = (() => {
     });
     return s + '</g>';
   }
+  // とても音の多い小節を、拍の切れ目で「かけら」に分けて書く。小節番号を使う設定は、分けたあとの番号になおす。
+  // 書いたあとの地図（lastLayout）は、もとの小節の番号（b）にもどし、かけらの番号（pb）と、もとの小節の頭からのずれ（off）をつける
+  function renderSplit(opts, plan) {
+    const n0 = opts.bars;
+    const G0 = opts.geo || { starts: Array.from({ length: n0 + 1 }, (_, i) => i * opts.barTicks), meters: Array(n0).fill(opts.meter), keys: Array(n0).fill({ key: opts.key, minor: opts.minor }) };
+    const starts = [];
+    const meters = [];
+    const keys = [];
+    const orig = [];
+    const piece = [];
+    const om = [];
+    const first = [];
+    const last = [];
+    for (let b = 0; b < n0; b++) {
+      first[b] = starts.length;
+      const s0 = G0.starts[b];
+      const Lb = G0.starts[b + 1] - s0;
+      const m = G0.meters[b] || opts.meter;
+      const cs = plan.get(b) || [];
+      const pts = [0, ...cs];
+      pts.forEach((p, i) => {
+        const len = (i + 1 < pts.length ? pts[i + 1] : Lb) - p;
+        const unit = 192 / m[1];
+        starts.push(s0 + p);
+        meters.push(cs.length ? [Math.max(1, Math.round(len / unit)), m[1]] : m);
+        keys.push(G0.keys[b]);
+        orig.push(b);
+        piece.push(i);
+        om.push(m);
+      });
+      last[b] = starts.length - 1;
+    }
+    first[n0] = starts.length;
+    starts.push(G0.starts[n0]);
+    const nb = starts.length - 1;
+    const F = (b) => first[Math.max(0, Math.min(n0, b))];
+    const mapK = (obj) => { if (!obj) return obj; const o = {}; for (const k in obj) { const b = +k; if (Number.isInteger(b) && b >= 0 && b < n0) o[first[b]] = obj[k]; } return o; };
+    const mapA = (arr) => (Array.isArray(arr) ? Array.from({ length: nb }, (_, i) => (piece[i] === 0 ? arr[orig[i]] : null)) : arr);
+    const J = opts.jumps || {};
+    const J2 = {};
+    for (const k in J) if (Number.isInteger(J[k]) && J[k] >= 0 && J[k] < n0) J2[k] = ['segno', 'coda'].includes(k) ? first[J[k]] : last[J[k]];
+    const rp = opts.repeats;
+    const cutsAt = [];
+    for (let i = 0; i < nb; i++) if (piece[i] > 0) cutsAt.push(i);
+    const o2 = {
+      ...opts, _splitInfo: { orig, piece, om }, bars: nb, geo: { starts, meters, keys },
+      tempos: mapK(opts.tempos), soundTempos: mapK(opts.soundTempos), words: mapK(opts.words), rehearsal: mapK(opts.rehearsal), marks: mapK(opts.marks),
+      chords: mapA(opts.chords), chordObjs: mapA(opts.chordObjs), jumps: J2,
+      repeats: rp ? { start: (rp.start || []).map((b) => F(b)), end: (rp.end || []).map((b) => last[b] ?? b), volta: mapK(rp.volta || {}) } : rp,
+      blankBars: (opts.blankBars || []).flatMap((b) => (b >= 0 && b < n0 ? Array.from({ length: last[b] - first[b] + 1 }, (_, i) => first[b] + i) : [])),
+      breaks: [...(opts.breaks || []).map((b) => F(+b)), ...cutsAt], // 分けた所では、段をかえる
+      window: Array.isArray(opts.window) ? [F(Math.floor(opts.window[0])), F(Math.floor(opts.window[1]))] : opts.window,
+      comments: Array.isArray(opts.comments) ? opts.comments.map((c) => ({ ...c, b: F(c.b) })) : opts.comments,
+      parts: (opts.parts || []).map((p) => ({ ...p, ...(p.clefChg ? { clefChg: mapK(p.clefChg) } : {}), ...(p.mrep ? { mrep: Object.fromEntries(Object.entries(mapK(p.mrep)).filter(([k]) => piece[+k] === 0 && last[orig[+k]] === +k)) } : {}) })),
+    };
+    const svg = render(o2);
+    const L = Notation.lastLayout;
+    // 地図は、もとの小節の番号にもどす（書いた段は保存されているので、写しを作ってから書きかえる）
+    const L2 = { ...L, split: { orig, piece, first }, systems: L.systems.map((sys) => ({ ...sys, bars: sys.bars.map((B) => { const off = starts[B.b] - G0.starts[orig[B.b]]; return { ...B, pb: B.b, b: orig[B.b], off, ticks: B.ticks ? B.ticks.map((t) => t + off) : B.ticks }; }) })) };
+    Notation.lastLayout = L2;
+    return svg;
+  }
   function render(opts) {
     MINOR = !!opts.minor;
     const { bars, barTicks, meter, key, minor, title, bpm, chords, nameOf } = opts;
@@ -387,6 +449,10 @@ const Notation = (() => {
     const bS = (b) => GEO.starts[Math.max(0, Math.min(bars, b))];
     const bL = (b) => bS(b + 1) - bS(b);
     const mAt = (b) => GEO.meters[Math.max(0, Math.min(bars - 1, b))] || meter;
+    // 2段に分けた小節（SI）：分けたあとの小節ごとに、もとの小節の番号・何番目のかけらか・もとの拍子
+    const SI = opts._splitInfo || null;
+    const mShow = (b) => (SI ? SI.om[Math.max(0, Math.min(bars - 1, b))] : mAt(b)); // 書く拍子記号は、もとの拍子
+    const cutAfter = (b) => !!(SI && b + 1 < bars && SI.piece[b + 1] > 0); // この小節のあとは、同じ小節のつづき（小節線を引かない）
     const barOfT = (t) => barIndex(GEO.starts, bars, t);
     const pickup = opts.pickup > 0 && opts.pickup < bL(0) ? opts.pickup : 0;
     const rep = opts.repeats || { start: [], end: [], volta: {} };
@@ -585,7 +651,7 @@ const Notation = (() => {
       const set = new Set([barStartTick(b), bL(b)]);
       // 拍子・調が変わる小節は、頭に記号を書く場所をとる
       const keyChg = b > 0 && staves.some((st) => st.kcs[b] !== st.kcs[b - 1]);
-      const mChg = b > 0 && String(mAt(b)) !== String(mAt(b - 1));
+      const mChg = b > 0 && (SI ? SI.piece[b] === 0 && String(SI.om[b]) !== String(SI.om[b - 1]) : String(mAt(b)) !== String(mAt(b - 1)));
       let chgRoom = 0;
       if (keyChg) chgRoom += Math.max(1, ...staves.map((st) => Math.abs(st.kcs[b]) || Math.abs(st.kcs[b - 1]))) * 8.5 + 6;
       const clefChg = b > 0 && staves.some((st) => st.clefChg && st.clefChg[b] && st.clefAt(b) !== st.clefAt(b - 1));
@@ -674,6 +740,35 @@ const Notation = (() => {
       }
       const nat = 14 + chgRoom + accRoom + segW.reduce((a, w) => a + w, 0) + 6;
       barInfo.push({ ticks, segW, segP, nat, accRoom, chgRoom, keyChg, mChg, clefChg });
+    }
+    // ---- とても音の多い小節：1段に入らないときは、拍の切れ目で2段（以上）に分けて書く ----
+    if (!SI && !PART && !opts.noSplit) {
+      const room = width - 150; // 2段目からの、小節を書ける幅（だいたい）
+      const plan = new Map();
+      for (let b = 0; b < barInfo.length && b < bars; b++) {
+        const bi = barInfo[b];
+        if (!bi || bi.nat <= room * 1.08 || (b === 0 && pickup) || !bi.ticks || bi.ticks.length < 4) continue;
+        if (WIN && (b < WIN[0] || b >= WIN[1])) continue;
+        const k = Math.ceil(bi.nat / (room * 0.92));
+        const beat = beatOf(mAt(b));
+        let acc = 14 + bi.chgRoom + bi.accRoom;
+        const xs2 = [acc];
+        for (let i = 1; i < bi.ticks.length; i++) { acc += bi.segW[i - 1]; xs2.push(acc); }
+        const cuts = [];
+        for (let i = 1; i < k; i++) {
+          const target = (bi.nat * i) / k;
+          let best = null;
+          let bd = Infinity;
+          bi.ticks.forEach((t, j) => {
+            if (t <= 0 || t >= bL(b) || t % beat || (cuts.length && t <= cuts[cuts.length - 1] + beat - 1)) return;
+            const dd = Math.abs(xs2[j] - target);
+            if (dd < bd) { bd = dd; best = t; }
+          });
+          if (best != null && bd < room * 0.5) cuts.push(best);
+        }
+        if (cuts.length) plan.set(b, cuts);
+      }
+      if (plan.size) return renderSplit(opts, plan);
     }
 
     // ---- 段組み（1段に何小節入れるか） ----
@@ -1045,7 +1140,7 @@ const Notation = (() => {
       };
       const xEnd = sys.bars[sys.bars.length - 1].x1;
       // 小節番号
-      const num = (bb) => (pickup ? bb : bb + 1);
+      const num = (bb) => { const ob = SI ? SI.orig[bb] : bb; return pickup ? ob : ob + 1; };
       if (line > 0) o.push(`<text x="${left}" y="${sysTop - 3}" font-size="10.5" font-style="italic" fill="#444" class="bnum">${num(b0)}</text>`);
       // 1番/2番かっこ
       if (anyVolta) {
@@ -1149,8 +1244,8 @@ const Notation = (() => {
         if (!perc) keySig(st.kcs[b0], cl + 30, false);
         if (line === 0) {
           const tx = cl + 34 + kcMax * 8.5;
-          digits(mAt(0)[0], yOf(6), tx + 7);
-          digits(mAt(0)[1], yOf(2), tx + 7);
+          digits(mShow(0)[0], yOf(6), tx + 7);
+          digits(mShow(0)[1], yOf(2), tx + 7);
         }
         const textY = stTop + 4 * SP + 2.7 * SP + st.below;
         const fOff = FING && !perc ? 42 : 0;
@@ -1200,7 +1295,7 @@ const Notation = (() => {
               if (bb !== b0) { if (nk === 0) keySig(ok, cx2, true); else keySig(nk, cx2, false); }
               cx2 += Math.max(1, Math.abs(nk) || Math.abs(ok)) * 8.5 + 6;
             } else if (B.keyChg) cx2 += Math.max(1, ...staves.map((s2) => Math.abs(s2.kcs[bb]) || Math.abs(s2.kcs[bb - 1]))) * 8.5 + 6;
-            if (B.mChg) { const mm2 = mAt(bb); const wide = Math.max(String(mm2[0]).length, String(mm2[1]).length) > 1 ? GW('timeSig4') / 2 + 1 : 0; digits(mm2[0], yOf(6), cx2 + 6 + wide); digits(mm2[1], yOf(2), cx2 + 6 + wide); } // 2けたの数字（12/8 など）は、小節線にかからないように右へ
+            if (B.mChg) { const mm2 = mShow(bb); const wide = Math.max(String(mm2[0]).length, String(mm2[1]).length) > 1 ? GW('timeSig4') / 2 + 1 : 0; digits(mm2[0], yOf(6), cx2 + 6 + wide); digits(mm2[1], yOf(2), cx2 + 6 + wide); } // 2けたの数字（12/8 など）は、小節線にかからないように右へ
           }
           const notPick = (ev) => !(bb === 0 && pickup && ev.pos < bL(0) - pickup);
           const gapsB = st.gapB ? st.gapB.get(bb) : null;
@@ -1544,7 +1639,7 @@ const Notation = (() => {
           const ex = B.x1;
           if (isEnd) o.push(`<circle cx="${ex - 11}" cy="${yOf(5)}" r="1.8" fill="#222"/><circle cx="${ex - 11}" cy="${yOf(3)}" r="1.8" fill="#222"/><line x1="${ex - 7}" x2="${ex - 7}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 4}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
           else if (bEnd === bars - 1 || (hasJ('fine') && J.fine === bEnd)) o.push(`<line x1="${ex - 5}" x2="${ex - 5}" y1="${yT}" y2="${yB}" stroke="#222"/><rect x="${ex - 3}" y="${yT}" width="3" height="${4 * SP}" fill="#222"/>`);
-          else o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
+          else if (!cutAfter(bEnd)) o.push(`<line x1="${ex}" x2="${ex}" y1="${yT}" y2="${yB}" stroke="#222"/>`);
           if (si === 0 && chords && chords[bb] && !(PART && barInfo[bb].mm)) {
             const co = opts.chordObjs && opts.chordObjs[bb];
             if (opts.diagrams && opts.chordShape && co && st === staves[0]) {
@@ -1633,7 +1728,7 @@ const Notation = (() => {
             if (nk !== ok) { if (nk === 0) keySig(ok, cx3, true); else keySig(nk, cx3, false); }
             cx3 += cautK;
           } else if (cautK) cx3 += cautK;
-          if (cautM) { digits(mAt(b1)[0], yOf(6), cx3 + 6); digits(mAt(b1)[1], yOf(2), cx3 + 6); }
+          if (cautM) { digits(mShow(b1)[0], yOf(6), cx3 + 6); digits(mShow(b1)[1], yOf(2), cx3 + 6); }
           o.push(`<line x1="${xEnd - 3}" x2="${xEnd - 3}" y1="${stTop}" y2="${stTop + 4 * SP}" stroke="#222"/>`);
         }
         // スラー
@@ -1868,6 +1963,7 @@ const Notation = (() => {
         if (y2 <= y1) return '';
         if ((rep.end || []).includes(B.b)) return `<line x1="${ex - 7}" x2="${ex - 7}" y1="${y1}" y2="${y2}" stroke="#222"/><rect x="${ex - 4}" y="${y1}" width="3" height="${y2 - y1}" fill="#222"/>`;
         if (B.b === bars - 1 || (hasJ('fine') && J.fine === B.b)) return `<line x1="${ex - 5}" x2="${ex - 5}" y1="${y1}" y2="${y2}" stroke="#222"/><rect x="${ex - 3}" y="${y1}" width="3" height="${y2 - y1}" fill="#222"/>`;
+        if (cutAfter(B.b)) return '';
         return `<line x1="${ex}" x2="${ex}" y1="${y1}" y2="${y2}" stroke="#222"/>`;
       };
       // 五線とその TAB譜は、小節線をつなぐ
@@ -2159,19 +2255,20 @@ const Notation = (() => {
       let pos = B.ticks[0];
       if (x >= B.xs[B.xs.length - 1]) pos = B.ticks[B.ticks.length - 1] - 1;
       else for (let i = 0; i < B.xs.length - 1; i++) if (x < B.xs[i + 1]) { pos = B.ticks[i] + ((x - B.xs[i]) / (B.xs[i + 1] - B.xs[i])) * (B.ticks[i + 1] - B.ticks[i]); break; }
-      const bLen = layout.starts ? layout.starts[B.b + 1] - layout.starts[B.b] : layout.barTicks;
+      const PB = B.pb != null ? B.pb : B.b; // 2段に分けた小節は、分けたあとの番号で位置を計算
+      const bLen = layout.starts ? layout.starts[PB + 1] - layout.starts[PB] : layout.barTicks;
       pos = Math.max(B.ticks[0], Math.min(bLen - 1, pos));
       const posLine = Math.round((st.top + 4 * SP - y) / (SP / 2));
       let pitch = null;
       if (!st.perc) {
-        const dn = posLine + (st.baseAt ? st.baseAt(B.b) : st.baseDn);
+        const dn = posLine + (st.baseAt ? st.baseAt(PB) : st.baseDn);
         const letter = ((dn % 7) + 7) % 7;
         const oct = Math.floor(dn / 7);
-        pitch = 12 * (oct + 1) + LETTER_PC[letter] + keyAccOf(st.kcs ? st.kcs[B.b] : st.kc)[letter] - st.tr;
+        pitch = 12 * (oct + 1) + LETTER_PC[letter] + keyAccOf(st.kcs ? st.kcs[PB] : st.kc)[letter] - st.tr;
       }
       // TAB譜：どの弦の上か（0＝いちばん低い弦。線は12ずつ、低い弦が下）
       const tabStr = st.clef === 'tab' ? Math.max(0, Math.min(st.nStr - 1, Math.round((st.top + st.tabH - y) / 12))) : null;
-      return { pi: st.pi, sub: st.sub, bar: B.b, tick: (layout.starts ? layout.starts[B.b] : B.b * layout.barTicks) + pos, pitch, staffPos: posLine, perc: st.perc, tab: st.clef === 'tab' ? st.tabTun : null, tabStr };
+      return { pi: st.pi, sub: st.sub, bar: B.b, tick: (layout.starts ? layout.starts[PB] : B.b * layout.barTicks) + pos, pitch, staffPos: posLine, perc: st.perc, tab: st.clef === 'tab' ? st.tabTun : null, tabStr };
     }
     return null;
   }

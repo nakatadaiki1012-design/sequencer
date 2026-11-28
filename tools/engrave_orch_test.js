@@ -165,6 +165,30 @@ const { chromium } = require('playwright');
       const second = sl.find((q) => q[1] > 120) || sl[sl.length - 1];
       out['段をまたぐスラー：続きの部分のはしの高さの差（20以内）'] = sl.length >= 2 && second ? Math.round(Math.abs(second[1] - second[7])) : 'slurs=' + sl.length;
     }
+    // ---- 4f. 音のとても多い小節：拍の切れ目で2段に分ける。地図はもとの小節の番号のまま ----
+    {
+      const notes = [];
+      for (let i = 0; i < 96; i++) notes.push({ s: 192 + i * 2, p: 60 + (i % 24), l: 2 });
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 3, key: 0, tracks: [{ type: 'melody', inst: 'flute', notes: [{ s: 0, p: 72, l: 192 }, ...notes, { s: 384, p: 72, l: 192 }] }] }, { own: true });
+      const o = scoreOpts([song.tracks[0].id], true);
+      o.width = 700;
+      const sv = show(Notation.render(o));
+      const L = Notation.lastLayout;
+      const sysOf1 = L.systems.filter((x) => x.bars.some((B) => B.b === 1)).length;
+      out['音の多い小節は2段以上に分かれる'] = sysOf1;
+      const pieces = L.systems.flatMap((x) => x.bars).filter((B) => B.b === 1);
+      out['かけらの位置（off）は拍の切れ目'] = pieces.map((B) => B.off).join(',');
+      out['小節番号は もとの番号'] = [...sv.querySelectorAll('.bnum')].map((e) => e.textContent).join(',');
+      out['音符の数はそのまま（96+2）'] = sv.querySelectorAll('.nh').length;
+      // 2つ目のかけらの、はじめの音をクリックしたときの位置
+      const B2 = pieces[1];
+      const sys2 = L.systems.find((x) => x.bars.includes(B2));
+      const h = B2 && Notation.hit(L, B2.xs[0] + 1, sys2.staves[0].top + 16);
+      out['2つ目のかけらをおすと、その位置（小節2）'] = h ? h.bar + ':' + (h.tick >= 192 + B2.off) : 'nohit';
+      // 分けないとき（noSplit）は1段
+      Notation.render({ ...o, noSplit: true });
+      out['分けない設定'] = Notation.lastLayout.systems.filter((x) => x.bars.some((B) => B.b === 1)).length;
+    }
     // ---- 4c. MuseScore：2つ目の声部が高いときは上の声部に。とちゅうで終わる声部のあとに休符を書かない。3/8 のテンポは ♪＝ ----
     {
       const ch = (p, d, extra = '') => `<Chord><durationType>${d}</durationType>${extra}<Note><pitch>${p}</pitch></Note></Chord>`;
