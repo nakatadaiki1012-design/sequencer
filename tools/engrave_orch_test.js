@@ -155,6 +155,16 @@ const { chromium } = require('playwright');
       const dt = [...sv.querySelectorAll('path')].filter((e) => e.getAttribute('d') === Glyphs.g.augmentationDot.d).map(rx);
       out['付点と旗がかさならない'] = fl.length ? !dt.some((d) => fl.some((f) => d.left < f.right && f.left < d.right && d.top < f.bottom && f.top < d.bottom)) : 'beamed';
     }
+    // ---- 4e. 段をまたぐスラー：続きの段では、急な曲線にならない ----
+    {
+      loadSong({ v: 2, title: 't', bpm: 100, bars: 2, key: 0, tracks: [{ type: 'melody', inst: 'clarinet', notes: [{ s: 0, p: 72, l: 96 }, { s: 96, p: 74, l: 96 }, { s: 192, p: 57, l: 24 }, { s: 216, p: 55, l: 24 }, { s: 240, p: 53, l: 24 }, { s: 264, p: 52, l: 24 }, { s: 288, p: 60, l: 96 }], slurs: [{ s: 96, e: 264 }] }] }, { own: true });
+      const o = scoreOpts([song.tracks[0].id], true);
+      o.breaks = [1];
+      const sv = show(Notation.render(o));
+      const sl = [...sv.querySelectorAll('.slur')].map((e) => e.getAttribute('d').match(/-?[\d.]+/g).map(Number));
+      const second = sl.find((q) => q[1] > 120) || sl[sl.length - 1];
+      out['段をまたぐスラー：続きの部分のはしの高さの差（20以内）'] = sl.length >= 2 && second ? Math.round(Math.abs(second[1] - second[7])) : 'slurs=' + sl.length;
+    }
     // ---- 4c. MuseScore：2つ目の声部が高いときは上の声部に。とちゅうで終わる声部のあとに休符を書かない。3/8 のテンポは ♪＝ ----
     {
       const ch = (p, d, extra = '') => `<Chord><durationType>${d}</durationType>${extra}<Note><pitch>${p}</pitch></Note></Chord>`;

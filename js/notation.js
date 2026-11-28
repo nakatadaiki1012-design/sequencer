@@ -1441,9 +1441,13 @@ const Notation = (() => {
               // 記号の、符頭（ぼうの先）がわのはしを置く高さ
               const near = edge != null ? edge + (below ? 2.5 : -2.5) : stemSide ? (d.up ? tipA - 3 : tipA + 3) : below ? d.yOf(d.lo) + 5 : d.yOf(d.hi) - 5;
               let yy = below ? near - gT : near - gB;
+              // アクセント・マルカートは五線の外に、いちばん外の線から少しはなして（線にくっつくと見にくい）
+              const big = a === 'acc' || a === 'marc';
+              if (big && !below && yy + gB > yOf(8) - 3) yy -= yy + gB - (yOf(8) - 3);
+              if (big && below && yy + gT < yOf(0) + 3) yy += yOf(0) + 3 - (yy + gT);
               // 五線の中に入るときは、線と線のあいだ（間）のまん中に（線の上にかからないように）。外がわへずらす
               const cy0 = yy + (gT + gB) / 2;
-              if (cy0 > yOf(8) - 1 && cy0 < yOf(0) + 1) {
+              if (!big && cy0 > yOf(8) - 1 && cy0 < yOf(0) + 1) {
                 const q = (yOf(0) - cy0) / (SP / 2); // 位置（線＝偶数）
                 let qq = Math.round(q);
                 if (qq % 2 === 0) qq += below ? -1 : 1; // 線の上なら、外がわの間へ
@@ -1657,18 +1661,21 @@ const Notation = (() => {
           };
           const xa = a ? a.x + (above && a.hasStem && a.up ? 4 : 0) : sys.bars[0].xs[0] - 6;
           const xz = z ? z.x - (!above && z.hasStem && !z.up ? 4 : 0) : xEnd - 6;
-          const ya = a ? endY(a) : (above ? yOf(9) : yOf(-1));
+          // 前の段から続くスラー（はじめの音がこの段にない）は、終わりの音と同じ高さから、なだらかに始める。次の段へ続くスラーも同じ
+          const ya = a ? endY(a) : z ? endY(z) : above ? yOf(9) : yOf(-1);
           const yz = z ? endY(z) : ya;
           const W = Math.max(1, xz - xa);
-          // ふくらみ：横の長さに合わせる（短いスラーでも、ふくらみが見えるように）
-          let lift = Math.min(24, 7 + W / 10) * (above ? -1 : 1);
-          // 中の音（符頭・ぼう・連桁・記号）にさわらないよう、カーブを高く（深く）する
+          // ふくらみ：横の長さに合わせる（短いスラーでも、ふくらみが見えるように）。とても急なスラーは、ふくらみを小さく（「（」の形にならないように）
+          const steep = Math.min(1, Math.max(0.4, W / (Math.abs(yz - ya) + 1)));
+          let lift = Math.min(24, 7 + W / 10) * steep * (above ? -1 : 1);
+          const lim = (d) => endY(d) + (above ? -2 : 2);
+          // 中の音（符頭・ぼう・連桁・記号）にさわらないよう、カーブを高く（深く）する。カーブの式：y(t) = はしを結ぶ線 + 3t(1-t)・lift（x はまっすぐ進む）
           for (const d of inside) {
             if (d === a || d === z || W < 4) continue;
-            const t = Math.min(0.85, Math.max(0.15, (d.x - xa) / W));
-            const base = ya + (yz - ya) * t;
-            const need = endY(d) + (above ? -2 : 2) - base;
-            const k3 = 3 * t * (1 - t) * 0.92;
+            const t = (d.x - xa) / W;
+            if (t < 0.2 || t > 0.8) continue;
+            const need = lim(d) - (ya + (yz - ya) * t);
+            const k3 = 3 * t * (1 - t);
             if (above ? need < lift * k3 : need > lift * k3) lift = need / k3;
           }
           lift = Math.max(-72, Math.min(72, lift));
@@ -1677,6 +1684,23 @@ const Notation = (() => {
           let yZ = yz;
           const cap = 9 + W * 0.28;
           if (Math.abs(lift) > cap) { const ex = (Math.abs(lift) - cap) * 0.75 * Math.sign(lift); yA += ex; yZ += ex; lift = Math.sign(lift) * cap; }
+          // まだ、はしの近くの音（急に上がる連桁など）にさわるなら、近いほうのはしを外へ出す
+          for (let pass = 0; pass < 2; pass++) {
+            let sA = 0;
+            let sZ = 0;
+            for (const d of inside) {
+              if (d === a || d === z) continue;
+              const t = (d.x - xa) / W;
+              if (t <= 0 || t >= 1) continue;
+              const y = yA + (yZ - yA) * t + 3 * t * (1 - t) * lift;
+              const v = above ? y - lim(d) : lim(d) - y; // 正なら、さわっている
+              if (v <= 0) continue;
+              if (t < 0.5) sA = Math.max(sA, (v - sZ * t) / (1 - t)); else sZ = Math.max(sZ, (v - sA * (1 - t)) / t);
+            }
+            if (!sA && !sZ) break;
+            yA += above ? -sA : sA;
+            yZ += above ? -sZ : sZ;
+          }
           // はしを結ぶ線を基準にした、左右対称のカーブ（ななめのスラーも、きれいな弓の形に）
           const c1x = xa + W / 3;
           const c2x = xa + (2 * W) / 3;
