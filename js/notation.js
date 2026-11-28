@@ -377,7 +377,8 @@ const Notation = (() => {
     // ソプラノリコーダーの指づかい（いちばん低いド＝C4 として）。たしかなものだけ。[うら穴, 1〜7]（1＝ふさぐ、0.5＝半分）
     const FING = opts.finger ? FINGERING[opts.finger] : null;
     const scale = opts.scale || 1;
-    const SERIF = "'Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Noto Serif CJK JP','Times New Roman',serif";
+    // 楽譜の文字：ローマ字は Libre Caslon（Sora Text）、日本語は明朝体（Sora Serif）
+    const SERIF = "'Sora Text','Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Noto Serif CJK JP','Times New Roman',serif";
     let OUTW = opts.width || 780;
     let width = OUTW / scale;
     const SPC = Math.max(0.4, Math.min(2.5, +opts.spacing || 1)); // 小節の詰まり具合（小さい＝つめる）
@@ -593,11 +594,26 @@ const Notation = (() => {
       let accRoom = 0;
       const need = new Map(); // 位置 → { w: 文字のはば, acc: 臨時記号がつくか }
       for (const st of staves) {
-        const keyPcs = new Set([0, 2, 4, 5, 7, 9, 11].map((v, i) => (v + keyAccOf(st.kcs[b])[i] + 12) % 12));
         const comb = new Map(); // 位置 → 2つの声部の臨時記号（いっしょに列をならべる）
         const v1lo = new Map();
         const v2hi = new Map();
         const ev2 = st.has2[b] ? new Set(st.bars2[b]) : null;
+        // 臨時記号がつく音：書くときと同じく、小節の中で前に出た♯・♭・♮もおぼえて数える（♭のあとの♮なども）
+        const needAcc = new Map();
+        if (st.clef !== 'perc' && !st.part.slash) {
+          const kA = keyAccOf(st.kcs[b] || 0);
+          const bAcc = {};
+          for (const ev of [...st.evAt(b)].sort((x, y) => x.pos - y.pos)) {
+            if (!ev.pitches) continue;
+            const list = [];
+            for (const p of ev.pitches) {
+              const sp = spell(p, st.kcs[b] || 0);
+              const cur = sp.dn in bAcc ? bAcc[sp.dn] : kA[sp.letter];
+              if (cur !== sp.acc && !ev.tieEnd) { list.push(sp.dn); bAcc[sp.dn] = sp.acc; }
+            }
+            if (list.length) needAcc.set(ev, list);
+          }
+        }
         for (const ev of st.evAt(b)) {
           if (ev.pos < barStartTick(b)) continue;
           set.add(ev.pos);
@@ -606,9 +622,9 @@ const Notation = (() => {
             if (ev2.has(ev)) v2hi.set(ev.pos, Math.max(v2hi.get(ev.pos) ?? -1e9, ...dns)); else v1lo.set(ev.pos, Math.min(v1lo.get(ev.pos) ?? 1e9, ...dns));
           }
           const n = need.get(ev.pos) || { w: 0, acc: false, pre: 0 };
-          if (ev.pitches && st.clef !== 'perc' && !st.part.slash && ev.pitches.some((p) => !keyPcs.has(((p % 12) + 12) % 12))) {
+          if (needAcc.has(ev)) {
             // 臨時記号の列の数（和音で近い音に臨時記号が2つ以上あると、左へ何列もならぶ）
-            const ds = ev.pitches.filter((p) => !keyPcs.has(((p % 12) + 12) % 12)).map((p) => spell(p, st.kcs[b] || 0).dn).sort((x, y) => y - x);
+            const ds = needAcc.get(ev).slice().sort((x, y) => y - x);
             let col = 0;
             let mx = 0;
             let last = 1e9;
@@ -663,7 +679,19 @@ const Notation = (() => {
     // ---- 段組み（1段に何小節入れるか） ----
     const left = 16;
     const kcMax = Math.max(0, ...staves.flatMap((s) => s.kcs.map(Math.abs)));
-    const partLabel = (st) => st.part.name + (st.tr % 12 ? `（in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}）` : '');
+    // 移調楽器は、名前の下の行に「in B♭」（浄書のきまり）
+    const partIn = (st) => (st.tr % 12 ? `in ${['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'][((-st.tr % 12) + 12) % 12]}` : '');
+    const partLabel = (st) => st.part.name;
+    // パート名（1段目は名前と「in B♭」の2行、2段目からは短い名前）
+    // ♭・♯ は日本語の字体で書かれて、右があきすぎる：つぎの字をつめる
+    const escA = (t) => esc(t).replace(/([♭♯♮])(.?)/g, (m, a, c) => `<tspan dx="-0.1em">${a}</tspan>${c ? `<tspan dx="-0.3em">${c}</tspan>` : ''}`);
+    const pnameSvg = (st, x, y, first) => {
+      const nm = first ? partLabel(st) : partShort(st);
+      const sub0 = first ? partIn(st) : '';
+      const sub = sub0 && !nm.includes(sub0) ? sub0 : ''; // 名前に「in F」が入っていれば、書かない
+      if (!sub) return `<text x="${x}" y="${y}" text-anchor="end" font-size="11" fill="#111" class="pname">${escA(nm)}</text>`;
+      return `<text x="${x}" y="${y - 5.5}" text-anchor="end" font-size="11" fill="#111" class="pname">${escA(nm)}</text><text x="${x}" y="${y + 7}" text-anchor="end" font-size="10" fill="#111" class="pname">${escA(sub)}</text>`;
+    };
     // 2段目からは短い名前（Fl.・Vn. など）
     const partShort = (st) => st.part.short || ([...st.part.name].length <= 4 ? st.part.name : [...st.part.name].slice(0, 3).join('') + '.');
     // パートの仲間（木管・金管・弦…）のかっこ
@@ -682,8 +710,8 @@ const Notation = (() => {
     const brk = groups.some((g) => g.z > g.a) ? 9 : 0;
     // 大譜表の波かっこ（ブレース）は、五線の左の外に書く。そのぶん、五線を右へよせる
     const grd = staves.some((s) => s.grand) ? 10 : 0;
-    const nameW = (staves.length > 1 ? Math.min(110, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partLabel(st)) * 0.85)) + 10) + brk : 0) + grd;
-    const nameW2 = (staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.85)) + 10) + brk : brk) + grd;
+    const nameW = (staves.length > 1 ? Math.min(130, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => Math.max(textW(partLabel(st)), textW(partIn(st))) * 0.95)) + 10) + brk : 0) + grd;
+    const nameW2 = (staves.length > 1 && !opts.noShortNames ? Math.min(60, Math.max(0, ...staves.filter((st) => st.sub === 0).map((st) => textW(partShort(st)) * 0.95)) + 10) + brk : brk) + grd;
     const headW = (first) => 34 + kcMax * 8.5 + (first ? 26 + nameW : 6 + nameW2);
     // 全部の段が「くり返し記号」の小節は、せまくする
     for (let b = 1; b < bars; b++) {
@@ -880,7 +908,7 @@ const Notation = (() => {
     const height = top + lines.reduce((a, _, i) => a + (inWin(i) ? sysHOf(i) : 0), 0) + 24;
     const o = [];
     const layout = { systems: [], width, height, scale, barTicks, starts: GEO.starts };
-    o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">`);
+    o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${OUTW}" height="${height * scale}" viewBox="0 0 ${width} ${height}" font-family="${SERIF}">`);
     o.push(`<rect width="100%" height="100%" fill="#fff"/>`);
     o.push(`<text x="${width / 2}" y="${32 + NL}" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="${SERIF}" class="sctitle">${esc(title)}</text>`);
     if (meta.subtitle) o.push(`<text x="${width / 2}" y="${52 + NL}" text-anchor="middle" font-size="13.5" fill="#333" font-family="${SERIF}" class="sctitle">${esc(meta.subtitle)}</text>`);
@@ -894,7 +922,7 @@ const Notation = (() => {
     if (opts.edit && !credits.length) o.push(`<text x="${width - 16}" y="${top - 26}" text-anchor="end" font-size="11" fill="#9aa1ad" class="sctitle scadd">＋ 作詞・作曲</text>`);
     {
       const tw = opts.tempoText ? textW(opts.tempoText) * 1.05 + 8 : 0;
-      if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="13" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
+      if (opts.tempoText) o.push(`<text x="${left}" y="${top - 12}" font-size="14" font-weight="bold" fill="#111">${esc(opts.tempoText)}</text>`);
       const m0 = mAt(0);
       const compound = m0[1] === 8 && m0[0] % 3 === 0 && m0[0] > 3;
       o.push(G('metNoteQuarterUp', left + tw, top - 12, 'fill="#111"', 6.5));
@@ -1017,7 +1045,7 @@ const Notation = (() => {
       const xEnd = sys.bars[sys.bars.length - 1].x1;
       // 小節番号
       const num = (bb) => (pickup ? bb : bb + 1);
-      if (line > 0) o.push(`<text x="${left}" y="${sysTop - 3}" font-size="10" fill="#666">${num(b0)}</text>`);
+      if (line > 0) o.push(`<text x="${left}" y="${sysTop - 3}" font-size="10.5" font-style="italic" fill="#444" class="bnum">${num(b0)}</text>`);
       // 1番/2番かっこ
       if (anyVolta) {
         for (const B of sys.bars) {
@@ -1064,7 +1092,7 @@ const Notation = (() => {
           sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: 'tab', perc: true, baseDn: 30, kc: 0, kcs: st.kcs, tr: 0, tabH: (n - 1) * gap, nStr: n, tabTun: st.tab });
           for (let i = 0; i < n; i++) o.push(`<line x1="${L}" x2="${xEnd}" y1="${stTop + i * gap}" y2="${stTop + i * gap}" stroke="#222" stroke-width="0.9"/>`);
           'TAB'.split('').forEach((c, i) => o.push(`<text x="${L + 12}" y="${stTop + ((n - 1) * gap) / 2 - 11 + i * 12}" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#111" font-family="serif" class="tabclef">${c}</text>`));
-          if (staves.length > 1 && st.sub === 0) o.push(`<text x="${L - 6 - brk - grd}" y="${stTop + ((n - 1) * gap) / 2 + 3.5}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
+          if (staves.length > 1 && st.sub === 0) o.push(pnameSvg(st, L - 6 - brk - grd, stTop + ((n - 1) * gap) / 2 + 3.5, line === 0));
           for (const B of sys.bars) {
             const bb = B.b;
             o.push(`<line x1="${B.x1}" x2="${B.x1}" y1="${stTop}" y2="${stTop + (n - 1) * gap}" stroke="#222"/>`);
@@ -1094,7 +1122,7 @@ const Notation = (() => {
         }
         sys.staves.push({ si, pi: st.pi, sub: st.sub, top: stTop, clef: st.clef, baseDn: st.baseDn, baseAt: st.baseAt, kc: st.kcs[b0], kcs: st.kcs, tr: st.tr, perc });
         for (let i = 0; i < 5; i++) o.push(`<line x1="${L}" x2="${xEnd + caut}" y1="${stTop + i * SP}" y2="${stTop + i * SP}" stroke="#222" stroke-width="1.05"/>`);
-        if (staves.length > 1 && st.sub === 0 && (line === 0 || !opts.noShortNames)) o.push(`<text x="${L - 6 - brk - grd}" y="${stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5)}" text-anchor="end" font-size="10" fill="#333" class="pname">${esc(line === 0 ? partLabel(st) : partShort(st))}</text>`);
+        if (staves.length > 1 && st.sub === 0 && (line === 0 || !opts.noShortNames)) o.push(pnameSvg(st, L - 6 - brk - grd, stTop + (st.grand ? 4 * SP + 10 : 2 * SP + 3.5), line === 0));
         const cl = L;
         // ト音記号は第2線（ソ）、ヘ音記号は第4線（ファ）が原点
         if (perc) o.push(G('unpitchedPercussionClef1', cl + 7, yOf(4)));
@@ -1542,7 +1570,7 @@ const Notation = (() => {
           // rit. / accel. はコード名の上に（かさならないように）
           // 練習番号（四角の文字）と同じ小節なら、その右に書く（かさならないように）
           const wx0 = si === 0 && anyReh && opts.rehearsal[bb] != null && opts.rehearsal[bb] !== '' ? Math.max(B.xs[0], B.x0 + textW(String(opts.rehearsal[bb])) * 1.15 + 18) : B.xs[0];
-          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${wx0}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13" font-style="italic" font-weight="bold" fill="#111">${esc(opts.words[bb])}</text>`);
+          if (si === 0 && opts.words && opts.words[bb]) o.push(`<text x="${wx0}" y="${stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0)}" font-size="13.5" font-style="${/^(rit|rall|accel|string|allarg|a tempo)/i.test(opts.words[bb]) ? 'italic' : 'normal'}" font-weight="bold" fill="#111" class="twords">${esc(opts.words[bb])}</text>`);
           // とちゅうのテンポの変化（♩ = 80）
           if (si === 0 && bb > 0 && opts.tempos && opts.tempos[bb]) {
             const ty = stTop - 2.9 * SP - dynRoom(st) - st.above - (chords && chords[bb] ? 15 : 0);
@@ -1680,7 +1708,7 @@ const Notation = (() => {
             const lastStart = Math.max(q.s, ...st.notes.filter((n) => n.s >= q.s && n.s < q.e).map((n) => n.s));
             const xz = q.e <= bS(b1) ? ox(lastStart) + 11 : xEnd - 4; // おわりのかぎは、さいごの符頭の右に
             const lab = Math.abs(q.k) === 2 ? (up ? '15ma' : '15mb') : (up ? '8va' : '8vb');
-            o.push(`<text x="${xa}" y="${y}" font-size="12" font-style="italic" font-weight="bold" fill="#111" font-family="serif" class="ott">${lab}</text>`);
+            o.push(`<text x="${xa}" y="${y}" font-size="12" font-style="italic" font-weight="bold" fill="#111" class="ott">${lab}</text>`);
             const lx = xa + textW(lab) * 0.9 + 2;
             if (xz > lx + 4) {
               o.push(`<line x1="${lx}" x2="${xz}" y1="${y - 4}" y2="${y - 4}" stroke="#111" stroke-width="0.8" stroke-dasharray="3 4" stroke-linecap="butt"/>`);
@@ -1754,7 +1782,7 @@ const Notation = (() => {
                 ty = Math.max(ty, nt - 12 - dynRoom(st) - (trHere ? 24 : 0));
               }
             }
-            o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="12.5" fill="#111" class="stxt">${esc(tx2.x)}</text>`);
+            o.push(`<text x="${xAt(bb2, tx2.t - bS(bb2)) - 4}" y="${ty}" font-size="13" ${/^[a-z]/.test(tx2.x) ? 'font-style="italic" ' : ''}fill="#111" class="stxt">${esc(tx2.x)}</text>`);
           }
         }
         // 強弱記号・クレッシェンド
@@ -1768,8 +1796,13 @@ const Notation = (() => {
           }
           for (const [hpi, hp] of (st.part.hairpins || []).entries()) {
             if (hp.e <= bS(b0) || hp.s >= bS(b1)) continue;
-            const xa = hp.s >= bS(b0) ? tx(hp.s) + 18 : sys.bars[0].xs[0];
-            const xz = hp.e < bS(b1) ? tx(hp.e) - 4 : xEnd - 6;
+            // はじめ・おわりに強弱記号（f・p など）があれば、その文字にかからないように
+            const dynW = (v) => [...v].reduce((a, c) => a + (DYN_G[c] ? GW(DYN_G[c]) * 0.92 : 0), 0);
+            const dA = (st.part.dyn || []).find((q) => Math.abs(q.t - hp.s) <= 6);
+            const dZ = (st.part.dyn || []).find((q) => q.t > hp.s && Math.abs(q.t - hp.e) <= 12);
+            const xa = hp.s >= bS(b0) ? (dA && tx(dA.t) != null ? tx(dA.t) - 5 + dynW(dA.v) + 5 : tx(hp.s) + 6) : sys.bars[0].xs[0];
+            let xz = hp.e < bS(b1) ? tx(hp.e) - 4 : xEnd - 6;
+            if (dZ && tx(dZ.t) != null) xz = Math.min(xz, tx(dZ.t) - 5 - 8);
             if (xz - xa < 8) continue;
             const yy = dynY - 5;
             const open = hp.type === 'cresc';
@@ -2447,7 +2480,7 @@ const Notation = (() => {
       }
     }
     if (pages.length === 1) return [svg];
-    const SERIF = "'Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
+    const SERIF = "'Sora Text','Sora Serif','Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif JP','Times New Roman',serif";
     const esc2 = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
     let prevGap = 0;
     return pages.map((pg, k) => {
@@ -2469,7 +2502,7 @@ const Notation = (() => {
       }
       const odd = (k + 1) % 2 === 1;
       const head = k === 0 ? layout.headSvg || '' : `<text x="${W / 2}" y="24" text-anchor="middle" font-size="11" fill="#444" font-family="${SERIF}">${esc2(layout.title)}${layout.partHeader ? '　―　' + esc2(layout.partHeader) : ''}</text><text x="${odd ? W - 16 : 16}" y="24" text-anchor="${odd ? 'end' : 'start'}" font-size="12" fill="#222" font-family="${SERIF}">${k + 1}</text>`;
-      return `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 0 ${W} ${PH}" overflow="hidden" font-family="sans-serif"><rect width="${W}" height="${PH}" fill="#fff"/>${head}${body.join('')}</svg>`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" class="page" width="${W * sc}" height="${PH * sc}" viewBox="0 0 ${W} ${PH}" overflow="hidden" font-family="${SERIF}"><rect width="${W}" height="${PH}" fill="#fff"/>${head}${body.join('')}</svg>`;
     });
   }
 

@@ -5977,12 +5977,13 @@ async function embedSerifFont(svgEl) {
     const cps = new Set();
     for (const t of svgEl.querySelectorAll('text')) for (const ch of t.textContent) cps.add(ch.codePointAt(0));
     const rules = [];
-    for (const m of css.matchAll(/font-weight:(\d+);src:url\(([^)]+)\)[^;]*;unicode-range:([^}]+)\}/g)) {
-      const ranges = m[3].split(',').map((r) => r.trim().replace(/^U\+/i, '').split('-').map((h) => parseInt(h, 16)));
+    // 明朝体（Sora Serif）と欧文（Sora Text）の両方。使う字が入っているファイルだけ入れる
+    for (const m of css.matchAll(/font-family:'([^']+)';font-style:(\w+);font-display:swap;font-weight:(\d+);src:url\(([^)]+)\)[^;]*;unicode-range:([^}]+)\}/g)) {
+      const ranges = m[5].split(',').map((r) => r.trim().replace(/^U\+/i, '').split('-').map((h) => parseInt(h, 16)));
       if (![...cps].some((c) => ranges.some(([a, z]) => c >= a && c <= (z ?? a)))) continue;
-      const blob = await (await fetch('fonts/' + m[2])).blob();
+      const blob = await (await fetch('fonts/' + m[4])).blob();
       const url = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
-      rules.push(`@font-face{font-family:'Sora Serif';font-weight:${m[1]};src:url(${url}) format('woff2');unicode-range:${m[3]}}`);
+      rules.push(`@font-face{font-family:'${m[1]}';font-style:${m[2]};font-weight:${m[3]};src:url(${url}) format('woff2');unicode-range:${m[5]}}`);
     }
     if (rules.length) { const st = document.createElementNS('http://www.w3.org/2000/svg', 'style'); st.textContent = rules.join(''); svgEl.insertBefore(st, svgEl.firstChild); }
   } catch (e) { /* 字体が読めなければ、そのまま */ }
